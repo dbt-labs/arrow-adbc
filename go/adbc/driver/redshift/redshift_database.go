@@ -17,6 +17,7 @@
 package redshift
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -43,12 +44,6 @@ type databaseImpl struct {
 	// Dictates what type of auth to use to connect to AWS
 	awsAuthType string
 
-	// cfg, err := config.LoadDefaultConfig(context.TODO(),
-	// config.WithSharedConfigProfile("my-profile"),
-	// config.WithSharedConfigFiles([]string{"/custom/path/to/config"}),
-	// config.WithSharedCredentialsFiles([]string{"/custom/path/to/credentials"}),
-	// )
-
 	// Parsed based on aws auth type
 	awsCredentials string
 
@@ -57,6 +52,33 @@ type databaseImpl struct {
 
 	clusterId string
 	database  string
+}
+
+func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
+	conn := &connectionImpl{
+		ConnectionImplBase:   driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
+		authType:             d.authType,
+		awsAuthType:          d.awsAuthType,
+		awsCredentials:       d.awsCredentials,
+		awsRegion:            d.awsRegion,
+		awsStaticCredentials: d.awsStaticCredentials,
+		secretArn:            d.secretArn,
+		username:             d.username,
+		clusterId:            d.clusterId,
+		database:             d.database,
+	}
+
+	err := conn.newClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return driverbase.NewConnectionBuilder(conn).
+		WithAutocommitSetter(conn).
+		WithCurrentNamespacer(conn).
+		WithTableTypeLister(conn).
+		WithDbObjectsEnumerator(conn).
+		Connection(), nil
 }
 
 func (d *databaseImpl) SetOption(key string, value string) error {
