@@ -57,7 +57,7 @@ type connectionImpl struct {
 
 func (c *connectionImpl) newClient(ctx context.Context) error {
 	var authOption config.LoadOptionsFunc = nil
-	switch c.authType {
+	switch c.awsAuthType {
 	case OptionValueAWSAuthTypeSharedConfigProfile:
 		authOption = config.WithSharedConfigProfile(c.awsCredentials)
 	case OptionValueAWSAuthTypeSharedConfigFile:
@@ -69,7 +69,8 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 			credentials.NewStaticCredentialsProvider(
 				c.awsStaticCredentials.access_key_id,
 				c.awsStaticCredentials.secret_access_key,
-				c.awsStaticCredentials.session_token,
+				// c.awsStaticCredentials.session_token,
+				"",
 			))
 	}
 	cfg, err := config.LoadDefaultConfig(
@@ -91,10 +92,15 @@ func (c *connectionImpl) Close() error {
 }
 
 func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
-	return nil, adbc.Error{
-		Code: adbc.StatusNotImplemented,
-		Msg:  "NewStatement not yet implemented for Redshift",
-	}
+	return &statement{
+		alloc: c.Alloc,
+		cnxn:  c,
+		input: &redshiftdata.ExecuteStatementInput{
+			ClusterIdentifier: &c.clusterId,
+			Database:          &c.database,
+			DbUser:            &c.username,
+		},
+	}, nil
 }
 
 func (c *connectionImpl) Commit(ctx context.Context) error {

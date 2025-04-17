@@ -30,6 +30,7 @@ type StaticAuth struct {
 	session_token     string
 }
 
+// make this better, we need to set too much stuff
 type databaseImpl struct {
 	driverbase.DatabaseImplBase
 
@@ -55,6 +56,7 @@ type databaseImpl struct {
 }
 
 func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
+	// need to handle auth conditions
 	conn := &connectionImpl{
 		ConnectionImplBase:   driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 		authType:             d.authType,
@@ -67,7 +69,6 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		clusterId:            d.clusterId,
 		database:             d.database,
 	}
-
 	err := conn.newClient(ctx)
 	if err != nil {
 		return nil, err

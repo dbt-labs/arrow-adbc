@@ -20,16 +20,20 @@ package redshift
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 )
 
 type statement struct {
 	alloc memory.Allocator
 	cnxn  *connectionImpl
+	input *redshiftdata.ExecuteStatementInput
 }
 
 func (st *statement) SetOption(key string, value string) error {
@@ -95,15 +99,68 @@ func (st *statement) Close() error {
 }
 
 func (st *statement) SetSqlQuery(query string) error {
-	// TODO: store the SQL query string
+	st.input.Sql = &query
 	return nil
 }
 
+const (
+	// Redshift status codes
+	RedshiftStatusFinished  = "FINISHED"
+	RedshiftStatusFailed    = "FAILED"
+	RedshiftStatusSubmitted = "SUBMITTED"
+	RedshiftStatusPicked    = "PICKED"
+	RedshiftStatusStarted   = "STARTED"
+	RedshiftStatusAborted   = "ABORTED"
+	RedshiftStatusAll       = "ALL"
+)
+
 func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int64, error) {
-	return nil, -1, adbc.Error{
-		Code: adbc.StatusNotImplemented,
-		Msg:  "ExecuteQuery not yet implemented for Redshift driver",
+	// check if we have a query
+	if st.input.Sql == nil {
+		return nil, -1, adbc.Error{
+			Msg:  "Cannot execute without a query!",
+			Code: adbc.StatusInvalidArgument,
+		}
 	}
+	output, err := st.cnxn.client.ExecuteStatement(ctx, st.input)
+	if err != nil {
+		return nil, -1, err
+	}
+
+	statementID := *output.Id
+	maxWait := 60 * time.Second
+	waited := 0 * time.Second
+	var resultRows int64
+	var status string
+	for {
+		descOut, err := st.cnxn.client.DescribeStatement(ctx, &redshiftdata.DescribeStatementInput{
+			Id: aws.String(statementID),
+		})
+		if err != nil {
+			panic(err)
+		}
+		resultRows = descOut.ResultRows
+		status = string(descOut.Status)
+		if status == RedshiftStatusFinished || status == RedshiftStatusFailed || status == RedshiftStatusAborted || waited > maxWait {
+			break
+		}
+		toWait := 500 * time.Millisecond
+		time.Sleep(toWait)
+		waited += toWait
+	}
+
+	if status != RedshiftStatusFinished {
+		panic("Query did not finish successfully. Status: " + status)
+	}
+
+	// var resultRows int64 = 0
+	reader, err := NewRecordBatchReader(ctx, st.cnxn, st.alloc, statementID)
+	if err != nil {
+		return nil, -1, err
+	}
+	// Conduct first fetch of data and setting schema from query
+	reader.Initialize()
+	return reader, resultRows, err
 }
 
 func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
@@ -114,6 +171,7 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 }
 
 func (st *statement) ExecuteSchema(ctx context.Context) (*arrow.Schema, error) {
+	// Not sure how we'll support one, Schema only comes from executing a query
 	return nil, adbc.Error{
 		Code: adbc.StatusNotImplemented,
 		Msg:  "ExecuteSchema not yet implemented for Redshift driver",
@@ -121,7 +179,7 @@ func (st *statement) ExecuteSchema(ctx context.Context) (*arrow.Schema, error) {
 }
 
 func (st *statement) Prepare(ctx context.Context) error {
-	// Redshift does not support a Prepare API — this can be a no-op
+	// Redshift does not support a Prepare API
 	return nil
 }
 
@@ -134,12 +192,18 @@ func (st *statement) SetSubstraitPlan(plan []byte) error {
 
 func (st *statement) Bind(ctx context.Context, record arrow.Record) error {
 	// TODO: support binding record batch
-	return nil
+	return adbc.Error{
+		Code: adbc.StatusNotImplemented,
+		Msg:  "Bind not yet implemented for Redshift driver",
+	}
 }
 
 func (st *statement) BindStream(ctx context.Context, stream array.RecordReader) error {
 	// TODO: support binding stream
-	return nil
+	return adbc.Error{
+		Code: adbc.StatusNotImplemented,
+		Msg:  "BindStream not yet implemented for Redshift driver",
+	}
 }
 
 func (st *statement) GetParameterSchema() (*arrow.Schema, error) {
