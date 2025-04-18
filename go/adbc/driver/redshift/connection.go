@@ -24,6 +24,7 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/redshiftdata"
@@ -69,8 +70,7 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 			credentials.NewStaticCredentialsProvider(
 				c.awsStaticCredentials.access_key_id,
 				c.awsStaticCredentials.secret_access_key,
-				// c.awsStaticCredentials.session_token,
-				"",
+				*aws.String(c.awsStaticCredentials.session_token),
 			))
 	}
 	cfg, err := config.LoadDefaultConfig(
@@ -163,11 +163,11 @@ func (c *connectionImpl) GetOption(key string) (string, error) {
 
 func (c *connectionImpl) SetOption(key, value string) error {
 	switch key {
-	case "Region":
+	case OptionStringAWSRegion:
 		c.awsRegion = value
-	case "Database":
+	case OptionStringDatabase:
 		c.database = value
-	case "ClusterID":
+	case OptionStringClusterId:
 		c.clusterId = value
 	default:
 		return adbc.Error{
