@@ -529,7 +529,7 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 					Msg:  fmt.Sprintf("The `%s` parameter is empty", OptionStringAuthRefreshToken),
 				}
 			}
-			if c.accessTokenEndpoint == "" {
+			if c.accessTokenEndpoint == "" || c.accessTokenEndpoint == DefaultAccessTokenEndpoint {
 				c.accessTokenEndpoint = DefaultAccessTokenEndpoint
 				// Only use default server name if the access token endpoint is also set to default
 				if c.accessTokenServerName == "" {
