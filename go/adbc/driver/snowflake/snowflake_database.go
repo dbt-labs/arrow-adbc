@@ -173,6 +173,9 @@ func (d *databaseImpl) SetOptions(cnOptions map[string]string) error {
 		}
 	}
 
+	dv, _ := d.DriverInfo.GetInfoForInfoCode(adbc.InfoDriverVersion)
+	driverVersion := dv.(string)
+	defaultAppName := "[ADBC][Go-" + driverVersion + "]"
 	// set default application name to track
 	// unless user overrides it
 	d.cfg.Application = d.defaultAppName
@@ -390,31 +393,25 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 
 		var parsedKey any
 
-		switch block.Type {
-		case "ENCRYPTED PRIVATE KEY":
-			if cnOptions == nil {
+			switch block.Type {
+			case "ENCRYPTED PRIVATE KEY":
+				passcode, ok := cnOptions[OptionJwtPrivateKeyPkcs8Password]
+				if ok {
+					parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes, []byte(passcode))
+				} else {
+					return adbc.Error{
+						Msg:  OptionJwtPrivateKeyPkcs8Password + " is not configured",
+						Code: adbc.StatusInvalidArgument,
+					}
+				}
+			case "PRIVATE KEY":
+				parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes)
+			default:
 				return adbc.Error{
-					Msg:  "[Snowflake] unable to set private key post initialization",
+					Msg:  block.Type + " is not supported",
 					Code: adbc.StatusInvalidArgument,
 				}
 			}
-			passcode, ok := (*cnOptions)[OptionJwtPrivateKeyPkcs8Password]
-			if ok {
-				parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes, []byte(passcode))
-			} else {
-				return adbc.Error{
-					Msg:  OptionJwtPrivateKeyPkcs8Password + " is not configured",
-					Code: adbc.StatusInvalidArgument,
-				}
-			}
-		case "PRIVATE KEY":
-			parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes)
-		default:
-			return adbc.Error{
-				Msg:  block.Type + " is not supported",
-				Code: adbc.StatusInvalidArgument,
-			}
-		}
 
 		if err != nil {
 			return adbc.Error{

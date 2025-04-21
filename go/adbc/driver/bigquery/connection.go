@@ -512,15 +512,12 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 		OptionValueAuthTypeUserAuthentication,
 		OptionValueAuthTypeTemporaryAccessToken:
 		var credentials option.ClientOption
-
 		switch c.authType {
 		case OptionValueAuthTypeJSONCredentialFile:
 			credentials = option.WithCredentialsFile(c.credentials)
-
 		case OptionValueAuthTypeJSONCredentialString:
 			credentials = option.WithCredentialsJSON([]byte(c.credentials))
-
-		case OptionValueAuthTypeUserAuthentication:
+		default:
 			if c.clientID == "" {
 				return adbc.Error{
 					Code: adbc.StatusInvalidArgument,
