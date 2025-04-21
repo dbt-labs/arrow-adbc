@@ -863,7 +863,11 @@ where
     F: FnMut(*const c_char, *mut T, *mut usize, *mut adbc_ffi::FFI_AdbcError) -> AdbcStatusCode,
     T: Default + Clone,
 {
-    const DEFAULT_LENGTH: usize = 128;
+    let default_length = if std::mem::size_of::<T>() == 1 {
+        1024
+    } else {
+        128
+    };
     let key = CString::new(key.as_ref())?;
     let mut run = |length| {
         let mut value = vec![T::default(); length];
@@ -877,10 +881,10 @@ where
         )
     };
 
-    let (status, length, value, error) = run(DEFAULT_LENGTH);
+    let (status, length, value, error) = run(default_length);
     check_status(status, error)?;
 
-    if length <= DEFAULT_LENGTH {
+    if length <= default_length {
         Ok(value[..length].to_vec())
     } else {
         let (status, _, value, error) = run(length);
