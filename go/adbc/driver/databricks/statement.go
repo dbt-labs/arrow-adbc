@@ -243,7 +243,7 @@ func (stmt *statement) executeQueryInternal(ctx context.Context) (*reader, error
 		if res.Result.ChunkIndex != 0 {
 			log.Fatal("first ChunkIndex is not 0")
 		}
-		return NewRecordReader(se, res.StatementId, res.Result, res.Manifest)
+		return newRecordReader(ctx, se, res.StatementId, res.Result, res.Manifest)
 	case sql.StatementStatePending, sql.StatementStateRunning:
 		// Keep polling until the statement reaches a terminal state
 		// TODO: make this configurable
@@ -263,7 +263,7 @@ func (stmt *statement) executeQueryInternal(ctx context.Context) (*reader, error
 				state := res.Status.State
 				switch state {
 				case sql.StatementStateSucceeded:
-					r, err := NewRecordReader(se, res.StatementId, res.Result, res.Manifest)
+					r, err := newRecordReader(ctx, se, res.StatementId, res.Result, res.Manifest)
 					if err != nil {
 						return nil, retries.Halt(err)
 					}
