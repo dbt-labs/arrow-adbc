@@ -147,11 +147,7 @@ func (stmt *statement) GetOptionInt(key string) (int64, error) {
 		}
 		return 0, nil
 	default:
-		val, err := stmt.conn.GetOptionInt(key)
-		if err == nil {
-			return val, nil
-		}
-		return 0, err
+		return stmt.conn.GetOptionInt(key)
 	}
 }
 
