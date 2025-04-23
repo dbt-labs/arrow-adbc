@@ -60,6 +60,8 @@ type databaseImpl struct {
 	useHighPrecision bool
 
 	defaultAppName string
+
+	defaultAppName string
 }
 
 func (d *databaseImpl) GetOption(key string) (string, error) {
@@ -173,9 +175,6 @@ func (d *databaseImpl) SetOptions(cnOptions map[string]string) error {
 		}
 	}
 
-	dv, _ := d.DriverInfo.GetInfoForInfoCode(adbc.InfoDriverVersion)
-	driverVersion := dv.(string)
-	defaultAppName := "[ADBC][Go-" + driverVersion + "]"
 	// set default application name to track
 	// unless user overrides it
 	d.cfg.Application = d.defaultAppName
@@ -192,8 +191,7 @@ func (d *databaseImpl) SetOptions(cnOptions map[string]string) error {
 
 // SetOptionInternal sets the option for the database.
 //
-// cnOptions() is nil is SetOptionInternal() is being called when setting an
-// option post-initialization.
+// cnOptions is nil if the option is being set post-initialiation.
 func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[string]string) error {
 	var err error
 	var ok bool
@@ -393,25 +391,31 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 
 		var parsedKey any
 
-			switch block.Type {
-			case "ENCRYPTED PRIVATE KEY":
-				passcode, ok := cnOptions[OptionJwtPrivateKeyPkcs8Password]
-				if ok {
-					parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes, []byte(passcode))
-				} else {
-					return adbc.Error{
-						Msg:  OptionJwtPrivateKeyPkcs8Password + " is not configured",
-						Code: adbc.StatusInvalidArgument,
-					}
-				}
-			case "PRIVATE KEY":
-				parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes)
-			default:
+		switch block.Type {
+		case "ENCRYPTED PRIVATE KEY":
+			if cnOptions == nil {
 				return adbc.Error{
-					Msg:  block.Type + " is not supported",
+					Msg:  "[Snowflake] unable to set private key post initialization",
 					Code: adbc.StatusInvalidArgument,
 				}
 			}
+			passcode, ok := (*cnOptions)[OptionJwtPrivateKeyPkcs8Password]
+			if ok {
+				parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes, []byte(passcode))
+			} else {
+				return adbc.Error{
+					Msg:  OptionJwtPrivateKeyPkcs8Password + " is not configured",
+					Code: adbc.StatusInvalidArgument,
+				}
+			}
+		case "PRIVATE KEY":
+			parsedKey, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes)
+		default:
+			return adbc.Error{
+				Msg:  block.Type + " is not supported",
+				Code: adbc.StatusInvalidArgument,
+			}
+		}
 
 		if err != nil {
 			return adbc.Error{
@@ -450,12 +454,6 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 		d.cfg.Tracing = v
 	case OptionClientConfigFile:
 		d.cfg.ClientConfigFile = v
-	case OptionClientId:
-		d.clientId = v
-	case OptionClientSecret:
-		d.clientSecret = v
-	case OptionRefreshToken:
-		d.refreshToken = v
 	case OptionUseHighPrecision:
 		switch v {
 		case adbc.OptionValueEnabled:
