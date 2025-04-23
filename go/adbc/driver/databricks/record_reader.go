@@ -277,6 +277,9 @@ func (r *reader) Record() arrow.Record {
 }
 
 func (r *reader) Err() error {
+	if r.err == nil {
+		return nil
+	}
 	if errors.Is(r.err, context.Canceled) {
 		return adbc.Error{Msg: r.err.Error(), Code: adbc.StatusCancelled}
 	}
