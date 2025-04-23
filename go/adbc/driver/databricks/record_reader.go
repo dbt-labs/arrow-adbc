@@ -122,7 +122,6 @@ func NewRecordReader(
 		cancelFn: func() {},
 
 		startTime: time.Now(),
-		// All the bytes received from the server.
 		BytesReceived: 0,
 		// Time spent waiting for the server to respond in the foreground.
 		WaitTime: 0,
@@ -131,12 +130,13 @@ func NewRecordReader(
 		// Establish INVARIANT I by starting the loading of r.loadingChunkIdx
 		go r.startChunkDataRequest(r.loadingChunkIdx, &result.ExternalLinks[0])
 	} else {
-		// Establish INVARIANT I by finishing the entire iteration process
+		// Establish INVARIANT II by finishing the entire iteration process
 		close(r.chunkChan)
 		r.loadingChunkIdx = -1
 	}
 	return r, nil
 }
+
 func (r *reader) Retain() {
 	atomic.AddInt64(&r.refCount, 1)
 }
@@ -170,8 +170,7 @@ func (r *reader) Next() bool {
 	// PROPERTY I: r.rec == nil && r.err == nil
 
 	// If we don't have an active chunk, we need to wait for the loading one,
-	// parse it, and trigger a request for the next chunk to preserve
-	// invariants I and II.
+	// and trigger a request for the next chunk to preserve invariants I and II.
 	if r.activeChunk == nil {
 		if r.loadingChunkIdx == -1 {
 			return false // post-condition holds because of PROPERTY I
