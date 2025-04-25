@@ -19,14 +19,18 @@ package databricks
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"sync/atomic"
 	"time"
 
+	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
+	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/databricks/databricks-sdk-go/service/compute"
 	"github.com/databricks/databricks-sdk-go/service/sql"
 )
 
@@ -59,10 +63,12 @@ type reader struct {
 	refCount int64
 
 	stmtExecution sql.StatementExecutionInterface
+	cmdExecution  compute.CommandExecutionInterface
 	httpClient    *http.Client
 
 	// Statement that this reader is associated with.
 	StatementId string
+	CommandId   string
 
 	// Fields from the execution response manifest:
 
@@ -72,6 +78,9 @@ type reader struct {
 	TotalChunkCount int
 	// The total number of rows in the result set.
 	TotalRowCount int64
+
+	// Command execution specific fields
+	CommandResult *compute.Results
 
 	// The chunk index that is currently being loaded in the background or -1.
 	loadingChunkIdx int
@@ -101,7 +110,6 @@ func NewRecordReader(
 	r := &reader{
 		refCount: 1,
 
-		// TODO: context
 		stmtExecution: stmtExecution,
 		httpClient:    http.DefaultClient,
 
@@ -115,28 +123,158 @@ func NewRecordReader(
 		chunkChan:       make(chan chunkResponse),
 		activeChunk:     nil,
 
-		schema: nil, // TODO: build schema when there are no chunks
+		schema: nil,
 		rec:    nil,
 		err:    nil,
 
 		cancelFn: func() {},
 
-		startTime: time.Now(),
-		// All the bytes received from the server.
+		startTime:     time.Now(),
 		BytesReceived: 0,
-		// Time spent waiting for the server to respond in the foreground.
-		WaitTime: 0,
+		WaitTime:      0,
 	}
 	if len(manifest.Chunks) > 0 && len(result.ExternalLinks) > 0 {
-		// Establish INVARIANT I by starting the loading of r.loadingChunkIdx
 		go r.startChunkDataRequest(r.loadingChunkIdx, &result.ExternalLinks[0])
 	} else {
-		// Establish INVARIANT I by finishing the entire iteration process
 		close(r.chunkChan)
 		r.loadingChunkIdx = -1
 	}
 	return r, nil
 }
+
+func DeriveSchema(dbx_schema []map[string]interface{}) *arrow.Schema {
+	fields := make([]arrow.Field, len(dbx_schema))
+	for i, col := range dbx_schema {
+		var arrowType arrow.DataType
+		switch col["type"] {
+		case "string":
+			arrowType = arrow.BinaryTypes.String
+		case "int":
+			arrowType = arrow.PrimitiveTypes.Int32
+		case "long":
+			arrowType = arrow.PrimitiveTypes.Int64
+		case "float":
+			arrowType = arrow.PrimitiveTypes.Float32
+		case "double":
+			arrowType = arrow.PrimitiveTypes.Float64
+		case "boolean":
+			arrowType = arrow.FixedWidthTypes.Boolean
+		case "timestamp":
+			arrowType = arrow.FixedWidthTypes.Timestamp_us
+		case "date":
+			arrowType = arrow.FixedWidthTypes.Date32
+		default:
+			arrowType = arrow.BinaryTypes.String
+		}
+		fields[i] = arrow.Field{
+			Name:     col["name"].(string),
+			Type:     arrowType,
+			Nullable: true,
+		}
+	}
+	return arrow.NewSchema(fields, nil)
+}
+
+func AddRowToBuilder(builder *array.RecordBuilder, row []interface{}) *array.RecordBuilder {
+	for col_num, col := range row {
+		switch col := col.(type) {
+		case string:
+			builder.Field(col_num).(*array.StringBuilder).Append(string(col))
+		case int:
+			builder.Field(col_num).(*array.Int32Builder).Append(int32(col))
+		case int64:
+			builder.Field(col_num).(*array.Int64Builder).Append(col)
+		case float32:
+			builder.Field(col_num).(*array.Float32Builder).Append(col)
+		case float64:
+			builder.Field(col_num).(*array.Float64Builder).Append(col)
+		case bool:
+			builder.Field(col_num).(*array.BooleanBuilder).Append(col)
+		case nil:
+			builder.Field(col_num).AppendNull()
+		default:
+			// For any unhandled types, convert to string
+			builder.Field(col_num).(*array.StringBuilder).Append(fmt.Sprintf("%v", col))
+		}
+	}
+	return builder
+}
+
+func BuildArrowRecord(schema *arrow.Schema, data []interface{}) (arrow.Record, error) {
+	mem := memory.NewGoAllocator()
+	builder := array.NewRecordBuilder(mem, schema)
+	defer builder.Release()
+
+	for _, row := range data {
+		switch row_data := row.(type) {
+		case []interface{}:
+			builder = AddRowToBuilder(builder, row_data)
+		}
+	}
+	return builder.NewRecord(), nil
+}
+
+func NewCommandRecordReader(
+	cmdExecution compute.CommandExecutionInterface, commandId string, result *compute.Results) (*reader, error) {
+	// Convert the Databricks schema to an Arrow schema
+	schema := DeriveSchema(result.Schema)
+	r := &reader{
+		refCount: 1,
+
+		cmdExecution: cmdExecution,
+		httpClient:   http.DefaultClient,
+
+		CommandId:     commandId,
+		CommandResult: result,
+
+		loadingChunkIdx: -1,
+		chunkChan:       make(chan chunkResponse),
+		activeChunk:     nil,
+
+		schema: schema,
+		rec:    nil,
+		err:    nil,
+
+		cancelFn: func() {},
+
+		startTime:     time.Now(),
+		BytesReceived: 0,
+		WaitTime:      0,
+	}
+
+	// For command execution, we need to convert the result to an Arrow record
+	if result.ResultType == compute.ResultTypeTable {
+
+		switch result.Data.(type) {
+		case []interface{}:
+			rows := result.Data.([]interface{})
+			for _, row := range rows {
+				row_data := row.([]interface{})
+				r.rec, r.err = BuildArrowRecord(schema, row_data)
+			}
+		default:
+			r.err = adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("Unexpected command result type: %T", result.Data),
+			}
+		}
+	} else if result.ResultType == compute.ResultTypeText {
+		// For text result, return an empty record with a single string column
+		fields := []arrow.Field{{Name: "text", Type: arrow.BinaryTypes.String, Nullable: true}}
+		schema := arrow.NewSchema(fields, nil)
+		cols := []arrow.Array{array.NewNull(0)}
+		r.rec = array.NewRecord(schema, cols, 0)
+	} else {
+		r.err = adbc.Error{
+			Code: adbc.StatusInternal,
+			Msg:  fmt.Sprintf("Unexpected command result type: %s", result.ResultType),
+		}
+	}
+
+	close(r.chunkChan)
+	return r, nil
+}
+
 func (r *reader) Retain() {
 	atomic.AddInt64(&r.refCount, 1)
 }

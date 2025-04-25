@@ -421,4 +421,5 @@ func (stmt *statement) Close() error {
 	return nil
 }
 
+var _ adbc.Statement = (*statement)(nil)
 var _ adbc.GetSetOptions = (*statement)(nil)

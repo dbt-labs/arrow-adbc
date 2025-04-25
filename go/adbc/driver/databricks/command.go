@@ -26,7 +26,6 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
-	"github.com/databricks/databricks-sdk-go/retries"
 	"github.com/databricks/databricks-sdk-go/service/compute"
 )
 
@@ -43,20 +42,28 @@ type command struct {
 	req *compute.Command
 
 	commandId string
-
 }
 
 func NewCommand(conn *connectionImpl) (adbc.Statement, error) {
-	_, err := conn.client.Clusters.Start(context.Background(), compute.StartCluster{
+	cluster, err := conn.client.Clusters.Get(context.Background(), compute.GetClusterRequest{
 		ClusterId: conn.client.Config.ClusterID,
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	if err != nil {
-		return nil, err
+	if cluster.State == compute.StateTerminated || cluster.State == compute.StateTerminating {
+		wait, err := conn.client.Clusters.Start(context.Background(), compute.StartCluster{
+			ClusterId: conn.client.Config.ClusterID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		_, err = wait.Get()
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	return &command{
 		alloc: conn.Alloc,
 		conn:  conn,
@@ -196,46 +203,39 @@ func (cmd *command) ExecuteQuery(ctx context.Context) (array.RecordReader, int64
 
 func (cmd *command) executeQueryInternal(ctx context.Context) (*reader, error) {
 	ce := cmd.conn.CommandExecution()
-	res, err := ce.Execute(ctx, *cmd.req)
+	executor, err := ce.Start(ctx, cmd.conn.client.Config.ClusterID, compute.LanguageSql)
+	if err != nil {
+		return nil, adbc.Error{
+			Code: adbc.StatusUnknown,
+			Msg:  fmt.Sprintf("[Databricks] failed to start command execution: %s", err),
+		}
+	}
+
+	res, err := executor.Execute(ctx, cmd.req.Command)
 	if err != nil {
 		return nil, adbc.Error{
 			Code: adbc.StatusUnknown,
 			Msg:  fmt.Sprintf("[Databricks] failed to execute command: %s", err),
 		}
 	}
-
-	// Command execution state:
-	// - `Error`: execution failed
-	// - `Cancelled`: user canceled
-	// - `Finished`: execution successful
-	// - `Running`: running
-	// - `Queued`: waiting for resources
-	cmd.commandId = res.CommandId
-
+	
 	for {
-		status, err := ce.CommandStatus(ctx, compute.CommandStatusRequest{
-			CommandId: cmd.commandId,
-			ContextId: cmd.req.ContextId,
-			ClusterId: cmd.conn.client.Config.ClusterID,
-		})
-		if err != nil {
+		switch res.ResultType {
+		case compute.ResultTypeTable:
+			// CommandExecution API doesn't have a ChunkIndex like StatementExecution
+			return NewCommandRecordReader(ce, cmd.commandId, res)
+		case compute.ResultTypeText:
+			return NewCommandRecordReader(ce, cmd.commandId, res)
+		case compute.ResultTypeError:
 			return nil, adbc.Error{
 				Code: adbc.StatusUnknown,
-				Msg:  fmt.Sprintf("[Databricks] failed to get command status: %s", err),
+				Msg:  fmt.Sprintf("[Databricks] command execution failed: %s", res.Error),
 			}
-		}
-
-		switch status.Status {
-		case compute.CommandStatusFinished:
-			// CommandExecution API doesn't have a ChunkIndex like StatementExecution
-			return NewCommandRecordReader(ce, cmd.commandId, status.Results)
-		case compute.CommandStatusQueued, compute.CommandStatusRunning:
-			time.Sleep(100 * time.Millisecond)
-			continue
-		case compute.CommandStatusError, compute.CommandStatusCancelled:
-			return nil, retries.Halt(unexpectedCommandState(status.Status))
 		default:
-			return nil, unexpectedCommandState(status.Status)
+			return nil, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("[Databricks] Unexpected command result type: %s", res.ResultType),
+			}
 		}
 	}
 }
@@ -244,18 +244,6 @@ func unexpectedCommandState(state compute.CommandStatus) error {
 	return adbc.Error{
 		Code: adbc.StatusInternal,
 		Msg:  fmt.Sprintf("[Databricks] Unexpected command state: %s", state),
-	}
-}
-
-func errorFromCmdStatus(s *compute.CommandStatusResponse) adbc.Error {
-	msg := s.Status.String()
-	adbcCode := adbc.StatusUnknown
-	if s.Status == compute.CommandStatusCancelled {
-		adbcCode = adbc.StatusCancelled
-	}
-	return adbc.Error{
-		Code: adbcCode,
-		Msg:  fmt.Sprintf("[Databricks] Command failed: %s", msg),
 	}
 }
 
@@ -271,7 +259,14 @@ func (cmd *command) ExecuteUpdate(ctx context.Context) (int64, error) {
 
 	// For CommandExecution API, we can use ExecuteCommand and check if it returns a result
 	ce := cmd.conn.CommandExecution()
-	res, err := ce.Execute(ctx, *cmd.req)
+	executor, err := ce.Start(ctx, cmd.conn.client.Config.ClusterID, compute.LanguageSql)
+	if err != nil {
+		return -1, adbc.Error{
+			Code: adbc.StatusUnknown,
+			Msg:  fmt.Sprintf("[Databricks] failed to start command execution: %s", err),
+		}
+	}
+	res, err := executor.Execute(ctx, cmd.req.Command)
 	if err != nil {
 		return -1, adbc.Error{
 			Code: adbc.StatusUnknown,
@@ -280,7 +275,7 @@ func (cmd *command) ExecuteUpdate(ctx context.Context) (int64, error) {
 	}
 
 	// If the command has a result, it's a query, not an update
-	if res.Response != nil {
+	if res.Data != nil {
 		return -1, adbc.Error{
 			Code: adbc.StatusInvalidState,
 			Msg:  "ExecuteUpdate called with a query that returns results",
@@ -383,17 +378,6 @@ func (cmd *command) Close() error {
 	}
 	cmd.commandId = ""
 	return nil
-}
-
-// NewCommandRecordReader creates a new record reader for the command execution API
-func NewCommandRecordReader(ce compute.CommandExecutionInterface, commandId string, result *compute.Results) (*reader, error) {
-	// This is a placeholder implementation
-	// In a real implementation, you would need to convert the CommandResult to an Arrow RecordReader
-	// Similar to how NewRecordReader works for the StatementExecution API
-	return nil, adbc.Error{
-		Code: adbc.StatusNotImplemented,
-		Msg:  "NewCommandRecordReader not yet implemented for Databricks driver",
-	}
 }
 
 var _ adbc.Statement = (*command)(nil)
