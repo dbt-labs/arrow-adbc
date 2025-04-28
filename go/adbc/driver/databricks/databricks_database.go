@@ -56,7 +56,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 	} else {
 		mode = ModeCluster
 	}
-	
+
 	conn := &connectionImpl{
 		ConnectionImplBase: driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 		client:             client,
@@ -72,7 +72,21 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		Connection(), nil
 }
 
-func SetOptionToConfig(config *databricks.Config, key string, value string) error {
+func (d *databaseImpl) SetOptions(options map[string]string) error {
+	if d.config == nil {
+		d.config = &databricks.Config{}
+	}
+	for k, v := range options {
+		err := d.SetOption(k, v)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *databaseImpl) SetOptionToConfig(key string, value string) error {
+	config := d.config
 	switch key {
 	case OptionStringAuthType:
 		config.AuthType = value
@@ -169,26 +183,106 @@ func SetOptionToConfig(config *databricks.Config, key string, value string) erro
 		} else {
 			return err
 		}
+	default:
+		return d.DatabaseImplBase.SetOption(key, value)
 	}
 	return nil
 }
 
-func (d *databaseImpl) SetOptions(options map[string]string) error {
-	if d.config == nil {
-		d.config = &databricks.Config{}
+func (d *databaseImpl) GetOptionFromConfig(key string) (string, error) {
+	config := d.config
+	switch key {
+	case OptionStringAuthType:
+		return config.AuthType, nil
+	case OptionStringCluster:
+		return config.ClusterID, nil
+	case OptionStringWarehouse:
+		return config.WarehouseID, nil
+	case OptionStringServerlessComputeID:
+		return config.ServerlessComputeID, nil
+	case OptionStringMetadataServiceURL:
+		return config.MetadataServiceURL, nil
+	case OptionStringHost:
+		return config.Host, nil
+	case OptionStringToken:
+		return config.Token, nil
+	case OptionStringAccountID:
+		return config.AccountID, nil
+	case OptionStringUsername:
+		return config.Username, nil
+	case OptionStringPassword:
+		return config.Password, nil
+	case OptionStringClientID:
+		return config.ClientID, nil
+	case OptionStringClientSecret:
+		return config.ClientSecret, nil
+	case OptionStringConfigFile:
+		return config.ConfigFile, nil
+	case OptionStringProfile:
+		return config.Profile, nil
+	case OptionStringGoogleServiceAccount:
+		return config.GoogleServiceAccount, nil
+	case OptionStringGoogleCredentials:
+		return config.GoogleCredentials, nil
+	case OptionStringAzureResourceID:
+		return config.AzureResourceID, nil
+	case OptionStringAzureUseMSI:
+		return strconv.FormatBool(config.AzureUseMSI), nil
+	case OptionStringAzureClientSecret:
+		return config.AzureClientSecret, nil
+	case OptionStringAzureClientID:
+		return config.AzureClientID, nil
+	case OptionStringAzureTenantID:
+		return config.AzureTenantID, nil
+	case OptionStringActionsIDTokenRequestURL:
+		return config.ActionsIDTokenRequestURL, nil
+	case OptionStringActionsIDTokenRequestToken:
+		return config.ActionsIDTokenRequestToken, nil
+	case OptionStringAzureEnvironment:
+		return config.AzureEnvironment, nil
+	case OptionBoolInsecureSkipVerify:
+		return strconv.FormatBool(config.InsecureSkipVerify), nil
+	case OptionIntHTTPTimeoutSeconds:
+		return strconv.Itoa(config.HTTPTimeoutSeconds), nil
+	case OptionIntDebugTruncateBytes:
+		return strconv.Itoa(config.DebugTruncateBytes), nil
+	case OptionBoolDebugHeaders:
+		return strconv.FormatBool(config.DebugHeaders), nil
+	case OptionIntRateLimitPerSecond:
+		return strconv.Itoa(config.RateLimitPerSecond), nil
+	case OptionIntRetryTimeoutSeconds:
+		return strconv.Itoa(config.RetryTimeoutSeconds), nil
+	default:
+		return d.DatabaseImplBase.GetOption(key)
 	}
-	for k, v := range options {
-		switch k {
-		case OptionStringCatalog:
-			d.catalog = v
-		case OptionStringSchema:
-			d.dbSchema = v
-		default:
-			err := SetOptionToConfig(d.config, k, v)
-			if err != nil {
-				return err
-			}
+}
+
+func (d *databaseImpl) SetOption(k string, v string) error {
+	switch k {
+	case OptionStringCatalog:
+		d.catalog = v
+	case OptionStringSchema:
+		d.dbSchema = v
+	default:
+		err := d.SetOptionToConfig(k, v)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
 }
+
+func (d *databaseImpl) GetOption(key string) (string, error) {
+	switch key {
+	case OptionStringCatalog:
+		return d.catalog, nil
+	case OptionStringSchema:
+		return d.dbSchema, nil
+	default:
+		return d.GetOptionFromConfig(key)
+	}
+}
+
+var (
+	_ adbc.PostInitOptions = (*databaseImpl)(nil)
+)

@@ -147,11 +147,7 @@ func (stmt *statement) GetOptionInt(key string) (int64, error) {
 		}
 		return 0, nil
 	default:
-		val, err := stmt.conn.GetOptionInt(key)
-		if err == nil {
-			return val, nil
-		}
-		return 0, err
+		return stmt.conn.GetOptionInt(key)
 	}
 }
 
@@ -215,7 +211,7 @@ func (stmt *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, in
 	return reader, reader.TotalRowCount, nil
 }
 
-func (stmt *statement) executeQueryInternal(ctx context.Context) (*stmtReader, error) {
+func (stmt *statement) executeQueryInternal(ctx context.Context) (*stmt_reader, error) {
 	se := stmt.conn.StatementExecution()
 	res, err := se.ExecuteStatement(ctx, *stmt.req)
 	if err != nil {
@@ -243,13 +239,13 @@ func (stmt *statement) executeQueryInternal(ctx context.Context) (*stmtReader, e
 		if res.Result.ChunkIndex != 0 {
 			log.Fatal("first ChunkIndex is not 0")
 		}
-		return NewRecordReader(se, res.StatementId, res.Result, res.Manifest)
+		return newRecordReader(ctx, se, res.StatementId, res.Result, res.Manifest)
 	case sql.StatementStatePending, sql.StatementStateRunning:
 		// Keep polling until the statement reaches a terminal state
 		// TODO: make this configurable
 		timeout := 20 * time.Minute
 		return retries.Poll(ctx, timeout,
-			func() (*stmtReader, *retries.Err) {
+			func() (*stmt_reader, *retries.Err) {
 				res, err := se.GetStatement(ctx, sql.GetStatementRequest{
 					StatementId: res.StatementId,
 				})
@@ -263,7 +259,7 @@ func (stmt *statement) executeQueryInternal(ctx context.Context) (*stmtReader, e
 				state := res.Status.State
 				switch state {
 				case sql.StatementStateSucceeded:
-					r, err := NewRecordReader(se, res.StatementId, res.Result, res.Manifest)
+					r, err := newRecordReader(ctx, se, res.StatementId, res.Result, res.Manifest)
 					if err != nil {
 						return nil, retries.Halt(err)
 					}
@@ -421,5 +417,4 @@ func (stmt *statement) Close() error {
 	return nil
 }
 
-var _ adbc.Statement = (*statement)(nil)
 var _ adbc.GetSetOptions = (*statement)(nil)

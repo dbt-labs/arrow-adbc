@@ -103,6 +103,10 @@ const (
 	// on Windows/OSX, false for Linux
 	OptionClientStoreTempCred = "adbc.snowflake.sql.client_option.store_temp_creds"
 
+	OptionClientId     = "adbc.snowflake.sql.client_option.client_id"
+	OptionClientSecret = "adbc.snowflake.sql.client_option.client_secret"
+	OptionRefreshToken = "adbc.snowflake.sql.client_option.refresh_token"
+
 	// auth types are implemented by the Snowflake driver in gosnowflake
 	// general username password authentication
 	OptionValueAuthSnowflake = "auth_snowflake"
@@ -224,9 +228,16 @@ func (d *driverImpl) NewDatabase(opts map[string]string) (adbc.Database, error) 
 
 func (d *driverImpl) NewDatabaseWithOptions(opts map[string]string, optFuncs ...Option) (adbc.Database, error) {
 	opts = maps.Clone(opts)
+
+	dbImplBase := driverbase.NewDatabaseImplBase(&d.DriverImplBase)
+	dv, _ := dbImplBase.DriverInfo.GetInfoForInfoCode(adbc.InfoDriverVersion)
+	driverVersion := dv.(string)
+	defaultAppName := "[ADBC][Go-" + driverVersion + "]"
+
 	db := &databaseImpl{
-		DatabaseImplBase: driverbase.NewDatabaseImplBase(&d.DriverImplBase),
+		DatabaseImplBase: dbImplBase,
 		useHighPrecision: true,
+		defaultAppName:   defaultAppName,
 	}
 	if err := db.SetOptions(opts); err != nil {
 		return nil, err

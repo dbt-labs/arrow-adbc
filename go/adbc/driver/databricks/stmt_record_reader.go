@@ -19,11 +19,13 @@ package databricks
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"sync/atomic"
 	"time"
 
+	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
@@ -55,7 +57,19 @@ func (c *chunkResponse) Release() {
 	}
 }
 
-type stmtReader struct {
+func (c *chunkResponse) Err() error {
+	return c.err
+}
+
+func (c *chunkResponse) Schema() *arrow.Schema {
+	return c.reader.Schema()
+}
+
+func (c *chunkResponse) Next() bool {
+	return c.reader.Next()
+}
+
+type stmt_reader struct {
 	refCount int64
 
 	stmtExecution sql.StatementExecutionInterface
@@ -63,7 +77,6 @@ type stmtReader struct {
 
 	// Statement that this reader is associated with.
 	StatementId string
-	CommandId   string
 
 	// Fields from the execution response manifest:
 
@@ -97,11 +110,13 @@ type stmtReader struct {
 	WaitTime time.Duration
 }
 
-func NewRecordReader(
-	stmtExecution sql.StatementExecutionInterface, statementId string, result *sql.ResultData, manifest *sql.ResultManifest) (*stmtReader, error) {
-	r := &stmtReader{
+func newRecordReader(
+	ctx context.Context, stmtExecution sql.StatementExecutionInterface, statementId string, result *sql.ResultData, manifest *sql.ResultManifest) (*stmt_reader, error) {
+	ctx, cancelFn := context.WithCancel(ctx)
+	r := &stmt_reader{
 		refCount: 1,
 
+		// TODO: context
 		stmtExecution: stmtExecution,
 		httpClient:    http.DefaultClient,
 
@@ -115,30 +130,34 @@ func NewRecordReader(
 		chunkChan:       make(chan chunkResponse),
 		activeChunk:     nil,
 
-		schema: nil,
+		schema: nil, // TODO: build schema when there are no chunks
 		rec:    nil,
 		err:    nil,
 
-		cancelFn: func() {},
+		cancelFn: cancelFn,
 
 		startTime:     time.Now(),
 		BytesReceived: 0,
-		WaitTime:      0,
+		// Time spent waiting for the server to respond in the foreground.
+		WaitTime: 0,
 	}
 	if len(manifest.Chunks) > 0 && len(result.ExternalLinks) > 0 {
-		go r.startChunkDataRequest(r.loadingChunkIdx, &result.ExternalLinks[0])
+		// Establish INVARIANT I by starting the loading of r.loadingChunkIdx
+		go r.startChunkDataRequest(ctx, r.loadingChunkIdx, &result.ExternalLinks[0])
 	} else {
+		// Establish INVARIANT II by finishing the entire iteration process
 		close(r.chunkChan)
 		r.loadingChunkIdx = -1
+		r.cancelFn()
 	}
 	return r, nil
 }
 
-func (r *stmtReader) Retain() {
+func (r *stmt_reader) Retain() {
 	atomic.AddInt64(&r.refCount, 1)
 }
 
-func (r *stmtReader) Release() {
+func (r *stmt_reader) Release() {
 	if atomic.AddInt64(&r.refCount, -1) == 0 {
 		if r.activeChunk != nil {
 			r.activeChunk.Release()
@@ -146,8 +165,6 @@ func (r *stmtReader) Release() {
 		if r.rec != nil {
 			r.rec.Release()
 		}
-		// TODO: cancel HTTP connection
-		// TODO: close channel
 		r.cancelFn()
 	}
 }
@@ -156,7 +173,7 @@ func (r *stmtReader) Release() {
 // \pre: loadingChunkIdx == -1 implies chunkChan is closed (INVARIANT II)
 // \post: if returns true, r.Record() != nil && r.err == nil
 // \post: if returns false, r.Record() == nil and r.err *MUST* be checked
-func (r *stmtReader) Next() bool {
+func (r *stmt_reader) Next() bool {
 	if r.rec != nil {
 		r.rec.Release()
 		r.rec = nil
@@ -167,14 +184,13 @@ func (r *stmtReader) Next() bool {
 	// PROPERTY I: r.rec == nil && r.err == nil
 
 	// If we don't have an active chunk, we need to wait for the loading one,
-	// parse it, and trigger a request for the next chunk to preserve
-	// invariants I and II.
+	// and trigger a request for the next chunk to preserve invariants I and II.
 	if r.activeChunk == nil {
 		if r.loadingChunkIdx == -1 {
 			return false // post-condition holds because of PROPERTY I
 		}
 
-		chunk, err := r.consumeLoadingChunk()
+		chunk, err := r.consumeLoadingChunk(context.TODO())
 		if err != nil {
 			r.err = err
 			close(r.chunkChan)
@@ -185,18 +201,18 @@ func (r *stmtReader) Next() bool {
 
 		// make sure r.schema is set when the first chunk is parsed if not yet
 		if r.schema != nil {
-			r.schema = r.activeChunk.reader.Schema()
+			r.schema = r.activeChunk.Schema()
 		}
 	}
 	// PROPERTY II: r.activeChunk != nil
 
-	if r.activeChunk.reader.Next() {
+	if r.activeChunk.Next() {
 		r.rec = r.activeChunk.reader.Record()
 		r.rec.Retain()
 		return true // post-condition holds: r.rec != nil
 	}
 	// make sure the error (if it exists) is retained
-	r.err = r.activeChunk.reader.Err()
+	r.err = r.activeChunk.Err()
 	// release the fully consumed (or err'd) chunk
 	r.activeChunk.Release()
 	r.activeChunk = nil
@@ -208,13 +224,13 @@ func (r *stmtReader) Next() bool {
 	return r.Next()
 }
 
-func (r *stmtReader) Schema() *arrow.Schema {
+func (r *stmt_reader) Schema() *arrow.Schema {
 	if r.schema == nil {
 		if r.activeChunk == nil {
 			if r.loadingChunkIdx == -1 {
 				return nil // TODO: need to derive schema from the JSON manifest :(
 			}
-			chunk, err := r.consumeLoadingChunk()
+			chunk, err := r.consumeLoadingChunk(context.TODO())
 			if err != nil {
 				r.err = err
 				return nil // TODO: need to derive schema from the JSON manifest :(
@@ -222,19 +238,20 @@ func (r *stmtReader) Schema() *arrow.Schema {
 			r.activeChunk = chunk
 			r.activeChunk.Retain()
 		}
-		r.schema = r.activeChunk.reader.Schema()
+		r.schema = r.activeChunk.Schema()
 	}
 	return r.schema
 }
 
 // \pre: r.activeChunk == nil && r.loadingChunkIdx != -1
-func (r *stmtReader) consumeLoadingChunk() (*chunkResponse, error) {
+func (r *stmt_reader) consumeLoadingChunk(ctx context.Context) (*chunkResponse, error) {
 	// wait for the loading chunk
 	startWait := time.Now()
 	chunk := <-r.chunkChan
 	r.WaitTime += time.Since(startWait)
 	if chunk.err != nil {
 		close(r.chunkChan)
+		r.cancelFn()
 		return nil, chunk.err
 	}
 	if chunk.chunkIndex != r.loadingChunkIdx {
@@ -244,25 +261,38 @@ func (r *stmtReader) consumeLoadingChunk() (*chunkResponse, error) {
 	r.loadingChunkIdx += 1
 	if r.loadingChunkIdx < len(r.Chunks) {
 		// INVARIANT I and II are preserved
-		go r.startChunkDataRequest(r.loadingChunkIdx, nil)
+		go r.startChunkDataRequest(ctx, r.loadingChunkIdx, nil)
 	} else {
 		// INVARIANT I and II are preserved
 		r.loadingChunkIdx = -1
 		close(r.chunkChan)
+		r.cancelFn()
 	}
 	return &chunk, nil
 }
 
 // \pre: Next() returned true
-func (r *stmtReader) Record() arrow.Record {
+func (r *stmt_reader) Record() arrow.Record {
 	return r.rec
 }
 
-func (r *stmtReader) Err() error {
-	return r.err
+func (r *stmt_reader) Err() error {
+	if r.err == nil {
+		return nil
+	}
+	if errors.Is(r.err, context.Canceled) {
+		return adbc.Error{Msg: r.err.Error(), Code: adbc.StatusCancelled}
+	}
+	if errors.Is(r.err, context.DeadlineExceeded) {
+		return adbc.Error{Msg: r.err.Error(), Code: adbc.StatusTimeout}
+	}
+	return adbc.Error{
+		Msg:  r.err.Error(),
+		Code: adbc.StatusUnknown,
+	}
 }
 
-func (r *stmtReader) Throughput() float64 {
+func (r *stmt_reader) Throughput() float64 {
 	elapsed := time.Since(r.startTime)
 	elapsedSeconds := elapsed.Seconds()
 	return float64(r.BytesReceived) / elapsedSeconds
@@ -272,7 +302,7 @@ func (r *stmtReader) Throughput() float64 {
 // when a response is received and data is available for streaming.
 //
 // NOTE: The caller is responsible for closing the response body in .inner.
-func (r *stmtReader) startChunkDataRequest(chunkIndex int, externalLink *sql.ExternalLink) {
+func (r *stmt_reader) startChunkDataRequest(ctx context.Context, chunkIndex int, externalLink *sql.ExternalLink) error {
 	url := ""
 	if externalLink != nil {
 		url = externalLink.ExternalLink
@@ -282,22 +312,31 @@ func (r *stmtReader) startChunkDataRequest(chunkIndex int, externalLink *sql.Ext
 			ChunkIndex:  chunkIndex,
 			StatementId: r.StatementId,
 		}
-		res, err := r.stmtExecution.GetStatementResultChunkN(context.TODO(), req)
+		res, err := r.stmtExecution.GetStatementResultChunkN(ctx, req)
 		if err != nil {
 			r.chunkChan <- chunkResponse{
 				chunkIndex: chunkIndex,
 				inner:      nil,
 				err:        err,
 			}
-			return
+			return nil
 		} else {
 			externalLink = &res.ExternalLinks[0]
 			url = externalLink.ExternalLink
 		}
 	}
-	// TODO: must send request headers as well
-	// TODO: use context for cancellation
-	res, err := r.httpClient.Get(url)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	// TODO: more configurable timeouts
+	req.WithContext(ctx)
+	for k, v := range externalLink.HttpHeaders {
+		req.Header.Set(k, v)
+	}
+	res, err := r.httpClient.Do(req)
+
 	chunkBodyReader, err := ipc.NewReader(res.Body)
 	chunkRecordReader := array.RecordReader(chunkBodyReader)
 	r.chunkChan <- chunkResponse{
@@ -306,4 +345,5 @@ func (r *stmtReader) startChunkDataRequest(chunkIndex int, externalLink *sql.Ext
 		err:        err,
 		reader:     chunkRecordReader,
 	}
+	return ctx.Err()
 }
