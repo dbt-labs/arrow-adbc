@@ -198,10 +198,10 @@ func (cmd *command) ExecuteQuery(ctx context.Context) (array.RecordReader, int64
 	if err != nil {
 		return nil, -1, err
 	}
-	return reader, reader.TotalRowCount, nil
+	return reader, reader.TotalRowCount(), nil
 }
 
-func (cmd *command) executeQueryInternal(ctx context.Context) (*reader, error) {
+func (cmd *command) executeQueryInternal(ctx context.Context) (*cmdReader, error) {
 	ce := cmd.conn.CommandExecution()
 	executor, err := ce.Start(ctx, cmd.conn.client.Config.ClusterID, compute.LanguageSql)
 	if err != nil {
@@ -218,7 +218,7 @@ func (cmd *command) executeQueryInternal(ctx context.Context) (*reader, error) {
 			Msg:  fmt.Sprintf("[Databricks] failed to execute command: %s", err),
 		}
 	}
-	
+
 	for {
 		switch res.ResultType {
 		case compute.ResultTypeTable:
