@@ -328,7 +328,6 @@ func (rb *RecordBuilder) Release() {
 func BuildFromRows(schema *arrow.Schema, rows []interface{}) (arrow.Record, error) {
 	rb := NewRecordBuilder(schema)
 	defer rb.Release()
-
 	for _, row := range rows {
 		if err := rb.Append(row.([]interface{})); err != nil {
 			return nil, err

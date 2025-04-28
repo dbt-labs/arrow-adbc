@@ -20,6 +20,7 @@ package databricks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -146,6 +147,16 @@ func newRecordReader(
 		go r.startChunkDataRequest(ctx, r.loadingChunkIdx, &result.ExternalLinks[0])
 	} else {
 		// Establish INVARIANT II by finishing the entire iteration process
+		// For null result, return an empty record with a single string column
+		fields := []arrow.Field{{Name: "text", Type: arrow.BinaryTypes.String, Nullable: true}}
+		schema := arrow.NewSchema(fields, nil)
+		r.schema = schema
+
+		rows := make([]interface{}, 1)
+		row := make([]interface{}, 1)
+		row[0] = "empty result"
+		rows[0] = row
+		r.rec, r.err = BuildFromRows(schema, rows)
 		close(r.chunkChan)
 		r.loadingChunkIdx = -1
 		r.cancelFn()
