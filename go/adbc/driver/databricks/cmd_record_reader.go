@@ -25,7 +25,6 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/databricks/databricks-sdk-go/service/compute"
 )
 type cmdReader struct {
@@ -129,8 +128,8 @@ func NewCommandRecordReader(
 		// For text result, return an empty record with a single string column
 		fields := []arrow.Field{{Name: "text", Type: arrow.BinaryTypes.String, Nullable: true}}
 		schema := arrow.NewSchema(fields, nil)
-		cols := []arrow.Array{array.NewNull(0)}
-		r.rec = array.NewRecord(schema, cols, 0)
+		rows := result.Data.([]interface{})
+		r.rec, r.err = BuildFromRows(schema, rows)
 	} else {
 		r.err = adbc.Error{
 			Code: adbc.StatusInternal,
