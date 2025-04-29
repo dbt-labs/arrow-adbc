@@ -20,7 +20,6 @@ package databricks
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -131,7 +130,7 @@ func newRecordReader(
 		chunkChan:       make(chan chunkResponse),
 		activeChunk:     nil,
 
-		schema: nil, // TODO: build schema when there are no chunks
+		schema: nil,
 		rec:    nil,
 		err:    nil,
 
@@ -147,16 +146,7 @@ func newRecordReader(
 		go r.startChunkDataRequest(ctx, r.loadingChunkIdx, &result.ExternalLinks[0])
 	} else {
 		// Establish INVARIANT II by finishing the entire iteration process
-		// For null result, return an empty record with a single string column
-		fields := []arrow.Field{{Name: "text", Type: arrow.BinaryTypes.String, Nullable: true}}
-		schema := arrow.NewSchema(fields, nil)
-		r.schema = schema
-
-		rows := make([]interface{}, 1)
-		row := make([]interface{}, 1)
-		row[0] = "empty result"
-		rows[0] = row
-		r.rec, r.err = BuildFromRows(schema, rows)
+		// For null result, we return an empty schema
 		close(r.chunkChan)
 		r.loadingChunkIdx = -1
 		r.cancelFn()
@@ -239,7 +229,8 @@ func (r *stmt_reader) Schema() *arrow.Schema {
 	if r.schema == nil {
 		if r.activeChunk == nil {
 			if r.loadingChunkIdx == -1 {
-				return nil // TODO: need to derive schema from the JSON manifest :(
+				// For null result, we return an empty schema
+				return arrow.NewSchema(make([]arrow.Field, 0), nil)
 			}
 			chunk, err := r.consumeLoadingChunk(context.TODO())
 			if err != nil {
