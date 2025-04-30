@@ -35,7 +35,7 @@ type cmdReader struct {
 	// Command Execution that this reader is associated with.
 	CommandId string
 
-	CommandResult *compute.Results
+	Results *compute.Results
 
 	rec arrow.Record
 	err error
