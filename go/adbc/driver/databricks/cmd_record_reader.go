@@ -21,18 +21,18 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/databricks/databricks-sdk-go/service/compute"
 )
+
 type cmdReader struct {
 	refCount int64
 
 	cmdExecution  compute.CommandExecutionInterface
 
-	// Statement that this reader is associated with.
+	// Command Execution that this reader is associated with.
 	CommandId string
 
 	CommandResult *compute.Results
@@ -42,15 +42,6 @@ type cmdReader struct {
 	schema *arrow.Schema
 	rec_read bool
 	cancelFn context.CancelFunc	
-	
-	// Statistics
-
-	// Reader's start time.
-	startTime time.Time
-	// All the bytes received from the server.
-	BytesReceived int64
-	// Time spent waiting for the server to respond in the foreground.
-	WaitTime time.Duration
 }
 
 func DeriveSchema(dbx_schema []map[string]interface{}) *arrow.Schema {
@@ -75,6 +66,7 @@ func DeriveSchema(dbx_schema []map[string]interface{}) *arrow.Schema {
 		case "date":
 			arrowType = arrow.FixedWidthTypes.Date32
 		default:
+			// FIXME: expand the set of suppported DBRX types
 			arrowType = arrow.BinaryTypes.String
 		}
 		fields[i] = arrow.Field{
@@ -104,10 +96,6 @@ func NewCommandRecordReader(
 		rec_read: false,
 
 		cancelFn: func() {},
-
-		startTime:     time.Now(),
-		BytesReceived: 1,
-		WaitTime:      0,
 	}
 
 	// For command execution, we need to convert the result to an Arrow record
@@ -178,10 +166,4 @@ func (r *cmdReader) TotalRowCount() int64 {
 
 func (r *cmdReader) Schema() *arrow.Schema {
 	return r.schema
-}
-
-func (r *cmdReader) Throughput() float64 {
-	elapsed := time.Since(r.startTime)
-	elapsedSeconds := elapsed.Seconds()
-	return float64(r.BytesReceived) / elapsedSeconds
 }

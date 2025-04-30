@@ -20,7 +20,6 @@ package databricks
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
@@ -45,25 +44,6 @@ type command struct {
 }
 
 func NewCommand(conn *connectionImpl) (adbc.Statement, error) {
-	cluster, err := conn.client.Clusters.Get(context.Background(), compute.GetClusterRequest{
-		ClusterId: conn.client.Config.ClusterID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if cluster.State == compute.StateTerminated || cluster.State == compute.StateTerminating {
-		wait, err := conn.client.Clusters.Start(context.Background(), compute.StartCluster{
-			ClusterId: conn.client.Config.ClusterID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		_, err = wait.Get()
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return &command{
 		alloc: conn.Alloc,
 		conn:  conn,
@@ -71,7 +51,7 @@ func NewCommand(conn *connectionImpl) (adbc.Statement, error) {
 			Command:   "",
 			Language:  compute.LanguageSql,
 			ClusterId: conn.client.Config.ClusterID,
-			ContextId: fmt.Sprint(time.Now().UnixNano()),
+			ContextId: conn.contextId,
 		},
 	}, nil
 }
@@ -229,7 +209,7 @@ func (cmd *command) executeQueryInternal(ctx context.Context) (*cmdReader, error
 		case compute.ResultTypeError:
 			return nil, adbc.Error{
 				Code: adbc.StatusUnknown,
-				Msg:  fmt.Sprintf("[Databricks] command execution failed: %s", res.Error),
+				Msg:  fmt.Sprintf("[Databricks] command execution failed: %s", res.Error()),
 			}
 		default:
 			return nil, adbc.Error{
@@ -237,13 +217,6 @@ func (cmd *command) executeQueryInternal(ctx context.Context) (*cmdReader, error
 				Msg:  fmt.Sprintf("[Databricks] Unexpected command result type: %s", res.ResultType),
 			}
 		}
-	}
-}
-
-func unexpectedCommandState(state compute.CommandStatus) error {
-	return adbc.Error{
-		Code: adbc.StatusInternal,
-		Msg:  fmt.Sprintf("[Databricks] Unexpected command state: %s", state),
 	}
 }
 
@@ -274,11 +247,10 @@ func (cmd *command) ExecuteUpdate(ctx context.Context) (int64, error) {
 		}
 	}
 
-	// If the command has a result, it's a query, not an update
-	if res.Data != nil {
+	if res.ResultType == compute.ResultTypeError {
 		return -1, adbc.Error{
-			Code: adbc.StatusInvalidState,
-			Msg:  "ExecuteUpdate called with a query that returns results",
+			Code: adbc.StatusUnknown,
+			Msg:  fmt.Sprintf("[Databricks] command execution failed: %s", res.Error()),
 		}
 	}
 
@@ -290,10 +262,7 @@ func (cmd *command) ExecuteUpdate(ctx context.Context) (int64, error) {
 // multiple times. This invalidates any prior result sets.
 func (cmd *command) Prepare(ctx context.Context) error {
 	// CommandExecution API doesn't support prepared statements
-	return adbc.Error{
-		Code: adbc.StatusNotImplemented,
-		Msg:  "Prepare not yet implemented for Databricks CommandExecution API",
-	}
+	return nil
 }
 
 // SetSubstraitPlan sets a Substrait plan to be executed.
