@@ -75,11 +75,12 @@ func DeriveSchema(dbx_schema []map[string]interface{}) *arrow.Schema {
 			Nullable: true,
 		}
 	}
+	// TODO: include relevant metadata from dbrx into the Arrow schema
 	return arrow.NewSchema(fields, nil)
 }
 
 func NewCommandRecordReader(
-	cmdExecution compute.CommandExecutionInterface, commandId string, result *compute.Results) (*cmdReader, error) {
+	cmdExecution compute.CommandExecutionInterface, commandId string, results *compute.Results) (*cmdReader, error) {
 	// Convert the Databricks schema to an Arrow schema
 	schema := DeriveSchema(result.Schema)
 	r := &cmdReader{
@@ -87,8 +88,8 @@ func NewCommandRecordReader(
 
 		cmdExecution: cmdExecution,
 
-		CommandId:     commandId,
-		CommandResult: result,
+		CommandId: commandId,
+		Results:   results,
 
 		schema: schema,
 		rec:    nil,
@@ -107,7 +108,7 @@ func NewCommandRecordReader(
 			r.rec, r.err = BuildFromRows(schema, rows)
 		default:
 			r.err = adbc.Error{
-				Code: adbc.StatusInternal,
+				Code: adbc.StatusInvalidData,
 				Msg:  fmt.Sprintf("Unexpected command result type: %T", result.Data),
 			}
 		}
@@ -120,7 +121,7 @@ func NewCommandRecordReader(
 		r.rec, r.err = BuildFromRows(schema, rows)
 	} else {
 		r.err = adbc.Error{
-			Code: adbc.StatusInternal,
+			Code: adbc.StatusInvalidData,
 			Msg:  fmt.Sprintf("Unexpected command result type: %s", result.ResultType),
 		}
 	}
