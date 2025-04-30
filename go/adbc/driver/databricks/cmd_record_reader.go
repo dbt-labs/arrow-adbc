@@ -82,7 +82,7 @@ func DeriveSchema(dbx_schema []map[string]interface{}) *arrow.Schema {
 func NewCommandRecordReader(
 	cmdExecution compute.CommandExecutionInterface, commandId string, results *compute.Results) (*cmdReader, error) {
 	// Convert the Databricks schema to an Arrow schema
-	schema := DeriveSchema(result.Schema)
+	schema := DeriveSchema(results.Schema)
 	r := &cmdReader{
 		refCount: 1,
 
@@ -99,45 +99,49 @@ func NewCommandRecordReader(
 		cancelFn: func() {},
 	}
 
-	// For command execution, we need to convert the result to an Arrow record
-	if result.ResultType == compute.ResultTypeTable {
+	return r, nil
+}
 
-		switch result.Data.(type) {
+func (r *cmdReader) setRecord() {
+	// For command execution, we need to convert the result to an Arrow record
+	results := r.Results
+	if results.ResultType == compute.ResultTypeTable {
+		switch results.Data.(type) {
 		case []interface{}:
-			rows := result.Data.([]interface{})
-			r.rec, r.err = BuildFromRows(schema, rows)
+			rows := results.Data.([]interface{})
+			r.rec, r.err = BuildFromRows(r.schema, rows)
 		default:
 			r.err = adbc.Error{
 				Code: adbc.StatusInvalidData,
-				Msg:  fmt.Sprintf("Unexpected command result type: %T", result.Data),
+				Msg:  fmt.Sprintf("Unexpected command result type: %T", results.Data),
 			}
 		}
 
-	} else if result.ResultType == compute.ResultTypeText {
+	} else if results.ResultType == compute.ResultTypeText {
 		// For text result, return an empty record with a single string column
 		fields := []arrow.Field{{Name: "text", Type: arrow.BinaryTypes.String, Nullable: true}}
 		schema := arrow.NewSchema(fields, nil)
-		rows := result.Data.([]interface{})
+		rows := results.Data.([]interface{})
 		r.rec, r.err = BuildFromRows(schema, rows)
 	} else {
 		r.err = adbc.Error{
 			Code: adbc.StatusInvalidData,
-			Msg:  fmt.Sprintf("Unexpected command result type: %s", result.ResultType),
+			Msg:  fmt.Sprintf("Unexpected command result type: %s", results.ResultType),
 		}
 	}
-
-	return r, nil
 }
 
 // \post: if returns true, r.Record() != nil && r.err == nil
 // \post: if returns false, r.Record() == nil and r.err *MUST* be checked
 func (r *cmdReader) Next() bool {
-	if r.rec_read {
-		return false
+	if r.rec == nil {
+		r.setRecord()
+		return true
 	}
-	r.rec_read = true
-	return true
+	r.Release()
+	return false
 }
+
 func (r *cmdReader) Record() arrow.Record {
 	return r.rec
 }
@@ -162,7 +166,10 @@ func (r *cmdReader) Release() {
 }
 
 func (r *cmdReader) TotalRowCount() int64 {
-	return r.rec.NumRows()
+	if r.Results.ResultType == compute.ResultTypeTable {
+		return int64(len(r.Results.Data.([]interface{})))
+	}
+	return 0
 }
 
 func (r *cmdReader) Schema() *arrow.Schema {
