@@ -47,6 +47,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 	conn := &connectionImpl{
 		ConnectionImplBase:     driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 		authType:               d.authType,
+		accessToken:            d.accessToken,
 		credentials:            d.credentials,
 		clientID:               d.clientID,
 		clientSecret:           d.clientSecret,

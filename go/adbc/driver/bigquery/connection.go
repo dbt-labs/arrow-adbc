@@ -456,6 +456,8 @@ func (c *connectionImpl) GetOption(key string) (string, error) {
 		return c.authType, nil
 	case OptionStringAuthCredentials:
 		return c.credentials, nil
+	case OptionStringAuthAccessToken:
+		return c.accessToken, nil
 	case OptionStringAuthClientID:
 		return c.clientID, nil
 	case OptionStringAuthClientSecret:
