@@ -29,6 +29,7 @@ type databaseImpl struct {
 	driverbase.DatabaseImplBase
 
 	authType              string
+	accessToken           string
 	credentials           string
 	clientID              string
 	clientSecret          string

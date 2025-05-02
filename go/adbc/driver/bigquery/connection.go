@@ -45,6 +45,7 @@ type connectionImpl struct {
 	driverbase.ConnectionImplBase
 
 	authType              string
+	accessToken           string
 	credentials           string
 	clientID              string
 	clientSecret          string
