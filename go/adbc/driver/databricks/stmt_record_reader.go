@@ -228,7 +228,8 @@ func (r *statementReader) Schema() *arrow.Schema {
 	if r.schema == nil {
 		if r.activeChunk == nil {
 			if r.loadingChunkIdx == -1 {
-				// For null result, we return an empty schema
+				// TODO: need to derive schema from the JSON manifest :(
+				// For now if we don't have a chunk, we return an empty schema
 				return arrow.NewSchema(make([]arrow.Field, 0), nil)
 			}
 			chunk, err := r.consumeLoadingChunk(context.TODO())
