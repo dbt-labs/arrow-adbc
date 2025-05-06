@@ -146,7 +146,6 @@ func newRecordReader(
 		go r.startChunkDataRequest(ctx, r.loadingChunkIdx, &result.ExternalLinks[0])
 	} else {
 		// Establish INVARIANT II by finishing the entire iteration process
-		// For null result, we return an empty schema
 		close(r.chunkChan)
 		r.loadingChunkIdx = -1
 		r.cancelFn()

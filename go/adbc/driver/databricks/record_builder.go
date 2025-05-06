@@ -254,7 +254,7 @@ func (b *DecimalColumnBuilder) Builder() array.Builder {
 }
 
 
-// RecordBuilder handles building Arrow records from arrays of data
+// RecordBuilder handles building Arrow record batches from arrays of rows
 type RecordBuilder struct {
 	schema   *arrow.Schema
 	mem      memory.Allocator
