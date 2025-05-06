@@ -282,7 +282,7 @@ func NewRecordBuilder(schema *arrow.Schema) *RecordBuilder {
 			}
 		case arrow.TIMESTAMP:
 			builders[i] = &TimestampColumnBuilder{
-				builder: array.NewTimestampBuilder(mem, &arrow.TimestampType{Unit: arrow.Second}),
+				builder: array.NewTimestampBuilder(mem, field.Type.(*arrow.TimestampType)),
 			}
 		case arrow.DATE32:
 			builders[i] = &Date32ColumnBuilder{
