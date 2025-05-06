@@ -76,8 +76,8 @@ func DeriveSchema(dbx_schema []map[string]interface{}) (*arrow.Schema, error) {
 			case strings.HasPrefix(colType, "decimal"):
 				// Parse decimal precision and scale from format "decimal(precision,scale)"
 				if matches := regexp.MustCompile(`decimal\((\d+),(\d+)\)`).FindStringSubmatch(colType); matches != nil {
-					precision, _ := strconv.Atoi(matches[1])
-					scale, _ := strconv.Atoi(matches[2]) 
+					precision, _ := strconv.ParseInt(matches[1], 10, 32)
+					scale, _ := strconv.ParseInt(matches[2], 10, 32)
 					arrowType = &arrow.Decimal256Type{Precision: int32(precision), Scale: int32(scale)}
 				} else {
 					arrowType = &arrow.Decimal256Type{}
