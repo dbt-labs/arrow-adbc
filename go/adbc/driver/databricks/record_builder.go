@@ -38,12 +38,6 @@ type Int32ColumnBuilder struct {
 	builder *array.Int32Builder
 }
 
-func NewInt32ColumnBuilder(mem memory.Allocator) *Int32ColumnBuilder {
-	return &Int32ColumnBuilder{
-		builder: array.NewInt32Builder(mem),
-	}
-}
-
 // the go value type can be float even if the DBX schema type is integer
 func (b *Int32ColumnBuilder) Append(value interface{}) bool {
 	switch v := value.(type) {
@@ -70,12 +64,6 @@ func (b *Int32ColumnBuilder) Builder() array.Builder {
 // Int64ColumnBuilder handles generating int64 arrow arrays from DBX int64 values
 type Int64ColumnBuilder struct {
 	builder *array.Int64Builder
-}
-
-func NewInt64ColumnBuilder(mem memory.Allocator) *Int64ColumnBuilder {
-	return &Int64ColumnBuilder{
-		builder: array.NewInt64Builder(mem),
-	}
 }
 
 // the go value type can be float even if the DBX schema type is integer
