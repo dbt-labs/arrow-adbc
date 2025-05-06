@@ -43,7 +43,7 @@ type commandReader struct {
 	rec      arrow.Record
 	err      error
 	schema   *arrow.Schema
-	rec_read bool
+
 	cancelFn context.CancelFunc
 }
 
@@ -114,7 +114,6 @@ func NewCommandRecordReader(
 		schema:   schema,
 		rec:      nil,
 		err:      nil,
-		rec_read: false,
 
 		cancelFn: func() {},
 	}
