@@ -20,6 +20,9 @@ package databricks
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -27,47 +30,61 @@ import (
 	"github.com/databricks/databricks-sdk-go/service/compute"
 )
 
-type cmdReader struct {
+type commandReader struct {
 	refCount int64
 
-	cmdExecution  compute.CommandExecutionInterface
+	cmdExecution compute.CommandExecutionInterface
 
 	// Command Execution that this reader is associated with.
 	CommandId string
 
 	Results *compute.Results
 
-	rec arrow.Record
-	err error
-	schema *arrow.Schema
+	rec      arrow.Record
+	err      error
+	schema   *arrow.Schema
 	rec_read bool
-	cancelFn context.CancelFunc	
+	cancelFn context.CancelFunc
 }
 
-func DeriveSchema(dbx_schema []map[string]interface{}) *arrow.Schema {
+func DeriveSchema(dbx_schema []map[string]interface{}) (*arrow.Schema, error) {
 	fields := make([]arrow.Field, len(dbx_schema))
 	for i, col := range dbx_schema {
 		var arrowType arrow.DataType
-		switch col["type"] {
-		case "string":
-			arrowType = arrow.BinaryTypes.String
-		case "int":
-			arrowType = arrow.PrimitiveTypes.Int32
-		case "long":
-			arrowType = arrow.PrimitiveTypes.Int64
-		case "float":
-			arrowType = arrow.PrimitiveTypes.Float32
-		case "double":
-			arrowType = arrow.PrimitiveTypes.Float64
-		case "boolean":
-			arrowType = arrow.FixedWidthTypes.Boolean
-		case "timestamp":
-			arrowType = arrow.FixedWidthTypes.Timestamp_us
-		case "date":
-			arrowType = arrow.FixedWidthTypes.Date32
-		default:
-			// FIXME: expand the set of suppported DBRX types
-			arrowType = arrow.BinaryTypes.String
+		colType := strings.Trim(col["type"].(string), "\"")
+		switch {
+			case colType == "int":
+				arrowType = arrow.PrimitiveTypes.Int32
+			case colType == "integer":
+				arrowType = arrow.PrimitiveTypes.Int32
+			case colType == "string":
+				arrowType = arrow.BinaryTypes.String
+			case colType == "short":
+				arrowType = arrow.PrimitiveTypes.Int16
+			case colType == "long":
+				arrowType = arrow.PrimitiveTypes.Int64
+			case colType == "float":
+				arrowType = arrow.PrimitiveTypes.Float32
+			case colType == "double":
+				arrowType = arrow.PrimitiveTypes.Float64
+			case colType == "boolean":
+				arrowType = arrow.FixedWidthTypes.Boolean
+			case colType == "timestamp":
+				arrowType = &arrow.TimestampType{Unit: arrow.Second}
+			case colType == "date":
+				arrowType = arrow.FixedWidthTypes.Date32
+			case strings.HasPrefix(colType, "decimal"):
+				// Parse decimal precision and scale from format "decimal(precision,scale)"
+				if matches := regexp.MustCompile(`decimal\((\d+),(\d+)\)`).FindStringSubmatch(colType); matches != nil {
+					precision, _ := strconv.Atoi(matches[1])
+					scale, _ := strconv.Atoi(matches[2]) 
+					arrowType = &arrow.Decimal256Type{Precision: int32(precision), Scale: int32(scale)}
+				} else {
+					arrowType = &arrow.Decimal256Type{}
+				}
+			default:
+				err := fmt.Errorf("unsupported type: %v", colType)
+				return nil, err
 		}
 		fields[i] = arrow.Field{
 			Name:     col["name"].(string),
@@ -76,14 +93,17 @@ func DeriveSchema(dbx_schema []map[string]interface{}) *arrow.Schema {
 		}
 	}
 	// TODO: include relevant metadata from dbrx into the Arrow schema
-	return arrow.NewSchema(fields, nil)
+	return arrow.NewSchema(fields, nil), nil
 }
 
 func NewCommandRecordReader(
-	cmdExecution compute.CommandExecutionInterface, commandId string, results *compute.Results) (*cmdReader, error) {
+	cmdExecution compute.CommandExecutionInterface, commandId string, results *compute.Results) (*commandReader, error) {
 	// Convert the Databricks schema to an Arrow schema
-	schema := DeriveSchema(results.Schema)
-	r := &cmdReader{
+	schema, err := DeriveSchema(results.Schema)
+	if err != nil {
+		return nil, err
+	}
+	r := &commandReader{
 		refCount: 1,
 
 		cmdExecution: cmdExecution,
@@ -91,9 +111,9 @@ func NewCommandRecordReader(
 		CommandId: commandId,
 		Results:   results,
 
-		schema: schema,
-		rec:    nil,
-		err:    nil,
+		schema:   schema,
+		rec:      nil,
+		err:      nil,
 		rec_read: false,
 
 		cancelFn: func() {},
@@ -102,7 +122,7 @@ func NewCommandRecordReader(
 	return r, nil
 }
 
-func (r *cmdReader) setRecord() {
+func (r *commandReader) setRecord() {
 	// For command execution, we need to convert the result to an Arrow record
 	results := r.Results
 	if results.ResultType == compute.ResultTypeTable {
@@ -133,28 +153,30 @@ func (r *cmdReader) setRecord() {
 
 // \post: if returns true, r.Record() != nil && r.err == nil
 // \post: if returns false, r.Record() == nil and r.err *MUST* be checked
-func (r *cmdReader) Next() bool {
+func (r *commandReader) Next() bool {
+	
 	if r.rec == nil {
 		r.setRecord()
-		return true
+		if r.err == nil {
+			return true
+		}
 	}
-	r.Release()
 	return false
 }
 
-func (r *cmdReader) Record() arrow.Record {
+func (r *commandReader) Record() arrow.Record {
 	return r.rec
 }
 
-func (r *cmdReader) Err() error {
+func (r *commandReader) Err() error {
 	return r.err
 }
 
-func (r *cmdReader) Retain() {
+func (r *commandReader) Retain() {
 	atomic.AddInt64(&r.refCount, 1)
 }
 
-func (r *cmdReader) Release() {
+func (r *commandReader) Release() {
 	if atomic.AddInt64(&r.refCount, -1) == 0 {
 		if r.rec != nil {
 			r.rec.Release()
@@ -165,13 +187,13 @@ func (r *cmdReader) Release() {
 	}
 }
 
-func (r *cmdReader) TotalRowCount() int64 {
+func (r *commandReader) TotalRowCount() int64 {
 	if r.Results.ResultType == compute.ResultTypeTable {
 		return int64(len(r.Results.Data.([]interface{})))
 	}
 	return 0
 }
 
-func (r *cmdReader) Schema() *arrow.Schema {
+func (r *commandReader) Schema() *arrow.Schema {
 	return r.schema
 }

@@ -169,7 +169,6 @@ func (conn *connectionImpl) GetTablesForDBSchema(ctx context.Context, catalog st
 	return res, nil
 }
 
-// }}}
 
 // NewStatement initializes a new statement object tied to this connection
 func (conn *connectionImpl) NewStatement() (adbc.Statement, error) {
@@ -197,15 +196,15 @@ func (conn *connectionImpl) ensureClusterContext() (error) {
 	if conn.contextId != "" {
 		return nil
 	}
-	
-	// Otherwise, check the cluster state, if it's terminated or terminating, start it
+	// Otherwise, check the cluster state, if it's not running, start it
 	cluster, err := conn.client.Clusters.Get(context.Background(), compute.GetClusterRequest{
 		ClusterId: conn.client.Config.ClusterID,
 	})
 	if err != nil {
 		return err
 	}
-	if cluster.State == compute.StateTerminated || cluster.State == compute.StateTerminating {
+	if cluster.State != compute.StateRunning {
+		// Start() is idempotent, so it's safe to call it if the cluster is already running or pending
 		wait, err := conn.client.Clusters.Start(context.Background(), compute.StartCluster{
 			ClusterId: conn.client.Config.ClusterID,
 		})

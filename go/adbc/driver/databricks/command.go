@@ -173,7 +173,6 @@ func (cmd *command) ExecuteQuery(ctx context.Context) (array.RecordReader, int64
 			Msg:  "ExecuteQuery called before SetSqlQuery",
 		}
 	}
-
 	reader, err := cmd.executeQueryInternal(ctx)
 	if err != nil {
 		return nil, -1, err
@@ -181,7 +180,7 @@ func (cmd *command) ExecuteQuery(ctx context.Context) (array.RecordReader, int64
 	return reader, reader.TotalRowCount(), nil
 }
 
-func (cmd *command) executeQueryInternal(ctx context.Context) (*cmdReader, error) {
+func (cmd *command) executeQueryInternal(ctx context.Context) (*commandReader, error) {
 	ce := cmd.conn.CommandExecution()
 	executor, err := ce.Start(ctx, cmd.conn.client.Config.ClusterID, compute.LanguageSql)
 	if err != nil {
