@@ -36,6 +36,8 @@ categories = ["database"]
 [workspace.dependencies]
 adbc_core = { path = "./core", version = "0.20.0" }
 adbc_driver_manager = { path = "./driver_manager", version = "0.20.0" }
+
+# Arrow dependencies (can be older than what Datafusion requires)
 arrow-array = { version = ">=53.1.0, <57", default-features = false, features = [
     "ffi",
 ] }
