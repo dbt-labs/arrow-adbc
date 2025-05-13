@@ -38,6 +38,7 @@ driver_manager = ["dep:libloading"]
 arrow-array.workspace = true
 arrow-schema.workspace = true
 libloading = { version = "0.8", optional = true }
+libc = { version = "0.2.170" }
 
 [dev-dependencies]
 arrow-select.workspace = true

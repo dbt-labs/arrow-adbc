@@ -112,6 +112,7 @@ use arrow_array::ffi::{to_ffi, FFI_ArrowSchema};
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use arrow_array::{Array, RecordBatch, RecordBatchReader, StructArray};
 
+use crate::ffi::signal::SignalStackGuard;
 use crate::{
     error::{Error, Status},
     options::{self, AdbcVersion, InfoCode, OptionValue},
@@ -445,6 +446,7 @@ struct ManagedDatabaseInner {
 
 impl Drop for ManagedDatabaseInner {
     fn drop(&mut self) {
+        let _ = SignalStackGuard::new();
         let driver = &self.driver.driver;
         let mut database = self.database.lock().unwrap();
         let method = driver_method!(driver, DatabaseRelease);
@@ -659,6 +661,7 @@ struct ManagedConnectionInner {
 
 impl Drop for ManagedConnectionInner {
     fn drop(&mut self) {
+        let _ = SignalStackGuard::new();
         let driver = &self.database.driver.driver;
         let mut connection = self.connection.lock().unwrap();
         let method = driver_method!(driver, ConnectionRelease);
@@ -1306,6 +1309,7 @@ impl Optionable for ManagedStatement {
 
 impl Drop for ManagedStatement {
     fn drop(&mut self) {
+        let _ = SignalStackGuard::new();
         let driver = self.ffi_driver();
         let mut statement = self.inner.statement.lock().unwrap();
         let method = driver_method!(driver, StatementRelease);
