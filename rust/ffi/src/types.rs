@@ -28,6 +28,7 @@ use adbc_core::{
     error::{AdbcStatusCode, Error, Status},
     Partitions,
 };
+use crate::signal::SignalStackGuard;
 
 /// A driver initialization function.
 pub type FFI_AdbcDriverInitFunc =
@@ -578,6 +579,7 @@ unsafe extern "C" fn release_ffi_error(error: *mut FFI_AdbcError) {
 impl Drop for FFI_AdbcError {
     fn drop(&mut self) {
         if let Some(release) = self.release {
+            let _ = SignalStackGuard::new();
             unsafe { release(self) };
         }
     }
@@ -586,6 +588,7 @@ impl Drop for FFI_AdbcError {
 impl Drop for FFI_AdbcDriver {
     fn drop(&mut self) {
         if let Some(release) = self.release {
+            let _ = SignalStackGuard::new();
             // TODO(alexandreyc): how should we handle `release` failing?
             // See: https://github.com/apache/arrow-adbc/pull/1742#discussion_r1574388409
             unsafe { release(self, null_mut()) };
@@ -596,6 +599,7 @@ impl Drop for FFI_AdbcDriver {
 impl Drop for FFI_AdbcPartitions {
     fn drop(&mut self) {
         if let Some(release) = self.release {
+            let _ = SignalStackGuard::new();
             unsafe { release(self) };
         }
     }

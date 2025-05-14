@@ -63,6 +63,7 @@ dependencies = [
  "adbc_core",
  "arrow-array",
  "arrow-schema",
+ "libc",
 ]
 
 [[package]]
