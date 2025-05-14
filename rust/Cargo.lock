@@ -9,6 +9,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "arrow-select",
+ "libc",
  "libloading",
 ]
 
