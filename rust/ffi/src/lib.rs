@@ -45,6 +45,7 @@ pub mod options;
 #[doc(hidden)]
 pub use driver_exporter::FFIDriver;
 pub mod methods;
+pub mod signal;
 pub(crate) mod types;
 pub use types::{
     FFI_AdbcConnection, FFI_AdbcDatabase, FFI_AdbcDriver, FFI_AdbcDriverInitFunc, FFI_AdbcError,
