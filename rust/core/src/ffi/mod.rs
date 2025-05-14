@@ -19,6 +19,7 @@
 
 pub mod constants;
 pub mod methods;
+pub(crate) mod signal;
 pub(crate) mod types;
 pub use types::{
     driver_method, FFI_AdbcConnection, FFI_AdbcDatabase, FFI_AdbcDriver, FFI_AdbcDriverInitFunc,

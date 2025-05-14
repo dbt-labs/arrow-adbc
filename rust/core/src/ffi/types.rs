@@ -22,6 +22,7 @@ use std::mem::ManuallyDrop;
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr::{null, null_mut};
 
+use super::signal::SignalStackGuard;
 use super::{constants, methods};
 use crate::{
     error::{Error, Status},
@@ -637,6 +638,7 @@ unsafe extern "C" fn release_ffi_error(error: *mut FFI_AdbcError) {
 impl Drop for FFI_AdbcError {
     fn drop(&mut self) {
         if let Some(release) = self.release {
+            let _ = SignalStackGuard::new();
             unsafe { release(self) };
         }
     }
@@ -645,6 +647,7 @@ impl Drop for FFI_AdbcError {
 impl Drop for FFI_AdbcDriver {
     fn drop(&mut self) {
         if let Some(release) = self.release {
+            let _ = SignalStackGuard::new();
             // TODO(alexandreyc): how should we handle `release` failing?
             // See: https://github.com/apache/arrow-adbc/pull/1742#discussion_r1574388409
             unsafe { release(self, null_mut()) };
@@ -655,6 +658,7 @@ impl Drop for FFI_AdbcDriver {
 impl Drop for FFI_AdbcPartitions {
     fn drop(&mut self) {
         if let Some(release) = self.release {
+            let _ = SignalStackGuard::new();
             unsafe { release(self) };
         }
     }

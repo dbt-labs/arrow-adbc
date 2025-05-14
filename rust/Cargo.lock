@@ -8,6 +8,9 @@ version = "0.20.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "arrow-select",
+ "libc",
+ "libloading",
 ]
 
 [[package]]
