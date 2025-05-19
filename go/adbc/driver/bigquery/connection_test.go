@@ -2,6 +2,7 @@ package bigquery
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 

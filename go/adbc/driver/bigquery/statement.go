@@ -20,6 +20,7 @@ package bigquery
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -51,6 +52,11 @@ type statement struct {
 	streamBinding          array.RecordReader
 	resultRecordBufferSize int
 	prefetchConcurrency    int
+
+	// Ingest related fields
+	isIngest     bool
+	ingestPath   string
+	ingestFileDelimiter string
 }
 
 func (st *statement) GetOptionBytes(key string) ([]byte, error) {
@@ -132,6 +138,11 @@ func (st *statement) GetOption(key string) (string, error) {
 		return strconv.FormatBool(st.queryConfig.DryRun), nil
 	case OptionBoolQueryCreateSession:
 		return strconv.FormatBool(st.queryConfig.CreateSession), nil
+	case OptionStringIngestFileDelimiter:
+		return st.ingestFileDelimiter, nil
+	case OptionStringIngestPath:
+		return st.ingestPath, nil
+
 	default:
 		val, err := st.cnxn.GetOption(key)
 		if err == nil {
@@ -248,7 +259,23 @@ func (st *statement) SetOption(key string, v string) error {
 		} else {
 			return err
 		}
-
+	case OptionStringIngestPath:
+		st.isIngest = true
+		st.ingestPath = v
+	case OptionStringIngestFileDelimiter:
+		st.ingestFileDelimiter = v
+	case adbc.OptionKeyIngestMode:
+		switch v {
+		case adbc.OptionValueIngestModeCreateAppend,  adbc.OptionValueIngestModeAppend:
+			st.queryConfig.WriteDisposition = bigquery.WriteAppend
+		case adbc.OptionValueIngestModeReplace:
+			st.queryConfig.WriteDisposition = bigquery.WriteTruncate
+		default:
+			return adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("unsupported ingest mode `%s`", v),
+			}
+		}
 	default:
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
@@ -297,6 +324,10 @@ func (st *statement) SetSqlQuery(query string) error {
 //
 // This invalidates any prior result sets on this statement.
 func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int64, error) {
+	if st.isIngest {
+		return st.executeIngest(ctx)
+	}
+
 	if st.queryConfig.Q == "" {
 		return nil, -1, adbc.Error{
 			Msg:  "cannot execute without a query",
@@ -493,6 +524,121 @@ func arrowDataTypeToTypeKind(field arrow.Field, value arrow.Array) (bigquery.Sta
 			Msg:  fmt.Sprintf("Parameter type %v is not yet implemented for BigQuery driver", value.DataType().ID()),
 		}
 	}
+}
+
+func arrowFieldToBigQueryField(arrowField arrow.Field) (bigquery.FieldSchema, error) {
+	switch arrowField.Type.ID() {
+		case arrow.BOOL:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type: bigquery.StringFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.INT8, arrow.INT16, arrow.INT32, arrow.INT64, arrow.UINT8, arrow.UINT16, arrow.UINT32, arrow.UINT64:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.IntegerFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.FLOAT16, arrow.FLOAT32, arrow.FLOAT64:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.FloatFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.BINARY, arrow.BINARY_VIEW, arrow.LARGE_BINARY, arrow.FIXED_SIZE_BINARY:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.BytesFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.STRING, arrow.STRING_VIEW, arrow.LARGE_STRING:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.StringFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.TIMESTAMP:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.TimestampFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.TIME32, arrow.TIME64:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.TimeFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.DECIMAL128:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.NumericFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.DECIMAL256:
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.BigNumericFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		case arrow.LIST, arrow.LARGE_LIST, arrow.FIXED_SIZE_LIST, arrow.LIST_VIEW, arrow.LARGE_LIST_VIEW:
+			elemField := arrowField.Type.(*arrow.ListType).ElemField()
+			elemType, err := arrowFieldToBigQueryField(elemField)
+			if err != nil {
+				return bigquery.FieldSchema{}, err
+			}
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     elemType.Type,
+				Required: !arrowField.Nullable,
+				Repeated: true,
+			}, nil
+		case arrow.STRUCT:
+			// ToDo: implement structs schema generation
+			return bigquery.FieldSchema{
+				Name:     arrowField.Name,
+				Type:     bigquery.RecordFieldType,
+				Required: !arrowField.Nullable,
+			}, nil
+		default:
+			// todo: implement all other types
+			//
+			// - arrow.DURATION
+			//   For arrow.DURATION, I'm not sure which SQL DataType would be a good
+			//   representation for it. `DATETIME` could be a potential one for it,
+			//   if we count from `0000-01-01T00:00:00.000000Z`
+			//
+			// - arrow.INTERVAL_MONTHS
+			// - arrow.INTERVAL_DAY_TIME
+			// - arrow.INTERVAL_MONTH_DAY_NANO
+			//   `DATETIME` could be a potential fit for all interval types, but
+			//   the issue is there's no rules about how many days are in a month.
+			//
+			// - arrow.RUN_END_ENCODED
+			// - arrow.SPARSE_UNION
+			// - arrow.DENSE_UNION
+			// - arrow.DICTIONARY
+			// - arrow.MAP
+			return bigquery.FieldSchema{}, adbc.Error{
+				Code: adbc.StatusNotImplemented,
+				Msg:  fmt.Sprintf("Parameter type %v is not yet implemented for BigQuery driver", arrowField.Type.ID()),
+			}
+	}
+}
+
+// arrowSchemaToBigQuery converts an Arrow schema to a BigQuery schema
+func arrowSchemaToBigQuery(schema *arrow.Schema) (bigquery.Schema, error) {
+	bqSchema := make(bigquery.Schema, len(schema.Fields()))
+	for i, field := range schema.Fields() {
+		bqField, err := arrowFieldToBigQueryField(field)
+		if err != nil {
+			return nil, err
+		}
+
+		bqSchema[i] = &bqField
+	}
+	return bqSchema, nil
 }
 
 func arrowValueToQueryParameterValue(field arrow.Field, value arrow.Array, i int) (bigquery.QueryParameter, error) {
@@ -774,6 +920,68 @@ func (st *statement) ExecutePartitions(ctx context.Context) (*arrow.Schema, adbc
 		Code: adbc.StatusNotImplemented,
 		Msg:  "ExecutePartitions not yet implemented for BigQuery driver",
 	}
+}
+
+func (st *statement) initIngest(ctx context.Context) error {
+	if st.ingestPath == "" {
+		return adbc.Error{
+			Code: adbc.StatusInvalidState,
+			Msg:  "cannot execute ingest without a file path",
+		}
+	}
+
+	// Open the local file
+	file, err := os.Open(st.ingestPath)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	// Create a reader source from the file
+	loadSource := bigquery.NewReaderSource(file)
+	job := st.queryConfig.Dst.LoaderFrom(loadSource)
+
+	// Configure the load job
+	job.WriteDisposition = st.queryConfig.WriteDisposition
+
+	// Set file format configuration
+	job.Src.(*bigquery.ReaderSource).FileConfig.SourceFormat = bigquery.CSV
+	job.Src.(*bigquery.ReaderSource).FileConfig.SkipLeadingRows = 1  // Skip header row
+	job.Src.(*bigquery.ReaderSource).FileConfig.FieldDelimiter = st.ingestFileDelimiter // Default CSV delimiter
+
+	// Convert Arrow schema to BigQuery schema if provided
+	if st.paramBinding != nil {
+		bqSchema, err := arrowSchemaToBigQuery(st.paramBinding.Schema())
+		if err != nil {
+			return fmt.Errorf("failed to convert schema: %w", err)
+		}
+		job.Src.(*bigquery.ReaderSource).FileConfig.Schema = bqSchema
+	}
+
+	// Run the load job
+	_, err = job.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to run load job: %w", err)
+	}
+
+	return nil
+}
+
+func (st *statement) executeIngest(ctx context.Context) (array.RecordReader, int64, error) {
+	err := st.initIngest(ctx)
+	if err != nil {
+		return nil, -1, err
+	}
+
+	// For ingest operations, we return an empty record reader since there's no result set
+	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
+	emptyRecord := array.NewRecord(emptySchema, []arrow.Array{}, 0)
+	reader, err := array.NewRecordReader(emptySchema, []arrow.Record{emptyRecord})
+	if err != nil {
+		return nil, -1, err
+	}
+
+	return reader, 0, nil
 }
 
 var _ adbc.GetSetOptions = (*statement)(nil)
