@@ -81,6 +81,9 @@ const (
 
 	DefaultAccessTokenEndpoint   = "https://accounts.google.com/o/oauth2/token"
 	DefaultAccessTokenServerName = "google.com"
+
+	OptionStringIngestFileDelimiter = "adbc.bigquery.ingest_file_delimiter"
+	OptionStringIngestPath          = "adbc.bigquery.ingest_path"
 )
 
 var (
