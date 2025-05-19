@@ -83,11 +83,11 @@ func TestCustomAccessTokenEndpoint(t *testing.T) {
 
 func TestTemporaryAccessToken_Valid(t *testing.T) {
 	conn := &connectionImpl{
-		authType:     "adbc.bigquery.sql.auth_type.temporary_access_token",
-		catalog:      "test-project-id",
-		dbSchema:     "test-dataset-id",
-		tableID:      "test-table-id",
-		accessToken:  "ya29.fake-access-token-for-test",
+		authType:    "adbc.bigquery.sql.auth_type.temporary_access_token",
+		catalog:     "test-project-id",
+		dbSchema:    "test-dataset-id",
+		tableID:     "test-table-id",
+		accessToken: "ya29.fake-access-token-for-test",
 	}
 
 	err := conn.newClient(context.Background())

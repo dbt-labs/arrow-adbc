@@ -54,8 +54,8 @@ type statement struct {
 	prefetchConcurrency    int
 
 	// Ingest related fields
-	isIngest     bool
-	ingestPath   string
+	isIngest            bool
+	ingestPath          string
 	ingestFileDelimiter string
 }
 
@@ -266,7 +266,7 @@ func (st *statement) SetOption(key string, v string) error {
 		st.ingestFileDelimiter = v
 	case adbc.OptionKeyIngestMode:
 		switch v {
-		case adbc.OptionValueIngestModeCreateAppend,  adbc.OptionValueIngestModeAppend:
+		case adbc.OptionValueIngestModeCreateAppend, adbc.OptionValueIngestModeAppend:
 			st.queryConfig.WriteDisposition = bigquery.WriteAppend
 		case adbc.OptionValueIngestModeReplace:
 			st.queryConfig.WriteDisposition = bigquery.WriteTruncate
@@ -528,102 +528,102 @@ func arrowDataTypeToTypeKind(field arrow.Field, value arrow.Array) (bigquery.Sta
 
 func arrowFieldToBigQueryField(arrowField arrow.Field) (bigquery.FieldSchema, error) {
 	switch arrowField.Type.ID() {
-		case arrow.BOOL:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type: bigquery.StringFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.INT8, arrow.INT16, arrow.INT32, arrow.INT64, arrow.UINT8, arrow.UINT16, arrow.UINT32, arrow.UINT64:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.IntegerFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.FLOAT16, arrow.FLOAT32, arrow.FLOAT64:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.FloatFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.BINARY, arrow.BINARY_VIEW, arrow.LARGE_BINARY, arrow.FIXED_SIZE_BINARY:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.BytesFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.STRING, arrow.STRING_VIEW, arrow.LARGE_STRING:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.StringFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.TIMESTAMP:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.TimestampFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.TIME32, arrow.TIME64:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.TimeFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.DECIMAL128:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.NumericFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.DECIMAL256:
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.BigNumericFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		case arrow.LIST, arrow.LARGE_LIST, arrow.FIXED_SIZE_LIST, arrow.LIST_VIEW, arrow.LARGE_LIST_VIEW:
-			elemField := arrowField.Type.(*arrow.ListType).ElemField()
-			elemType, err := arrowFieldToBigQueryField(elemField)
-			if err != nil {
-				return bigquery.FieldSchema{}, err
-			}
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     elemType.Type,
-				Required: !arrowField.Nullable,
-				Repeated: true,
-			}, nil
-		case arrow.STRUCT:
-			// ToDo: implement structs schema generation
-			return bigquery.FieldSchema{
-				Name:     arrowField.Name,
-				Type:     bigquery.RecordFieldType,
-				Required: !arrowField.Nullable,
-			}, nil
-		default:
-			// todo: implement all other types
-			//
-			// - arrow.DURATION
-			//   For arrow.DURATION, I'm not sure which SQL DataType would be a good
-			//   representation for it. `DATETIME` could be a potential one for it,
-			//   if we count from `0000-01-01T00:00:00.000000Z`
-			//
-			// - arrow.INTERVAL_MONTHS
-			// - arrow.INTERVAL_DAY_TIME
-			// - arrow.INTERVAL_MONTH_DAY_NANO
-			//   `DATETIME` could be a potential fit for all interval types, but
-			//   the issue is there's no rules about how many days are in a month.
-			//
-			// - arrow.RUN_END_ENCODED
-			// - arrow.SPARSE_UNION
-			// - arrow.DENSE_UNION
-			// - arrow.DICTIONARY
-			// - arrow.MAP
-			return bigquery.FieldSchema{}, adbc.Error{
-				Code: adbc.StatusNotImplemented,
-				Msg:  fmt.Sprintf("Parameter type %v is not yet implemented for BigQuery driver", arrowField.Type.ID()),
-			}
+	case arrow.BOOL:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.StringFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.INT8, arrow.INT16, arrow.INT32, arrow.INT64, arrow.UINT8, arrow.UINT16, arrow.UINT32, arrow.UINT64:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.IntegerFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.FLOAT16, arrow.FLOAT32, arrow.FLOAT64:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.FloatFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.BINARY, arrow.BINARY_VIEW, arrow.LARGE_BINARY, arrow.FIXED_SIZE_BINARY:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.BytesFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.STRING, arrow.STRING_VIEW, arrow.LARGE_STRING:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.StringFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.TIMESTAMP:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.TimestampFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.TIME32, arrow.TIME64:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.TimeFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.DECIMAL128:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.NumericFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.DECIMAL256:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.BigNumericFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.LIST, arrow.LARGE_LIST, arrow.FIXED_SIZE_LIST, arrow.LIST_VIEW, arrow.LARGE_LIST_VIEW:
+		elemField := arrowField.Type.(*arrow.ListType).ElemField()
+		elemType, err := arrowFieldToBigQueryField(elemField)
+		if err != nil {
+			return bigquery.FieldSchema{}, err
+		}
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     elemType.Type,
+			Required: !arrowField.Nullable,
+			Repeated: true,
+		}, nil
+	case arrow.STRUCT:
+		// ToDo: implement structs schema generation
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.RecordFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	default:
+		// todo: implement all other types
+		//
+		// - arrow.DURATION
+		//   For arrow.DURATION, I'm not sure which SQL DataType would be a good
+		//   representation for it. `DATETIME` could be a potential one for it,
+		//   if we count from `0000-01-01T00:00:00.000000Z`
+		//
+		// - arrow.INTERVAL_MONTHS
+		// - arrow.INTERVAL_DAY_TIME
+		// - arrow.INTERVAL_MONTH_DAY_NANO
+		//   `DATETIME` could be a potential fit for all interval types, but
+		//   the issue is there's no rules about how many days are in a month.
+		//
+		// - arrow.RUN_END_ENCODED
+		// - arrow.SPARSE_UNION
+		// - arrow.DENSE_UNION
+		// - arrow.DICTIONARY
+		// - arrow.MAP
+		return bigquery.FieldSchema{}, adbc.Error{
+			Code: adbc.StatusNotImplemented,
+			Msg:  fmt.Sprintf("Parameter type %v is not yet implemented for BigQuery driver", arrowField.Type.ID()),
+		}
 	}
 }
 
@@ -946,7 +946,7 @@ func (st *statement) initIngest(ctx context.Context) error {
 
 	// Set file format configuration
 	job.Src.(*bigquery.ReaderSource).FileConfig.SourceFormat = bigquery.CSV
-	job.Src.(*bigquery.ReaderSource).FileConfig.SkipLeadingRows = 1  // Skip header row
+	job.Src.(*bigquery.ReaderSource).FileConfig.SkipLeadingRows = 1                     // Skip header row
 	job.Src.(*bigquery.ReaderSource).FileConfig.FieldDelimiter = st.ingestFileDelimiter // Default CSV delimiter
 
 	// Convert Arrow schema to BigQuery schema if provided

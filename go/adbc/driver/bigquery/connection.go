@@ -508,9 +508,9 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 	}
 	switch c.authType {
 	case OptionValueAuthTypeJSONCredentialFile,
-	    OptionValueAuthTypeJSONCredentialString,
-	    OptionValueAuthTypeUserAuthentication,
-	    OptionValueAuthTypeTemporaryAccessToken:
+		OptionValueAuthTypeJSONCredentialString,
+		OptionValueAuthTypeUserAuthentication,
+		OptionValueAuthTypeTemporaryAccessToken:
 		var credentials option.ClientOption
 
 		switch c.authType {
