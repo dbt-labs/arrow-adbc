@@ -517,7 +517,7 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 			credentials = option.WithCredentialsFile(c.credentials)
 		case OptionValueAuthTypeJSONCredentialString:
 			credentials = option.WithCredentialsJSON([]byte(c.credentials))
-		default:
+		case OptionValueAuthTypeUserAuthentication:
 			if c.clientID == "" {
 				return adbc.Error{
 					Code: adbc.StatusInvalidArgument,
