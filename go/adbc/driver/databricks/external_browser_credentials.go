@@ -81,6 +81,7 @@ const (
 )
 
 // ExternalBrowserCredentials implements CredentialsStrategy for OAuth 2 PKCE flow for external browser authentication
+// https://github.com/databricks/databricks-sdk-go/blob/56af964ae7d5f86bd454dfdba4edac42aac4d19f/config/config.go#L26
 // TODO(jasonlin45): add os/fs based caching for multi-driver concurrency scenarios and session persistence
 type ExternalBrowserCredentials struct {
 	Host        string
@@ -111,9 +112,9 @@ func (c *ExternalBrowserCredentials) Configure(ctx context.Context, cfg *config.
 
 // creates a CredentialsProvider that uses our access token
 func (c *ExternalBrowserCredentials) createCredentialsProvider() credentials.CredentialsProvider {
-	// Create a TokenSource that returns our OAuth token
+	// TokenSourceFn wraps a token fetching function to be invoked for getting new tokens
 	tokenSource := auth.TokenSourceFn(func(ctx context.Context) (*oauth2.Token, error) {
-		fmt.Printf("Starting OAuth flow for external browser authentication...\n")
+		// TODO(jasonlin45): handle refresh token here
 		return c.performOAuthFlow(ctx)
 	})
 
@@ -131,6 +132,8 @@ func (c *ExternalBrowserCredentials) buildTokenURL() string {
 }
 
 // performs full OAuth PKCE flow
+// OAuth2: RFC9470
+// PKCE: RFC7636
 func (c *ExternalBrowserCredentials) performOAuthFlow(ctx context.Context) (*oauth2.Token, error) {
 	// PKCE verifier
 	verifier := oauth2.GenerateVerifier()
@@ -209,7 +212,6 @@ func (c *ExternalBrowserCredentials) performOAuthFlow(ctx context.Context) (*oau
 	var authCode string
 	select {
 	case authCode = <-codeChan:
-		fmt.Printf("Authorization code received successfully.\n")
 	case err := <-errorChan:
 		server.Shutdown(ctx)
 		return nil, fmt.Errorf("oauth callback error: %w", err)
