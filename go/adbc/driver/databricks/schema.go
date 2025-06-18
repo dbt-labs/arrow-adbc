@@ -31,9 +31,6 @@ const DbxSchemaTypeText = "type_text"
 
 const (
 	decimalTypeRegex  = `^(?:DECIMAL|DEC|NUMERIC)\((\d+)(?:,(\d+))?\)$`
-	arrayTypeRegex    = `^ARRAY<(.*)>$`
-	mapTypeRegex      = `^MAP<(.*)>$`
-	structTypeRegex   = `^STRUCT<(.*)>$`
 	intervalTypeRegex = `^INTERVAL\s+(YEAR(?:\s+TO\s+MONTH)?|MONTH|DAY(?:\s+TO\s+(HOUR|MINUTE|SECOND))?|HOUR(?:\s+TO\s+(MINUTE|SECOND))?|MINUTE(?:\s+TO\s+SECOND)?|SECOND)`
 )
 
@@ -89,27 +86,36 @@ var stringTypeToArrowTypeMap = map[string]arrow.DataType{
 
 // tracks bracket and parenthesis depth for parsing nested types
 type depthTracker struct {
-	bracketDepth int
-	parenDepth   int
+	stack []byte
+}
+
+var delimiterMap = map[byte]byte{
+	')': '(',
+	'>': '<',
 }
 
 // updates the depth counters based on the given character
-func (dt *depthTracker) updateDepth(char byte) {
+func (dt *depthTracker) updateDepth(char byte) error {
 	switch char {
-	case '<':
-		dt.bracketDepth++
-	case '>':
-		dt.bracketDepth--
-	case '(':
-		dt.parenDepth++
-	case ')':
-		dt.parenDepth--
+	case '<', '(':
+		dt.stack = append(dt.stack, char)
+	case '>', ')':
+		if len(dt.stack) == 0 {
+			return fmt.Errorf("unmatched closing delimiter '%c' (empty stack)", char)
+		}
+		expected := delimiterMap[char]
+		actual := dt.stack[len(dt.stack)-1]
+		if actual != expected {
+			return fmt.Errorf("unmatched closing delimiter '%c' (expected '%c', got '%c')", char, expected, actual)
+		}
+		dt.stack = dt.stack[:len(dt.stack)-1]
 	}
+	return nil
 }
 
-// returns true if both bracket and parenthesis depths are 0
+// returns true if the stack is empty (at top level)
 func (dt *depthTracker) isAtTopLevel() bool {
-	return dt.bracketDepth == 0 && dt.parenDepth == 0
+	return len(dt.stack) == 0
 }
 
 func ClusterModeSchemaToArrowSchema(dbxSchema []map[string]interface{}) (*arrow.Schema, error) {
@@ -188,9 +194,30 @@ func ResultSchemaToArrowSchema(dbxSchema *sql.ResultSchema) (*arrow.Schema, erro
 	return arrow.NewSchema(fields, &metadata), nil
 }
 
-// Basic recursive descent parsing
+// extracts the content between the outermost <...> after the given prefix.
+func extractOutermostBracketContent(s, prefix string) (string, bool) {
+	if !strings.HasPrefix(s, prefix+"<") || !strings.HasSuffix(s, ">") {
+		return "", false
+	}
+	start := len(prefix) + 1
+	depth := 0
+	for i := start; i < len(s); i++ {
+		if s[i] == '<' {
+			depth++
+		} else if s[i] == '>' {
+			if depth == 0 {
+				// Found the matching closing bracket
+				return s[start:i], true
+			}
+			depth--
+		}
+	}
+	// If we get here, brackets were unbalanced
+	return "", false
+}
+
 func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
-	// handle simple, non-recursive types
+	// simple types - base case
 	if arrowType, ok := stringTypeToArrowTypeMap[col]; ok {
 		return arrowType, nil
 	}
@@ -223,22 +250,19 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 		return &arrow.Decimal128Type{Precision: int32(precision), Scale: int32(scale)}, nil
 	}
 	// ARRAY < elementType >
-	if matches := regexp.MustCompile(arrayTypeRegex).FindStringSubmatch(col); matches != nil {
-		elementType := strings.TrimSpace(matches[1])
-		elementArrowType, err := getArrowTypeFromStringType(elementType)
+	if content, ok := extractOutermostBracketContent(col, "ARRAY"); ok {
+		elementArrowType, err := getArrowTypeFromStringType(strings.TrimSpace(content))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse array element type: %w", err)
 		}
 		return arrow.ListOf(elementArrowType), nil
 	}
 	// MAP <keyType, valueType>
-	if matches := regexp.MustCompile(mapTypeRegex).FindStringSubmatch(col); matches != nil {
-		// Parse key and value types, handling nested commas
-		keyType, valueType, err := parseMapKeyValue(matches[1])
+	if content, ok := extractOutermostBracketContent(col, "MAP"); ok {
+		keyType, valueType, err := parseMapKeyValue(content)
 		if err != nil {
 			return nil, fmt.Errorf("invalid map type format: %w", err)
 		}
-
 		keyArrowType, err := getArrowTypeFromStringType(keyType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse map key type: %w", err)
@@ -258,24 +282,22 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 		// All other intervals are day-time intervals
 		return arrow.FixedWidthTypes.Duration_s, nil
 	}
-	// STRUCT: STRUCT < [fieldName [:] fieldType [NOT NULL] [COLLATE collationName] [COMMENT str] [, …] ] >
-	if matches := regexp.MustCompile(structTypeRegex).FindStringSubmatch(col); matches != nil {
-		inner := matches[1]
-		fields := parseStructFields(inner)
+	// STRUCT < [fieldName [:] fieldType [NOT NULL] [COLLATE collationName] [COMMENT str] [, …] ] >
+	if content, ok := extractOutermostBracketContent(col, "STRUCT"); ok {
+		fields, err := parseStructFields(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse struct: %w", err)
+		}
 		arrowFields := make([]arrow.Field, 0, len(fields))
-		// Parse field name and type (fieldName: fieldType)
 		for _, field := range fields {
 			fieldName, fieldType, nullable, err := parseStructField(field)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse struct field '%s': %w", field, err)
 			}
-
-			// Recursively parse the field type
 			fieldArrowType, err := getArrowTypeFromStringType(fieldType)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse struct field type %s: %w", fieldName, err)
 			}
-
 			arrowFields = append(arrowFields, arrow.Field{
 				Name:     fieldName,
 				Type:     fieldArrowType,
@@ -289,7 +311,7 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 }
 
 // parses comma separated struct fields and handles nesting
-func parseStructFields(fieldsStr string) []string {
+func parseStructFields(fieldsStr string) ([]string, error) {
 	var fields []string
 	var currentField strings.Builder
 	dt := &depthTracker{}
@@ -299,7 +321,10 @@ func parseStructFields(fieldsStr string) []string {
 
 		switch char {
 		case '<', '>', '(', ')':
-			dt.updateDepth(char)
+			err := dt.updateDepth(char)
+			if err != nil {
+				return nil, err
+			}
 			currentField.WriteByte(char)
 		case ',':
 			if dt.isAtTopLevel() {
@@ -323,7 +348,8 @@ func parseStructFields(fieldsStr string) []string {
 	if field != "" {
 		fields = append(fields, field)
 	}
-	return fields
+
+	return fields, nil
 }
 
 // parses a single struct field
