@@ -30,12 +30,11 @@ import (
 const DbxSchemaTypeText = "type_text"
 
 const (
-	decimalTypeRegex        = `^(?:DECIMAL|DEC|NUMERIC)\((\d+)(?:,(\d+))?\)$`
-	arrayTypeRegex          = `^ARRAY<(.*)>$`
-	mapTypeRegex            = `^MAP<(.*)>$`
-	structTypeRegex         = `^STRUCT<(.*)>$`
-	intervalTypeRegex       = `^INTERVAL\s+(YEAR(?:\s+TO\s+MONTH)?|MONTH|DAY(?:\s+TO\s+(HOUR|MINUTE|SECOND))?|HOUR(?:\s+TO\s+(MINUTE|SECOND))?|MINUTE(?:\s+TO\s+SECOND)?|SECOND)$`
-	intervalTypePrefixRegex = `^INTERVAL\s+(YEAR(?:\s+TO\s+MONTH)?|MONTH|DAY(?:\s+TO\s+(HOUR|MINUTE|SECOND))?|HOUR(?:\s+TO\s+(MINUTE|SECOND))?|MINUTE(?:\s+TO\s+SECOND)?|SECOND)`
+	decimalTypeRegex  = `^(?:DECIMAL|DEC|NUMERIC)\((\d+)(?:,(\d+))?\)$`
+	arrayTypeRegex    = `^ARRAY<(.*)>$`
+	mapTypeRegex      = `^MAP<(.*)>$`
+	structTypeRegex   = `^STRUCT<(.*)>$`
+	intervalTypeRegex = `^INTERVAL\s+(YEAR(?:\s+TO\s+MONTH)?|MONTH|DAY(?:\s+TO\s+(HOUR|MINUTE|SECOND))?|HOUR(?:\s+TO\s+(MINUTE|SECOND))?|MINUTE(?:\s+TO\s+SECOND)?|SECOND)`
 )
 
 // Basic DBX Types to Arrow Types (no extra processing needed)
@@ -375,7 +374,7 @@ func findTypeEnd(s string) int {
 	dt := &depthTracker{}
 	if strings.HasPrefix(s, "INTERVAL") {
 		// Match INTERVAL types at the start
-		intervalRegex := regexp.MustCompile(intervalTypePrefixRegex)
+		intervalRegex := regexp.MustCompile(intervalTypeRegex)
 		if m := intervalRegex.FindStringIndex(s); m != nil {
 			return m[1]
 		}
