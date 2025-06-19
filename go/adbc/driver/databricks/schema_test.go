@@ -337,8 +337,24 @@ func TestGetArrowTypeFromStringType(t *testing.T) {
 			),
 		},
 		{
+			name:     "struct with extra whitespace",
+			typeText: "STRUCT<id: INT  NOT  NULL,    name : STRING>",
+			expected: arrow.StructOf(
+				arrow.Field{Name: "id", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
+				arrow.Field{Name: "name", Type: arrow.BinaryTypes.String, Nullable: true},
+			),
+		},
+		{
 			name:     "struct with nested types",
 			typeText: "STRUCT<data:ARRAY<INT>,metadata:MAP<STRING,STRING>>",
+			expected: arrow.StructOf(
+				arrow.Field{Name: "data", Type: arrow.ListOf(arrow.PrimitiveTypes.Int32), Nullable: true},
+				arrow.Field{Name: "metadata", Type: arrow.MapOf(arrow.BinaryTypes.String, arrow.BinaryTypes.String), Nullable: true},
+			),
+		},
+		{
+			name:     "struct with comments",
+			typeText: "STRUCT<data:ARRAY<INT> COMMENT \"blah blah blah\",metadata:MAP<STRING,STRING>>",
 			expected: arrow.StructOf(
 				arrow.Field{Name: "data", Type: arrow.ListOf(arrow.PrimitiveTypes.Int32), Nullable: true},
 				arrow.Field{Name: "metadata", Type: arrow.MapOf(arrow.BinaryTypes.String, arrow.BinaryTypes.String), Nullable: true},

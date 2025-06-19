@@ -30,8 +30,13 @@ import (
 const DbxSchemaTypeText = "type_text"
 
 const (
-	decimalTypeRegex  = `^(?:DECIMAL|DEC|NUMERIC)\((\d+)(?:,(\d+))?\)$`
-	intervalTypeRegex = `^INTERVAL\s+(YEAR(?:\s+TO\s+MONTH)?|MONTH|DAY(?:\s+TO\s+(HOUR|MINUTE|SECOND))?|HOUR(?:\s+TO\s+(MINUTE|SECOND))?|MINUTE(?:\s+TO\s+SECOND)?|SECOND)`
+	decimalTypeRegexRaw  = `(?i)^\s*(?:DECIMAL|DEC|NUMERIC)\s*\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\)\s*$`
+	intervalTypeRegexRaw = `(?i)^\s*INTERVAL\s+(YEAR(?:\s+TO\s+MONTH)?|MONTH|DAY(?:\s+TO\s+(HOUR|MINUTE|SECOND))?|HOUR(?:\s+TO\s+(MINUTE|SECOND))?|MINUTE(?:\s+TO\s+SECOND)?|SECOND)`
+)
+
+var (
+	decimalTypeRegex  = regexp.MustCompile(decimalTypeRegexRaw)
+	intervalTypeRegex = regexp.MustCompile(intervalTypeRegexRaw)
 )
 
 // Basic DBX Types to Arrow Types (no extra processing needed)
@@ -82,6 +87,15 @@ var stringTypeToArrowTypeMap = map[string]arrow.DataType{
 	"BOOLEAN": arrow.FixedWidthTypes.Boolean, // Boolean values
 	"VOID":    arrow.Null,                    // untyped NULL - not supported by Delta Lake
 	"NULL":    arrow.Null,                    // untyped NULL - not supported by Delta Lake
+}
+
+func strToInt(str string) (int, error) {
+	// expect base 10, parse to 8 bits
+	out, err := strconv.ParseInt(str, 10, 8)
+	if err != nil {
+		return 0, err
+	}
+	return int(out), nil
 }
 
 // tracks bracket and parenthesis depth for parsing nested types
@@ -147,8 +161,8 @@ func ClusterModeSchemaToArrowSchema(dbxSchema []map[string]interface{}) (*arrow.
 		case strings.HasPrefix(colType, "decimal"):
 			// Parse decimal precision and scale from format "decimal(precision,scale)"
 			if matches := regexp.MustCompile(`decimal\((\d+),(\d+)\)`).FindStringSubmatch(colType); matches != nil {
-				precision, _ := strconv.ParseInt(matches[1], 10, 8)
-				scale, _ := strconv.ParseInt(matches[2], 10, 8)
+				precision, _ := strToInt(matches[1])
+				scale, _ := strToInt(matches[2])
 				arrowType = &arrow.Decimal128Type{Precision: int32(precision), Scale: int32(scale)}
 			} else {
 				arrowType = &arrow.Decimal128Type{}
@@ -196,7 +210,7 @@ func ResultSchemaToArrowSchema(dbxSchema *sql.ResultSchema) (*arrow.Schema, erro
 
 // extracts the content between the outermost <...> after the given prefix.
 func extractOutermostBracketContent(s, prefix string) (string, bool) {
-	if !strings.HasPrefix(s, prefix+"<") || !strings.HasSuffix(s, ">") {
+	if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(s)), strings.ToUpper(prefix)+"<") || !strings.HasSuffix(strings.TrimSpace(s), ">") {
 		return "", false
 	}
 	start := len(prefix) + 1
@@ -221,30 +235,27 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 	if arrowType, ok := stringTypeToArrowTypeMap[col]; ok {
 		return arrowType, nil
 	}
-	if col == "TIMESTAMP" || col == "TIMESTAMP_NTZ" {
+	if strings.EqualFold(col, "TIMESTAMP") || strings.EqualFold(col, "TIMESTAMP_NTZ") {
 		return &arrow.TimestampType{
 			Unit:     arrow.Microsecond,
 			TimeZone: "Etc/UTC",
 		}, nil
 	}
 	// { DECIMAL | DEC | NUMERIC } [ (  p [ , s ] ) ]
-	if matches := regexp.MustCompile(decimalTypeRegex).FindStringSubmatch(col); matches != nil {
+	if matches := decimalTypeRegex.FindStringSubmatch(col); matches != nil {
 		var err error
-		var precision64 int64
-		precision64, err = strconv.ParseInt(matches[1], 10, 8)
+		precision, err := strToInt(matches[1])
 		if err != nil {
 			return nil, fmt.Errorf("invalid decimal precision: %v", err)
 		}
-		precision := int(precision64)
 
 		var scale = 0
 		if len(matches) > 2 && matches[2] != "" {
-			var scale64 int64
-			scale64, err = strconv.ParseInt(matches[2], 10, 8)
+			parsed_scale, err := strToInt(matches[2])
 			if err != nil {
 				return nil, fmt.Errorf("invalid decimal scale: %v", err)
 			}
-			scale = int(scale64)
+			scale = parsed_scale
 		}
 
 		return &arrow.Decimal128Type{Precision: int32(precision), Scale: int32(scale)}, nil
@@ -274,7 +285,7 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 		return arrow.MapOf(keyArrowType, valueArrowType), nil
 	}
 	// INTERVAL types - comprehensive pattern for all interval types
-	if matches := regexp.MustCompile(intervalTypeRegex).FindStringSubmatch(col); matches != nil {
+	if matches := intervalTypeRegex.FindStringSubmatch(col); matches != nil {
 		// Year-month intervals
 		if strings.Contains(matches[1], "YEAR") || matches[1] == "MONTH" {
 			return arrow.FixedWidthTypes.MonthInterval, nil
@@ -306,7 +317,7 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 		}
 		return arrow.StructOf(arrowFields...), nil
 	}
-	// default to an unrecognized type so we can still positionally propogate metadata
+	// Use Null to occupy schema column position, so metadata remains correctly aligned even when the type is unrecognized.
 	return arrow.Null, fmt.Errorf("unrecognized type: %s", col)
 }
 
@@ -315,20 +326,33 @@ func parseStructFields(fieldsStr string) ([]string, error) {
 	var fields []string
 	var currentField strings.Builder
 	dt := &depthTracker{}
+	inQuotes := false
 
 	for i := 0; i < len(fieldsStr); i++ {
 		char := fieldsStr[i]
 
 		switch char {
+		case '"':
+			// Handle quoted strings, but check for escaped quotes
+			if i > 0 && fieldsStr[i-1] == '\\' {
+				// This is an escaped quote, treat as regular character
+				currentField.WriteByte(char)
+			} else {
+				// Toggle quote state
+				inQuotes = !inQuotes
+				currentField.WriteByte(char)
+			}
 		case '<', '>', '(', ')':
-			err := dt.updateDepth(char)
-			if err != nil {
-				return nil, err
+			if !inQuotes {
+				err := dt.updateDepth(char)
+				if err != nil {
+					return nil, err
+				}
 			}
 			currentField.WriteByte(char)
 		case ',':
-			if dt.isAtTopLevel() {
-				// This comma separates fields, not nested type parameters
+			if !inQuotes && dt.isAtTopLevel() {
+				// This comma separates fields, not nested type parameters or quoted content
 				field := strings.TrimSpace(currentField.String())
 				if field != "" {
 					fields = append(fields, field)
@@ -336,7 +360,7 @@ func parseStructFields(fieldsStr string) ([]string, error) {
 				currentField.Reset()
 				continue
 			} else {
-				// This comma is inside brackets or parentheses, so it's part of the type
+				// This comma is inside brackets, parentheses, or quotes, so it's part of the type
 				currentField.WriteByte(char)
 			}
 		default:
@@ -381,15 +405,29 @@ func extractFieldTypeAndModifiers(rest string) (fieldType string, nullable bool)
 		return "", true
 	}
 
-	// The first part is the base type, but it might contain nested parentheses
-	// We need to find where the type ends and modifiers begin
-	typeEnd := findTypeEnd(rest)
-	fieldType = strings.TrimSpace(rest[:typeEnd])
+	// For simple types (one word), use the first word as the type
+	// For complex types with brackets, use findTypeEnd
+	if strings.ContainsAny(parts[0], "<>()") || strings.HasPrefix(strings.ToUpper(rest), "INTERVAL") {
+		// Complex type - use findTypeEnd to handle nested brackets
+		typeEnd := findTypeEnd(rest)
+		fieldType = strings.TrimSpace(rest[:typeEnd])
+		remaining := strings.TrimSpace(rest[typeEnd:])
 
-	// Check for NOT NULL modifier
-	remaining := strings.TrimSpace(rest[typeEnd:])
-	if strings.Contains(strings.ToUpper(remaining), "NOT NULL") {
-		nullable = false
+		// Check for NOT NULL modifier
+		if strings.Contains(strings.ToUpper(remaining), "NOT NULL") {
+			nullable = false
+		}
+	} else {
+		// Simple type - first word is the type, rest are modifiers
+		fieldType = parts[0]
+
+		// Join remaining parts and check for NOT NULL
+		if len(parts) > 1 {
+			remaining := strings.Join(parts[1:], " ")
+			if strings.Contains(strings.ToUpper(remaining), "NOT NULL") {
+				nullable = false
+			}
+		}
 	}
 
 	return fieldType, nullable
@@ -398,20 +436,31 @@ func extractFieldTypeAndModifiers(rest string) (fieldType string, nullable bool)
 // finds the end of the type definition, handling nested brackets and multi-word types
 func findTypeEnd(s string) int {
 	dt := &depthTracker{}
+	inQuotes := false
+
 	if strings.HasPrefix(s, "INTERVAL") {
 		// Match INTERVAL types at the start
-		intervalRegex := regexp.MustCompile(intervalTypeRegex)
-		if m := intervalRegex.FindStringIndex(s); m != nil {
+		if m := intervalTypeRegex.FindStringIndex(s); m != nil {
 			return m[1]
 		}
 	}
 	for i := 0; i < len(s); i++ {
 		char := s[i]
 		switch char {
+		case '"':
+			// Handle quoted strings, but check for escaped quotes
+			if i > 0 && s[i-1] == '\\' {
+				// This is an escaped quote, continue
+			} else {
+				// Toggle quote state
+				inQuotes = !inQuotes
+			}
 		case '<', '>':
-			dt.updateDepth(char)
+			if !inQuotes {
+				dt.updateDepth(char)
+			}
 		case ' ':
-			if dt.isAtTopLevel() {
+			if !inQuotes && dt.isAtTopLevel() {
 				return i
 			}
 		}
@@ -457,7 +506,7 @@ func getArrowTypeFromColumnInfo(col sql.ColumnInfo) (arrow.DataType, error) {
 	case sql.ColumnInfoTypeNameDecimal:
 		precision, scale := col.TypePrecision, col.TypeScale
 		if precision == 0 {
-			return getArrowTypeFromStringType(col.TypeText)
+			return getArrowTypeFromStringType(strings.TrimSpace(col.TypeText))
 		}
 		if precision <= 38 {
 			return &arrow.Decimal128Type{Precision: int32(precision), Scale: int32(scale)}, nil
@@ -473,8 +522,8 @@ func getArrowTypeFromColumnInfo(col sql.ColumnInfo) (arrow.DataType, error) {
 		sql.ColumnInfoTypeNameMap,
 		sql.ColumnInfoTypeNameStruct,
 		sql.ColumnInfoTypeNameInterval:
-		return getArrowTypeFromStringType(col.TypeText)
+		return getArrowTypeFromStringType(strings.TrimSpace(col.TypeText))
 	default:
-		return getArrowTypeFromStringType(col.TypeText)
+		return getArrowTypeFromStringType(strings.TrimSpace(col.TypeText))
 	}
 }
