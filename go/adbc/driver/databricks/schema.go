@@ -235,6 +235,7 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 	if arrowType, ok := stringTypeToArrowTypeMap[col]; ok {
 		return arrowType, nil
 	}
+	// match the IPC return type from Databricks
 	if strings.EqualFold(col, "TIMESTAMP") || strings.EqualFold(col, "TIMESTAMP_NTZ") {
 		return &arrow.TimestampType{
 			Unit:     arrow.Microsecond,
@@ -250,6 +251,7 @@ func getArrowTypeFromStringType(col string) (arrow.DataType, error) {
 		}
 
 		var scale = 0
+		// Match scale if present
 		if len(matches) > 2 && matches[2] != "" {
 			parsed_scale, err := strToInt(matches[2])
 			if err != nil {
@@ -396,7 +398,6 @@ func parseStructField(field string) (fieldName, fieldType string, nullable bool,
 // extracts the field type and determines nullability
 // todo(jason): handle comments and collations (if they show up from the API)
 func extractFieldTypeAndModifiers(rest string) (fieldType string, nullable bool) {
-	// Default to nullable
 	nullable = true
 
 	// Split by whitespace to find modifiers
