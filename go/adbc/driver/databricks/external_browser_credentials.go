@@ -20,6 +20,7 @@ package databricks
 import (
 	"context"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"net/url"
@@ -106,7 +107,6 @@ func (c *ExternalBrowserCredentials) Configure(ctx context.Context, cfg *config.
 		c.RedirectURI = defaultRedirectURI
 	}
 
-	fmt.Printf("External browser authentication completed successfully.\n")
 	return c.createCredentialsProvider(), nil
 }
 
@@ -171,7 +171,9 @@ func (c *ExternalBrowserCredentials) performOAuthFlow(ctx context.Context) (*oau
 
 			if errorParam != "" {
 				errorDesc := r.URL.Query().Get("error_description")
-				fmt.Fprintf(w, browserErrorWithDescHtml, errorParam, errorDesc)
+				escapedError := html.EscapeString(errorParam)
+				escapedErrorDesc := html.EscapeString(errorDesc)
+				fmt.Fprintf(w, browserErrorWithDescHtml, escapedError, escapedErrorDesc)
 				errorChan <- fmt.Errorf("oauth error: %s - %s", errorParam, errorDesc)
 				return
 			}
