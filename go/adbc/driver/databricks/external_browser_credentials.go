@@ -41,7 +41,6 @@ const (
 	defaultPort              = 8020
 	tokenPath                = "oidc/v1/token"
 	authorizePath            = "oidc/v1/authorize"
-	expirationBuffer         = 5 * time.Minute
 	browserErrorWithDescHtml = `
 <!DOCTYPE html>
 <html>
@@ -83,11 +82,11 @@ const (
 
 // ExternalBrowserCredentials implements CredentialsStrategy for OAuth 2 PKCE flow for external browser authentication
 // https://github.com/databricks/databricks-sdk-go/blob/56af964ae7d5f86bd454dfdba4edac42aac4d19f/config/config.go#L26
-// TODO(jasonlin45): add os/fs based caching for multi-driver concurrency scenarios and session persistence
 type ExternalBrowserCredentials struct {
 	Host        string
 	ClientID    string
 	RedirectURI string
+	tokenCache  *TokenCache
 }
 
 // From CredentialsStrategy interface
@@ -107,19 +106,74 @@ func (c *ExternalBrowserCredentials) Configure(ctx context.Context, cfg *config.
 		c.RedirectURI = defaultRedirectURI
 	}
 
+	tokenCache, err := NewTokenCache()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize token cache: %w", err)
+	}
+	c.tokenCache = tokenCache
+
 	return c.createCredentialsProvider(), nil
+}
+
+// getOrRefreshCachedToken attempts to retrieve and optionally refresh a cached token
+func (c *ExternalBrowserCredentials) getOrRefreshCachedToken(ctx context.Context) (*oauth2.Token, error) {
+	if c.tokenCache == nil {
+		return nil, fmt.Errorf("token cache not initialized")
+	}
+
+	entry, err := c.tokenCache.LoadToken(ctx, c.Host, c.ClientID)
+	if err != nil {
+		return c.performOAuthFlow(ctx)
+	}
+
+	if entry.RefreshToken != "" {
+		refreshedToken, err := c.performTokenRefresh(ctx, entry.RefreshToken)
+		if err == nil {
+			// Save refreshed token to cache
+			if cacheErr := c.tokenCache.SaveToken(ctx, refreshedToken, c.Host, c.ClientID); cacheErr != nil {
+				logger.Warnf(ctx, "failed to save refreshed token to cache: %v", cacheErr)
+			}
+			return refreshedToken, nil
+		}
+		logger.Warnf(ctx, "token refresh failed, falling back to full OAuth flow: %v", err)
+	}
+
+	return c.performOAuthFlow(ctx)
 }
 
 // creates a CredentialsProvider that uses our access token
 func (c *ExternalBrowserCredentials) createCredentialsProvider() credentials.CredentialsProvider {
 	// TokenSourceFn wraps a token fetching function to be invoked for getting new tokens
 	tokenSource := auth.TokenSourceFn(func(ctx context.Context) (*oauth2.Token, error) {
-		// TODO(jasonlin45): handle refresh token here
-		return c.performOAuthFlow(ctx)
+		return c.getOrRefreshCachedToken(ctx)
 	})
 
 	cachedTokenSource := auth.NewCachedTokenSource(tokenSource)
 	return credentials.NewOAuthCredentialsProviderFromTokenSource(cachedTokenSource)
+}
+
+// base OAuth2 config
+func (c *ExternalBrowserCredentials) buildOAuth2Config() *oauth2.Config {
+	return &oauth2.Config{
+		ClientID: c.ClientID,
+		Endpoint: oauth2.Endpoint{
+			TokenURL: c.buildTokenURL(),
+		},
+		Scopes: []string{"all-apis", "offline_access"},
+	}
+}
+
+func (c *ExternalBrowserCredentials) buildOAuth2ConfigWithAuth(redirectURI string) *oauth2.Config {
+	config := c.buildOAuth2Config()
+	config.Endpoint.AuthURL = c.buildAuthBaseURL()
+	config.RedirectURL = redirectURI
+	return config
+}
+
+func (c *ExternalBrowserCredentials) buildOAuth2ConfigWithRedirect(redirectURI string) *oauth2.Config {
+	config := c.buildOAuth2Config()
+	config.RedirectURL = redirectURI
+	return config
 }
 
 // builds the token endpoint URL with proper protocol scheme
@@ -145,15 +199,7 @@ func (c *ExternalBrowserCredentials) performOAuthFlow(ctx context.Context) (*oau
 	port := c.findAvailablePort()
 	redirectURI := fmt.Sprintf("http://localhost:%d", port)
 
-	config := &oauth2.Config{
-		ClientID: c.ClientID,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  c.buildAuthBaseURL(),
-			TokenURL: c.buildTokenURL(),
-		},
-		RedirectURL: redirectURI,
-		Scopes:      []string{"all-apis", "offline_access"},
-	}
+	config := c.buildOAuth2ConfigWithAuth(redirectURI)
 
 	authURL := config.AuthCodeURL(state,
 		oauth2.S256ChallengeOption(verifier),
@@ -229,7 +275,39 @@ func (c *ExternalBrowserCredentials) performOAuthFlow(ctx context.Context) (*oau
 	server.Shutdown(ctx)
 
 	// Exchange code for tokens
-	return c.exchangeCodeForTokens(ctx, authCode, verifier, redirectURI)
+	token, err := c.exchangeCodeForTokens(ctx, authCode, verifier, redirectURI)
+	if err != nil {
+		return nil, err
+	}
+
+	// Save token to cache for future use
+	if c.tokenCache != nil {
+		if cacheErr := c.tokenCache.SaveToken(ctx, token, c.Host, c.ClientID); cacheErr != nil {
+			// Log warning but don't fail the OAuth flow
+			logger.Warnf(ctx, "failed to save token to cache: %v", cacheErr)
+		}
+	}
+
+	return token, nil
+}
+
+// performTokenRefresh refreshes a token using the refresh token
+func (c *ExternalBrowserCredentials) performTokenRefresh(ctx context.Context, refreshToken string) (*oauth2.Token, error) {
+	config := c.buildOAuth2Config()
+
+	// Create a token with just the refresh token to use for refreshing
+	token := &oauth2.Token{
+		RefreshToken: refreshToken,
+	}
+
+	// Use the token source to refresh
+	tokenSource := config.TokenSource(ctx, token)
+	refreshedToken, err := tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh token: %w", err)
+	}
+
+	return refreshedToken, nil
 }
 
 // findAvailablePort finds an available port starting from the default
@@ -242,13 +320,13 @@ func (c *ExternalBrowserCredentials) findAvailablePort() int {
 	// Try ports in a reasonable range
 	for port := defaultPort + 1; port < defaultPort+100; port++ {
 		if c.isPortAvailable(port) {
-			fmt.Printf("Port %d was in use, using port %d instead.\n", defaultPort, port)
+			logger.Infof(context.Background(), "Port %d was in use, using port %d instead", defaultPort, port)
 			return port
 		}
 	}
 
 	// If we can't find any available port, return the default and let it fail with a clear error
-	fmt.Printf("Warning: Could not find an available port, using default port %d.\n", defaultPort)
+	logger.Warnf(context.Background(), "Could not find an available port, using default port %d", defaultPort)
 	return defaultPort
 }
 
@@ -274,14 +352,7 @@ func (c *ExternalBrowserCredentials) buildAuthBaseURL() string {
 
 // exchangeCodeForTokens exchanges the authorization code for access/refresh tokens
 func (c *ExternalBrowserCredentials) exchangeCodeForTokens(ctx context.Context, code, codeVerifier, redirectURI string) (*oauth2.Token, error) {
-	config := &oauth2.Config{
-		ClientID: c.ClientID,
-		Endpoint: oauth2.Endpoint{
-			TokenURL: c.buildTokenURL(),
-		},
-		RedirectURL: redirectURI,
-		Scopes:      []string{"all-apis", "offline_access"},
-	}
+	config := c.buildOAuth2ConfigWithRedirect(redirectURI)
 
 	// exchange for token with PKCE
 	return config.Exchange(ctx, code,
