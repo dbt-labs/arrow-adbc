@@ -60,8 +60,6 @@ type databaseImpl struct {
 	useHighPrecision bool
 
 	defaultAppName string
-
-	defaultAppName string
 }
 
 func (d *databaseImpl) GetOption(key string) (string, error) {
@@ -455,6 +453,12 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 		d.cfg.Tracing = v
 	case OptionClientConfigFile:
 		d.cfg.ClientConfigFile = v
+	case OptionClientId:
+		d.clientId = v
+	case OptionClientSecret:
+		d.clientSecret = v
+	case OptionRefreshToken:
+		d.refreshToken = v
 	case OptionUseHighPrecision:
 		switch v {
 		case adbc.OptionValueEnabled:
