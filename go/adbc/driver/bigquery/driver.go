@@ -148,28 +148,15 @@ func parseParts(defaultProjectID, defaultDatasetID, value string) (string, strin
 }
 
 func stringToTable(defaultProjectID, defaultDatasetID, value string) (*bigquery.Table, error) {
-	parts := strings.Split(value, ".")
-	table := &bigquery.Table{
-		ProjectID: defaultProjectID,
-		DatasetID: defaultDatasetID,
+	projectID, datasetID, tableID, err := parseParts(defaultProjectID, defaultDatasetID, value)
+	if err != nil {
+		return nil, err
 	}
-	switch len(parts) {
-	case 1:
-		table.TableID = parts[0]
-	case 2:
-		table.DatasetID = parts[0]
-		table.TableID = parts[1]
-	case 3:
-		table.ProjectID = parts[0]
-		table.DatasetID = parts[1]
-		table.TableID = parts[2]
-	default:
-		return nil, adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  fmt.Sprintf("Invalid Table Reference format, expected `[[ProjectId.]DatasetId.]TableId`, got: `%s`", value),
-		}
-	}
-	return table, nil
+	return &bigquery.Table{
+		ProjectID: projectID,
+		DatasetID: datasetID,
+		TableID:   tableID,
+	}, nil
 }
 
 func stringToTableCreateDisposition(value string) (bigquery.TableCreateDisposition, error) {
