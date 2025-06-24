@@ -82,8 +82,8 @@ const (
 	DefaultAccessTokenEndpoint   = "https://accounts.google.com/o/oauth2/token"
 	DefaultAccessTokenServerName = "google.com"
 
-	OptionStringIngestFileDelimiter = "adbc.bigquery.ingest_file_delimiter"
-	OptionStringIngestPath          = "adbc.bigquery.ingest_path"
+	OptionStringIngestFileDelimiter = "adbc.bigquery.ingest.csv_delimiter"
+	OptionStringIngestPath          = "adbc.bigquery.ingest.csv_filepath"
 )
 
 var (
@@ -128,6 +128,23 @@ func (d *driverImpl) NewDatabase(opts map[string]string) (adbc.Database, error) 
 	}
 
 	return driverbase.NewDatabase(db), nil
+}
+
+func parseParts(defaultProjectID, defaultDatasetID, value string) (string, string, string, error) {
+	parts := strings.Split(value, ".")
+	switch len(parts) {
+	case 1:
+		return defaultProjectID, defaultDatasetID, parts[0], nil
+	case 2:
+		return defaultProjectID, parts[0], parts[1], nil
+	case 3:
+		return parts[0], parts[1], parts[2], nil
+	default:
+		return "", "", "", adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("invalid table reference %q (want [[project.]dataset.]table)", value),
+		}
+	}
 }
 
 func stringToTable(defaultProjectID, defaultDatasetID, value string) (*bigquery.Table, error) {

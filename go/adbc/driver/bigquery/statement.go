@@ -186,12 +186,11 @@ func (st *statement) SetOption(key string, v string) error {
 			}
 		}
 	case OptionStringQueryDestinationTable:
-		val, err := stringToTable(st.cnxn.catalog, st.cnxn.dbSchema, v)
-		if err == nil {
-			st.queryConfig.Dst = val
-		} else {
+		proj, ds, tbl, err := parseParts(st.cnxn.catalog, st.cnxn.dbSchema, v)
+		if err != nil {
 			return err
 		}
+		st.queryConfig.Dst = st.cnxn.table(proj, ds, tbl)
 	case OptionStringQueryDefaultProjectID:
 		st.queryConfig.DefaultProjectID = v
 	case OptionStringQueryDefaultDatasetID:
@@ -930,38 +929,55 @@ func (st *statement) initIngest(ctx context.Context) error {
 		}
 	}
 
-	// Open the local file
+	// Open file
 	file, err := os.Open(st.ingestPath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	// Create a reader source from the file
+	if st.queryConfig.Dst == nil {
+		panic("PANIC: queryConfig.Dst is nil — project_id, dataset_id, table_id likely not set")
+	}
+	if st.queryConfig.Dst.ProjectID == "" {
+		panic("PANIC: ProjectID is empty on queryConfig.Dst")
+	}
+
 	loadSource := bigquery.NewReaderSource(file)
+	// carry schema over
+	loadSource.AutoDetect = true
 	job := st.queryConfig.Dst.LoaderFrom(loadSource)
 
-	// Configure the load job
 	job.WriteDisposition = st.queryConfig.WriteDisposition
 
-	// Set file format configuration
-	job.Src.(*bigquery.ReaderSource).FileConfig.SourceFormat = bigquery.CSV
-	job.Src.(*bigquery.ReaderSource).FileConfig.SkipLeadingRows = 1                     // Skip header row
-	job.Src.(*bigquery.ReaderSource).FileConfig.FieldDelimiter = st.ingestFileDelimiter // Default CSV delimiter
+	// Set file config
+	fileCfg := &job.Src.(*bigquery.ReaderSource).FileConfig
+	fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other files
+	fileCfg.SkipLeadingRows = 1
+	fileCfg.FieldDelimiter = st.ingestFileDelimiter
 
-	// Convert Arrow schema to BigQuery schema if provided
+	// Optional: print schema if param binding exists
 	if st.paramBinding != nil {
-		bqSchema, err := arrowSchemaToBigQuery(st.paramBinding.Schema())
+		schema := st.paramBinding.Schema()
+
+		bqSchema, err := arrowSchemaToBigQuery(schema)
 		if err != nil {
 			return fmt.Errorf("failed to convert schema: %w", err)
 		}
-		job.Src.(*bigquery.ReaderSource).FileConfig.Schema = bqSchema
+		fileCfg.Schema = bqSchema
 	}
 
-	// Run the load job
-	_, err = job.Run(ctx)
+	handle, err := job.Run(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to run load job: %w", err)
+		return fmt.Errorf("failed to start query job: %w", err)
+	}
+
+	status, err := handle.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("job wait failed: %w", err)
+	}
+	if status.Err() != nil {
+		return fmt.Errorf("job execution failed: %w", status.Err())
 	}
 
 	return nil
