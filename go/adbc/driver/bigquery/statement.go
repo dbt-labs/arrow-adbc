@@ -263,18 +263,6 @@ func (st *statement) SetOption(key string, v string) error {
 		st.ingestPath = v
 	case OptionStringIngestFileDelimiter:
 		st.ingestFileDelimiter = v
-	case adbc.OptionKeyIngestMode:
-		switch v {
-		case adbc.OptionValueIngestModeCreateAppend, adbc.OptionValueIngestModeAppend:
-			st.queryConfig.WriteDisposition = bigquery.WriteAppend
-		case adbc.OptionValueIngestModeReplace:
-			st.queryConfig.WriteDisposition = bigquery.WriteTruncate
-		default:
-			return adbc.Error{
-				Code: adbc.StatusInvalidArgument,
-				Msg:  fmt.Sprintf("unsupported ingest mode `%s`", v),
-			}
-		}
 	default:
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,

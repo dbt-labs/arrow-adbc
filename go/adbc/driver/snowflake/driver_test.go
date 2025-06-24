@@ -1654,6 +1654,24 @@ func (suite *SnowflakeTests) TestNewDatabaseGetSetOptions() {
 	optVal2, err = getSetDB.GetOption(key2)
 	suite.NoError(err)
 	suite.Equal(optVal2, val2)
+
+	err = getSetDB.SetOption(driver.OptionClientId, "the_client_id")
+	suite.NoError(err)
+	err = getSetDB.SetOption(driver.OptionClientSecret, "a_client_secret")
+	suite.NoError(err)
+	err = getSetDB.SetOption(driver.OptionRefreshToken, "a_refresh_token")
+	suite.NoError(err)
+
+	v := ""
+	v, err = getSetDB.GetOption(driver.OptionClientId)
+	suite.NoError(err)
+	suite.Equal(v, "the_client_id")
+	v, err = getSetDB.GetOption(driver.OptionClientSecret)
+	suite.NoError(err)
+	suite.Equal(v, "a_client_secret")
+	v, err = getSetDB.GetOption(driver.OptionRefreshToken)
+	suite.NoError(err)
+	suite.Equal(v, "a_refresh_token")
 }
 
 func (suite *SnowflakeTests) TestTimestampSnow() {
