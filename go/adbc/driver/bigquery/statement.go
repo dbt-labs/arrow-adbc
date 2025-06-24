@@ -18,11 +18,16 @@
 package bigquery
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -54,7 +59,6 @@ type statement struct {
 	prefetchConcurrency    int
 
 	// Ingest related fields
-	isIngest            bool
 	ingestPath          string
 	ingestFileDelimiter string
 }
@@ -259,7 +263,6 @@ func (st *statement) SetOption(key string, v string) error {
 			return err
 		}
 	case OptionStringIngestPath:
-		st.isIngest = true
 		st.ingestPath = v
 	case OptionStringIngestFileDelimiter:
 		st.ingestFileDelimiter = v
@@ -311,7 +314,7 @@ func (st *statement) SetSqlQuery(query string) error {
 //
 // This invalidates any prior result sets on this statement.
 func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int64, error) {
-	if st.isIngest {
+	if st.ingestPath != "" {
 		return st.executeIngest(ctx)
 	}
 
@@ -409,6 +412,23 @@ func (st *statement) query() *bigquery.Query {
 	query := st.cnxn.client.Query("")
 	query.QueryConfig = st.queryConfig
 	return query
+}
+
+func listMeta(f arrow.Field, arr arrow.Array) (elemField arrow.Field, listValues arrow.Array, err error) {
+	switch lt := f.Type.(type) {
+	case *arrow.ListType:
+		return lt.ElemField(), arr.(*array.List).ListValues(), nil
+	case *arrow.LargeListType:
+		return lt.ElemField(), arr.(*array.LargeList).ListValues(), nil
+	case *arrow.FixedSizeListType:
+		return lt.ElemField(), arr.(*array.FixedSizeList).ListValues(), nil
+	case *arrow.ListViewType:
+		return lt.ElemField(), arr.(*array.ListView).ListValues(), nil
+	case *arrow.LargeListViewType:
+		return lt.ElemField(), arr.(*array.LargeListView).ListValues(), nil
+	default:
+		return arrow.Field{}, nil, fmt.Errorf("unsupported list type %T", f.Type)
+	}
 }
 
 func arrowDataTypeToTypeKind(field arrow.Field, value arrow.Array) (bigquery.StandardSQLDataType, error) {
@@ -899,6 +919,89 @@ func (st *statement) GetParameterSchema() (*arrow.Schema, error) {
 	}
 }
 
+func detectArrowType(sample string) arrow.DataType {
+	s := strings.TrimSpace(sample)
+	if s == "" {
+		// empty first row → keep as STRING so later NULLs are possible
+		return arrow.BinaryTypes.String
+	}
+
+	// ----- BOOL -----
+	if strings.EqualFold(s, "true") || strings.EqualFold(s, "false") {
+		return arrow.FixedWidthTypes.Boolean
+	}
+
+	// ----- INT64 ----
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return arrow.PrimitiveTypes.Int64
+	}
+
+	// ----- FLOAT64 --
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return arrow.PrimitiveTypes.Float64
+	}
+
+	// ----- DATE -----
+	if _, err := time.Parse("2006-01-02", s); err == nil {
+		return arrow.FixedWidthTypes.Date32
+	}
+
+	// ----- TIMESTAMP (RFC 3339) -----
+	if _, err := time.Parse(time.RFC3339, s); err == nil {
+		// microsecond precision is BigQuery's upper limit
+		return arrow.FixedWidthTypes.Timestamp_us
+	}
+
+	// fallback
+	return arrow.BinaryTypes.String
+}
+
+func inferArrowSchema(header string, firstRow []string, delimiter string) (*arrow.Schema, error) {
+	cols := strings.Split(header, delimiter)
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("empty header line")
+	}
+
+	// if firstRow is shorter than header, treat missing samples as empty
+	if firstRow == nil {
+		firstRow = make([]string, len(cols))
+	}
+
+	fields := make([]arrow.Field, len(cols))
+	for i, raw := range cols {
+		name := sanitizeBQIdentifier(raw)
+		sample := ""
+		if i < len(firstRow) {
+			sample = firstRow[i]
+		}
+		fields[i] = arrow.Field{
+			Name:     name,
+			Type:     detectArrowType(sample),
+			Nullable: true,
+		}
+	}
+	return arrow.NewSchema(fields, nil), nil
+}
+
+// BigQuery: letters, numbers and underscores, must start with a letter or underscore.
+func sanitizeBQIdentifier(raw string) string {
+	s := strings.TrimSpace(raw)
+	// BigQuery is case-insensitive but case-preserving:
+	// keep original case except for illegal chars.
+	var b strings.Builder
+	for i, r := range s {
+		if unicode.IsLetter(r) || r == '_' || (i > 0 && unicode.IsDigit(r)) {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	id := b.String()
+	if id == "" || unicode.IsDigit(rune(id[0])) {
+		id = "_" + id
+	}
+	return id
+}
 // ExecutePartitions executes the current statement and gets the results
 // as a partitioned result set.
 //
@@ -915,6 +1018,17 @@ func (st *statement) ExecutePartitions(ctx context.Context) (*arrow.Schema, adbc
 	}
 }
 
+// initIngest uploads a local CSV file to BigQuery.
+//
+// The function
+//   1. opens the file and reads *only* the header line plus the first data row;
+//   2. infers an Arrow schema from that sample (promoting obvious INT64 / FLOAT64 /
+//      BOOL / DATE / TIMESTAMP columns, leaving everything else STRING);
+//   3. converts the Arrow schema to a BigQuery Schema object;
+//   4. rewinds the file handle and executes a load job with the explicit schema.
+//
+// The caller (executeIngest) ignores the job's result set because an ingest
+// operation never returns rows.
 func (st *statement) initIngest(ctx context.Context) error {
 	if st.ingestPath == "" {
 		return adbc.Error{
@@ -923,25 +1037,61 @@ func (st *statement) initIngest(ctx context.Context) error {
 		}
 	}
 
-	// Open file
+	//---------------------------------------------------------------------------
+	// 1.  Open the file and read header + first data row
+	//---------------------------------------------------------------------------
 	file, err := os.Open(st.ingestPath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return fmt.Errorf("open %q: %w", st.ingestPath, err)
 	}
 	defer file.Close()
 
+	r := bufio.NewReader(file)
+	headerLine, err := r.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("read header: %w", err)
+	}
+	headerLine = strings.TrimRight(headerLine, "\r\n")
+
+	firstRowLine, _ := r.ReadString('\n')        // ignore EOF error here
+	firstRowLine = strings.TrimRight(firstRowLine, "\r\n")
+	var firstRow []string
+	if firstRowLine != "" {
+		firstRow = strings.Split(firstRowLine, st.ingestFileDelimiter)
+	}
+
+	// rewind reader for the load job
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind: %w", err)
+	}
+
+	//---------------------------------------------------------------------------
+	// 2.  Sanity-check destination identifiers
+	//---------------------------------------------------------------------------
 	if st.queryConfig.Dst == nil {
-		panic("PANIC: queryConfig.Dst is nil — project_id, dataset_id, table_id likely not set")
+		log.Fatal("queryConfig.Dst is nil — project_id, dataset_id, table_id likely not set")
 	}
 	if st.queryConfig.Dst.ProjectID == "" {
-		panic("PANIC: ProjectID is empty on queryConfig.Dst")
+		log.Fatal("ProjectID is empty on queryConfig.Dst")
 	}
 
-	loadSource := bigquery.NewReaderSource(file)
-	// carry schema over
-	loadSource.AutoDetect = true
-	job := st.queryConfig.Dst.LoaderFrom(loadSource)
+	//---------------------------------------------------------------------------
+	// 3.  Infer Arrow to BigQuery schema
+	//---------------------------------------------------------------------------
+	arrowSchema, err := inferArrowSchema(headerLine, firstRow, st.ingestFileDelimiter)
+	if err != nil {
+		return fmt.Errorf("infer arrow schema: %w", err)
+	}
+	bqSchema, err := arrowSchemaToBigQuery(arrowSchema)
+	if err != nil {
+		return fmt.Errorf("arrow to bq schema: %w", err)
+	}
 
+	//---------------------------------------------------------------------------
+	// 4.  Configure and run the load job with explicit schema
+	//---------------------------------------------------------------------------
+	loadSource := bigquery.NewReaderSource(file)
+	job := st.queryConfig.Dst.LoaderFrom(loadSource)
 	job.WriteDisposition = st.queryConfig.WriteDisposition
 
 	// Set file config
@@ -949,6 +1099,7 @@ func (st *statement) initIngest(ctx context.Context) error {
 	fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other files
 	fileCfg.SkipLeadingRows = 1
 	fileCfg.FieldDelimiter = st.ingestFileDelimiter
+	fileCfg.Schema = bqSchema
 
 	handle, err := job.Run(ctx)
 	if err != nil {
@@ -966,6 +1117,8 @@ func (st *statement) initIngest(ctx context.Context) error {
 	return nil
 }
 
+// executeIngest calls initIngest and returns an empty RecordReader so the
+// driver satisfies the ADBC interface even though load jobs have no result set.
 func (st *statement) executeIngest(ctx context.Context) (array.RecordReader, int64, error) {
 	err := st.initIngest(ctx)
 	if err != nil {
