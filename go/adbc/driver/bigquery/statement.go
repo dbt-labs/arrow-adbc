@@ -18,7 +18,6 @@
 package bigquery
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -414,23 +413,6 @@ func (st *statement) query() *bigquery.Query {
 	return query
 }
 
-func listMeta(f arrow.Field, arr arrow.Array) (elemField arrow.Field, listValues arrow.Array, err error) {
-	switch lt := f.Type.(type) {
-	case *arrow.ListType:
-		return lt.ElemField(), arr.(*array.List).ListValues(), nil
-	case *arrow.LargeListType:
-		return lt.ElemField(), arr.(*array.LargeList).ListValues(), nil
-	case *arrow.FixedSizeListType:
-		return lt.ElemField(), arr.(*array.FixedSizeList).ListValues(), nil
-	case *arrow.ListViewType:
-		return lt.ElemField(), arr.(*array.ListView).ListValues(), nil
-	case *arrow.LargeListViewType:
-		return lt.ElemField(), arr.(*array.LargeListView).ListValues(), nil
-	default:
-		return arrow.Field{}, nil, fmt.Errorf("unsupported list type %T", f.Type)
-	}
-}
-
 func arrowDataTypeToTypeKind(field arrow.Field, value arrow.Array) (bigquery.StandardSQLDataType, error) {
 	// https://cloud.google.com/bigquery/docs/reference/storage#arrow_schema_details
 	// https://cloud.google.com/bigquery/docs/reference/rest/v2/StandardSqlDataType#typekind
@@ -531,127 +513,6 @@ func arrowDataTypeToTypeKind(field arrow.Field, value arrow.Array) (bigquery.Sta
 			Msg:  fmt.Sprintf("Parameter type %v is not yet implemented for BigQuery driver", value.DataType().ID()),
 		}
 	}
-}
-
-func arrowFieldToBigQueryField(arrowField arrow.Field) (bigquery.FieldSchema, error) {
-	switch arrowField.Type.ID() {
-	case arrow.BOOL:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.BooleanFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.INT8, arrow.INT16, arrow.INT32, arrow.INT64, arrow.UINT8, arrow.UINT16, arrow.UINT32, arrow.UINT64:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.IntegerFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.FLOAT16, arrow.FLOAT32, arrow.FLOAT64:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.FloatFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.BINARY, arrow.BINARY_VIEW, arrow.LARGE_BINARY, arrow.FIXED_SIZE_BINARY:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.BytesFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.STRING, arrow.STRING_VIEW, arrow.LARGE_STRING:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.StringFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.TIMESTAMP:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.TimestampFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.DATE32, arrow.DATE64:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.DateFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.TIME32, arrow.TIME64:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.TimeFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.DECIMAL128:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.NumericFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.DECIMAL256:
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.BigNumericFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	case arrow.LIST, arrow.LARGE_LIST, arrow.FIXED_SIZE_LIST, arrow.LIST_VIEW, arrow.LARGE_LIST_VIEW:
-		elemField := arrowField.Type.(*arrow.ListType).ElemField()
-		elemType, err := arrowFieldToBigQueryField(elemField)
-		if err != nil {
-			return bigquery.FieldSchema{}, err
-		}
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     elemType.Type,
-			Required: !arrowField.Nullable,
-			Repeated: true,
-		}, nil
-	case arrow.STRUCT:
-		// ToDo: implement structs schema generation
-		return bigquery.FieldSchema{
-			Name:     arrowField.Name,
-			Type:     bigquery.RecordFieldType,
-			Required: !arrowField.Nullable,
-		}, nil
-	default:
-		// todo: implement all other types
-		//
-		// - arrow.DURATION
-		//   For arrow.DURATION, I'm not sure which SQL DataType would be a good
-		//   representation for it. `DATETIME` could be a potential one for it,
-		//   if we count from `0000-01-01T00:00:00.000000Z`
-		//
-		// - arrow.INTERVAL_MONTHS
-		// - arrow.INTERVAL_DAY_TIME
-		// - arrow.INTERVAL_MONTH_DAY_NANO
-		//   `DATETIME` could be a potential fit for all interval types, but
-		//   the issue is there's no rules about how many days are in a month.
-		//
-		// - arrow.RUN_END_ENCODED
-		// - arrow.SPARSE_UNION
-		// - arrow.DENSE_UNION
-		// - arrow.DICTIONARY
-		// - arrow.MAP
-		return bigquery.FieldSchema{}, adbc.Error{
-			Code: adbc.StatusNotImplemented,
-			Msg:  fmt.Sprintf("Parameter type %v is not yet implemented for BigQuery driver", arrowField.Type.ID()),
-		}
-	}
-}
-
-// arrowSchemaToBigQuery converts an Arrow schema to a BigQuery schema
-func arrowSchemaToBigQuery(schema *arrow.Schema) (bigquery.Schema, error) {
-	bqSchema := make(bigquery.Schema, len(schema.Fields()))
-	for i, field := range schema.Fields() {
-		bqField, err := arrowFieldToBigQueryField(field)
-		if err != nil {
-			return nil, err
-		}
-		copy := bqField 	// distinct memory
-		bqSchema[i] = &copy
-	}
-	return bqSchema, nil
 }
 
 func arrowValueToQueryParameterValue(field arrow.Field, value arrow.Array, i int) (bigquery.QueryParameter, error) {
@@ -919,89 +780,6 @@ func (st *statement) GetParameterSchema() (*arrow.Schema, error) {
 	}
 }
 
-func detectArrowType(sample string) arrow.DataType {
-	s := strings.TrimSpace(sample)
-	if s == "" {
-		// empty first row → keep as STRING so later NULLs are possible
-		return arrow.BinaryTypes.String
-	}
-
-	// ----- BOOL -----
-	if strings.EqualFold(s, "true") || strings.EqualFold(s, "false") {
-		return arrow.FixedWidthTypes.Boolean
-	}
-
-	// ----- INT64 ----
-	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return arrow.PrimitiveTypes.Int64
-	}
-
-	// ----- FLOAT64 --
-	if _, err := strconv.ParseFloat(s, 64); err == nil {
-		return arrow.PrimitiveTypes.Float64
-	}
-
-	// ----- DATE -----
-	if _, err := time.Parse("2006-01-02", s); err == nil {
-		return arrow.FixedWidthTypes.Date32
-	}
-
-	// ----- TIMESTAMP (RFC 3339) -----
-	if _, err := time.Parse(time.RFC3339, s); err == nil {
-		// microsecond precision is BigQuery's upper limit
-		return arrow.FixedWidthTypes.Timestamp_us
-	}
-
-	// fallback
-	return arrow.BinaryTypes.String
-}
-
-func inferArrowSchema(header string, firstRow []string, delimiter string) (*arrow.Schema, error) {
-	cols := strings.Split(header, delimiter)
-	if len(cols) == 0 {
-		return nil, fmt.Errorf("empty header line")
-	}
-
-	// if firstRow is shorter than header, treat missing samples as empty
-	if firstRow == nil {
-		firstRow = make([]string, len(cols))
-	}
-
-	fields := make([]arrow.Field, len(cols))
-	for i, raw := range cols {
-		name := sanitizeBQIdentifier(raw)
-		sample := ""
-		if i < len(firstRow) {
-			sample = firstRow[i]
-		}
-		fields[i] = arrow.Field{
-			Name:     name,
-			Type:     detectArrowType(sample),
-			Nullable: true,
-		}
-	}
-	return arrow.NewSchema(fields, nil), nil
-}
-
-// BigQuery: letters, numbers and underscores, must start with a letter or underscore.
-func sanitizeBQIdentifier(raw string) string {
-	s := strings.TrimSpace(raw)
-	// BigQuery is case-insensitive but case-preserving:
-	// keep original case except for illegal chars.
-	var b strings.Builder
-	for i, r := range s {
-		if unicode.IsLetter(r) || r == '_' || (i > 0 && unicode.IsDigit(r)) {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('_')
-		}
-	}
-	id := b.String()
-	if id == "" || unicode.IsDigit(rune(id[0])) {
-		id = "_" + id
-	}
-	return id
-}
 // ExecutePartitions executes the current statement and gets the results
 // as a partitioned result set.
 //
@@ -1046,20 +824,6 @@ func (st *statement) initIngest(ctx context.Context) error {
 	}
 	defer file.Close()
 
-	r := bufio.NewReader(file)
-	headerLine, err := r.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return fmt.Errorf("read header: %w", err)
-	}
-	headerLine = strings.TrimRight(headerLine, "\r\n")
-
-	firstRowLine, _ := r.ReadString('\n')        // ignore EOF error here
-	firstRowLine = strings.TrimRight(firstRowLine, "\r\n")
-	var firstRow []string
-	if firstRowLine != "" {
-		firstRow = strings.Split(firstRowLine, st.ingestFileDelimiter)
-	}
-
 	// rewind reader for the load job
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("rewind: %w", err)
@@ -1074,21 +838,8 @@ func (st *statement) initIngest(ctx context.Context) error {
 	if st.queryConfig.Dst.ProjectID == "" {
 		log.Fatal("ProjectID is empty on queryConfig.Dst")
 	}
-
 	//---------------------------------------------------------------------------
-	// 3.  Infer Arrow to BigQuery schema
-	//---------------------------------------------------------------------------
-	arrowSchema, err := inferArrowSchema(headerLine, firstRow, st.ingestFileDelimiter)
-	if err != nil {
-		return fmt.Errorf("infer arrow schema: %w", err)
-	}
-	bqSchema, err := arrowSchemaToBigQuery(arrowSchema)
-	if err != nil {
-		return fmt.Errorf("arrow to bq schema: %w", err)
-	}
-
-	//---------------------------------------------------------------------------
-	// 4.  Configure and run the load job with explicit schema
+	// 3.  Configure and run the load job with explicit schema
 	//---------------------------------------------------------------------------
 	loadSource := bigquery.NewReaderSource(file)
 	job := st.queryConfig.Dst.LoaderFrom(loadSource)
@@ -1099,8 +850,7 @@ func (st *statement) initIngest(ctx context.Context) error {
 	fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other files
 	fileCfg.SkipLeadingRows = 1
 	fileCfg.FieldDelimiter = st.ingestFileDelimiter
-	fileCfg.Schema = bqSchema
-
+	fileCfg.AutoDetect = true
 	handle, err := job.Run(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start query job: %w", err)
