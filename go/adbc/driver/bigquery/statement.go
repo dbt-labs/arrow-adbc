@@ -518,7 +518,7 @@ func arrowFieldToBigQueryField(arrowField arrow.Field) (bigquery.FieldSchema, er
 	case arrow.BOOL:
 		return bigquery.FieldSchema{
 			Name:     arrowField.Name,
-			Type:     bigquery.StringFieldType,
+			Type:     bigquery.BooleanFieldType,
 			Required: !arrowField.Nullable,
 		}, nil
 	case arrow.INT8, arrow.INT16, arrow.INT32, arrow.INT64, arrow.UINT8, arrow.UINT16, arrow.UINT32, arrow.UINT64:
@@ -549,6 +549,12 @@ func arrowFieldToBigQueryField(arrowField arrow.Field) (bigquery.FieldSchema, er
 		return bigquery.FieldSchema{
 			Name:     arrowField.Name,
 			Type:     bigquery.TimestampFieldType,
+			Required: !arrowField.Nullable,
+		}, nil
+	case arrow.DATE32, arrow.DATE64:
+		return bigquery.FieldSchema{
+			Name:     arrowField.Name,
+			Type:     bigquery.DateFieldType,
 			Required: !arrowField.Nullable,
 		}, nil
 	case arrow.TIME32, arrow.TIME64:
@@ -622,8 +628,8 @@ func arrowSchemaToBigQuery(schema *arrow.Schema) (bigquery.Schema, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		bqSchema[i] = &bqField
+		copy := bqField 	// distinct memory
+		bqSchema[i] = &copy
 	}
 	return bqSchema, nil
 }
@@ -943,17 +949,6 @@ func (st *statement) initIngest(ctx context.Context) error {
 	fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other files
 	fileCfg.SkipLeadingRows = 1
 	fileCfg.FieldDelimiter = st.ingestFileDelimiter
-
-	// Optional: print schema if param binding exists
-	if st.paramBinding != nil {
-		schema := st.paramBinding.Schema()
-
-		bqSchema, err := arrowSchemaToBigQuery(schema)
-		if err != nil {
-			return fmt.Errorf("failed to convert schema: %w", err)
-		}
-		fileCfg.Schema = bqSchema
-	}
 
 	handle, err := job.Run(ctx)
 	if err != nil {
