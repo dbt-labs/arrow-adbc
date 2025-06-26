@@ -80,7 +80,13 @@ func TestStringToTable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := stringToTable(tt.defaultProjectID, tt.defaultDatasetID, tt.input)
+			st := &statement{
+				cnxn: &connectionImpl{
+					catalog:  tt.defaultProjectID,
+					dbSchema: tt.defaultDatasetID,
+				},
+			}
+			result, err := stringToTable(st, tt.input)
 
 			if tt.expectError {
 				if err == nil {
