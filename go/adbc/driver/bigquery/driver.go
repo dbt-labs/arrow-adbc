@@ -57,7 +57,7 @@ const (
 	OptionValueQueryParameterModeNamed      = "adbc.bigquery.sql.query.parameter_mode_named"
 	OptionValueQueryParameterModePositional = "adbc.bigquery.sql.query.parameter_mode_positional"
 
-	OptionStringQueryDestination       = "adbc.bigquery.sql.query.destination"
+	OptionStringQueryDestinationTable  = "adbc.bigquery.sql.query.destination_table"
 	OptionStringQueryDefaultProjectID  = "adbc.bigquery.sql.query.default_project_id"
 	OptionStringQueryDefaultDatasetID  = "adbc.bigquery.sql.query.default_dataset_id"
 	OptionStringQueryCreateDisposition = "adbc.bigquery.sql.query.create_disposition"
@@ -147,6 +147,10 @@ func parseParts(defaultProjectID, defaultDatasetID, value string) (string, strin
 	}
 }
 
+// This takes a partially qualified table string in format [project.][.dataset.]table
+// and returns a bigquery.Table object.
+// If project or dataset is not provided, the default project ID and dataset ID are used.
+// Returns an error if the format is invalid.
 func stringToTable(defaultProjectID, defaultDatasetID, value string) (*bigquery.Table, error) {
 	projectID, datasetID, tableID, err := parseParts(defaultProjectID, defaultDatasetID, value)
 	if err != nil {
