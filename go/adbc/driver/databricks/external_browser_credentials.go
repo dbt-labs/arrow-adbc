@@ -334,11 +334,10 @@ func (c *ExternalBrowserCredentials) findAvailablePort() int {
 func (c *ExternalBrowserCredentials) isPortAvailable(port int) bool {
 	addr := fmt.Sprintf(":%d", port)
 	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return false
+	if err == nil {
+		ln.Close()
 	}
-	ln.Close()
-	return true
+	return err != nil
 }
 
 // base oidc endpoint
