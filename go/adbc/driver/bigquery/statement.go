@@ -185,7 +185,7 @@ func (st *statement) SetOption(key string, v string) error {
 			}
 		}
 	case OptionStringQueryDestinationTable:
-		val, err := stringToTable(st.cnxn.catalog, st.cnxn.dbSchema, v)
+		val, err := stringToTable(st, v)
 		if err == nil {
 			st.queryConfig.Dst = val
 		} else {

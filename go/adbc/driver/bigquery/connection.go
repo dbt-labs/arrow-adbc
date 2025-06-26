@@ -66,9 +66,9 @@ type connectionImpl struct {
 	client *bigquery.Client
 }
 
-// Helper for configuration of a connection for use with a job
+// This creates a bigquery.Table associated with the connection's client
 func (c *connectionImpl) table(project, dataset, table string) *bigquery.Table {
-    return c.client.DatasetInProject(project, dataset).Table(table)
+	return c.client.DatasetInProject(project, dataset).Table(table)
 }
 
 func (c *connectionImpl) GetCatalogs(ctx context.Context, catalogFilter *string) ([]string, error) {
@@ -513,9 +513,9 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 	}
 	switch c.authType {
 	case OptionValueAuthTypeJSONCredentialFile,
-	    OptionValueAuthTypeJSONCredentialString,
-	    OptionValueAuthTypeUserAuthentication,
-	    OptionValueAuthTypeTemporaryAccessToken:
+		OptionValueAuthTypeJSONCredentialString,
+		OptionValueAuthTypeUserAuthentication,
+		OptionValueAuthTypeTemporaryAccessToken:
 		var credentials option.ClientOption
 
 		switch c.authType {
