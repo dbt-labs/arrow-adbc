@@ -60,9 +60,9 @@ type statement struct {
 	prefetchConcurrency    int
 
 	// Ingest related fields
-	ingestPath             string
-	ingestFileDelimiter    string
-	explicitSchema         []*bigquery.FieldSchema
+	ingestPath          string
+	ingestFileDelimiter string
+	explicitSchema      []*bigquery.FieldSchema
 }
 
 func (st *statement) GetOptionBytes(key string) ([]byte, error) {
@@ -813,15 +813,16 @@ func (st *statement) loadExplicitSchema(b64 string) error {
 }
 
 func arrowSchemaToBQ(s *arrow.Schema) ([]*bigquery.FieldSchema, error) {
-    out := make([]*bigquery.FieldSchema, 0, len(s.Fields()))
-    for _, f := range s.Fields() {
-        bq, err := arrowFieldToBigQueryField(f)
-        if err != nil { return nil, err }
-        out = append(out, bq)
-    }
-    return out, nil
+	out := make([]*bigquery.FieldSchema, 0, len(s.Fields()))
+	for _, f := range s.Fields() {
+		bq, err := arrowFieldToBigQueryField(f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, bq)
+	}
+	return out, nil
 }
-
 
 // BigQuery type          Arrow types accepted
 // -----------------------------------------------------
@@ -839,13 +840,10 @@ func arrowSchemaToBQ(s *arrow.Schema) ([]*bigquery.FieldSchema, error) {
 //
 // Unsupported Arrow types (Union, Map, FixedSizeList, Duration, Interval, …)
 // cause a formatted error so the caller can log or reject the load job.
-//
 func arrowFieldToBigQueryField(f arrow.Field) (*bigquery.FieldSchema, error) {
 	bq := &bigquery.FieldSchema{
-		Name: f.Name,
+		Name:     f.Name,
 		Required: !f.Nullable,
-		// Mode filled later
-		// Type filled later
 	}
 
 	switch dt := f.Type.(type) {
@@ -941,15 +939,15 @@ func arrowFieldToBigQueryField(f arrow.Field) (*bigquery.FieldSchema, error) {
 		if err != nil {
 			return nil, err
 		}
-		bq.Type     = nested.Type
+		bq.Type = nested.Type
 		bq.Repeated = true
-		bq.Schema   = nested.Schema
+		bq.Schema = nested.Schema
 
 	//
 	// STRUCT to RECORD
 	//
 	case *arrow.StructType:
-		bq.Type   = bigquery.RecordFieldType
+		bq.Type = bigquery.RecordFieldType
 		bq.Schema = make([]*bigquery.FieldSchema, 0, len(dt.Fields()))
 		for _, sub := range dt.Fields() {
 			nested, err := arrowFieldToBigQueryField(sub)
@@ -1043,7 +1041,7 @@ func (st *statement) initIngest(ctx context.Context) error {
 	fileCfg.FieldDelimiter = st.ingestFileDelimiter
 
 	if st.explicitSchema != nil {
-		fileCfg.Schema     = st.explicitSchema
+		fileCfg.Schema = st.explicitSchema
 		fileCfg.AutoDetect = false
 	} else {
 		fileCfg.AutoDetect = true
