@@ -148,10 +148,10 @@ func (st *statement) GetOption(key string) (string, error) {
 		return strconv.FormatBool(st.queryConfig.CreateSession), nil
 	case OptionStringIngestFileDelimiter:
 		return st.ingestFileDelimiter, nil
-	case OptionJsonUpdateTableColumnsDescription:
-		return st.updateTableColumnsDescription, nil
 	case OptionStringIngestPath:
 		return st.ingestPath, nil
+	case OptionJsonUpdateTableColumnsDescription:
+		return st.updateTableColumnsDescription, nil
 
 	default:
 		val, err := st.cnxn.GetOption(key)
@@ -269,7 +269,9 @@ func (st *statement) SetOption(key string, v string) error {
 			return err
 		}
 	case OptionStringIngestPath:
+		st.ingestPath = v
 	case OptionStringIngestFileDelimiter:
+		st.ingestFileDelimiter = v
 	case OptionStringIngestSchema:
 		if err := st.loadExplicitSchema(v); err != nil {
 			return err
