@@ -14,12 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 MANAGERS = bigquery databricks flightsql panicdummy snowflake
 
 GO_BUILD := go build
 RM := rm -f
-RMDIR := rmdir
 
 ifeq ($(shell go env GOOS),linux)
 	SUFFIX=so
@@ -33,13 +31,6 @@ endif
 # Expand dynamically libadbc_driver_.SUFFIX
 DRIVERS := $(addsuffix .$(SUFFIX),$(addprefix libadbc_driver_,$(MANAGERS)))
 
-ifeq ($(shell uname), Darwin)
-	SHA256 := shasum -a 256
-else
-	SHA256 := $(shell command -v sha256sum)
-endif
-
-
 # =========
 #  Targets
 # =========
@@ -52,7 +43,6 @@ libadbc_driver_%.$(SUFFIX): % ../driver/% ../go.mod ../go.sum
 	$(GO_BUILD) -tags driverlib -o $@ -buildmode=c-shared -ldflags "-s -w" ./$(*)
 	$(RM) $(basename $@).h
 
-
 regenerate:
 	go run gen/main.go -prefix BigQuery -o ./bigquery/ -driver ../driver/bigquery
 	go run gen/main.go -prefix Databricks -o ./databricks/ -driver ../driver/databricks
@@ -61,5 +51,4 @@ regenerate:
 	go run gen/main.go -prefix Snowflake -o ./snowflake/ -driver ../driver/snowflake
 
 clean:
-	$(RM) $(DRIVERS) build/*
-	$(RMDIR) build
+	$(RM) $(DRIVERS)
