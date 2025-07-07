@@ -87,6 +87,7 @@ const (
 	OptionStringIngestSchema        = "adbc.bigquery.ingest.csv_schema"
 
 	OptionJsonUpdateTableColumnsDescription = "adbc.bigquery.table.update.columns_description"
+	OptionJsonAuthorizeViewToDatasets       = "adbc.bigquery.dataset.update.authorize_view_to_datasets"
 )
 
 var (
