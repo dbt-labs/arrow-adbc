@@ -14,8 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-GO_BUILD=go build
-RM=rm -f
+
+MANAGERS = bigquery databricks flightsql panicdummy snowflake
+
+GO_BUILD := go build
+RM := rm -f
+RMDIR := rmdir
+
 ifeq ($(shell go env GOOS),linux)
 	SUFFIX=so
 else ifeq ($(shell go env GOOS),windows)
@@ -25,19 +30,28 @@ else
 	SUFFIX=dylib
 endif
 
-DRIVERS := \
-	libadbc_driver_bigquery.$(SUFFIX) \
-	libadbc_driver_databricks.$(SUFFIX) \
-	libadbc_driver_flightsql.$(SUFFIX) \
-	libadbc_driver_panicdummy.$(SUFFIX) \
-	libadbc_driver_snowflake.$(SUFFIX)
+# Expand dynamically libadbc_driver_.SUFFIX
+DRIVERS := $(addsuffix .$(SUFFIX),$(addprefix libadbc_driver_,$(MANAGERS)))
+
+ifeq ($(shell uname), Darwin)
+	SHA256 := shasum -a 256
+else
+	SHA256 := $(shell command -v sha256sum)
+endif
+
+
+# =========
+#  Targets
+# =========
 
 .PHONY: all regenerate
 all: $(DRIVERS)
 
-libadbc_driver_%.$(SUFFIX): %
-	$(GO_BUILD) -tags driverlib -o $@ -buildmode=c-shared -ldflags "-s -w" ./$<
+
+libadbc_driver_%.$(SUFFIX): % ../driver/% ../go.mod ../go.sum
+	$(GO_BUILD) -tags driverlib -o $@ -buildmode=c-shared -ldflags "-s -w" ./$(*)
 	$(RM) $(basename $@).h
+
 
 regenerate:
 	go run gen/main.go -prefix BigQuery -o ./bigquery/ -driver ../driver/bigquery
@@ -47,4 +61,5 @@ regenerate:
 	go run gen/main.go -prefix Snowflake -o ./snowflake/ -driver ../driver/snowflake
 
 clean:
-	$(RM) $(DRIVERS)
+	$(RM) $(DRIVERS) build/*
+	$(RMDIR) build
