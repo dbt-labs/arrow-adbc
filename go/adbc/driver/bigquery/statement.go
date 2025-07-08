@@ -1110,14 +1110,11 @@ func (st *statement) executeIngest(ctx context.Context) (array.RecordReader, int
 func (st *statement) executeUpdateTableColumnsDescription(ctx context.Context) (array.RecordReader, int64, error) {
 	thisFunction := getFunctionName()
 
-	columnDescriptionsRaw, _ := st.GetOption(OptionJsonUpdateTableColumnsDescription)
-	if columnDescriptionsRaw == "" {
-		return nil, -1, adbcError(adbc.StatusInvalidState, thisFunction, "OptionJsonUpdateTableColumnsDescription must be set for statement")
-	}
 	if st.queryConfig.Dst == nil {
 		return nil, -1, adbcError(adbc.StatusInvalidState, thisFunction, "Dst must be set for statement.QueryConfig")
 	}
 
+	columnDescriptionsRaw, _ := st.GetOption(OptionJsonUpdateTableColumnsDescription)
 	// deserialize the column name -> description mapping
 	var columnDescriptions map[string]string
 	if err := json.Unmarshal([]byte(columnDescriptionsRaw), &columnDescriptions); err != nil {
@@ -1159,17 +1156,13 @@ func (st *statement) executeUpdateTableColumnsDescription(ctx context.Context) (
 func (st *statement) executeAuthorizeViewToDatasets(ctx context.Context) (array.RecordReader, int64, error) {
 	thisFunction := getFunctionName()
 
-	authorizeViewToDatasetsRaw, _ := st.GetOption(OptionJsonAuthorizeViewToDatasets)
-	if authorizeViewToDatasetsRaw == "" {
-		return nil, -1, adbcError(adbc.StatusInvalidState, thisFunction, "OptionJsonAuthorizeViewToDatasets must be set for statement")
-	}
-
 	type Dataset struct {
 		Project string `json:"project"`
 		Dataset string `json:"dataset"`
 	}
-
 	var viewToDataset map[string][]Dataset
+
+	authorizeViewToDatasetsRaw, _ := st.GetOption(OptionJsonAuthorizeViewToDatasets)
 	if err := json.Unmarshal([]byte(authorizeViewToDatasetsRaw), &viewToDataset); err != nil {
 		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("failed to parse view to dataset JSON: %v", err))
 	}
