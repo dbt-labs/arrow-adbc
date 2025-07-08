@@ -69,7 +69,7 @@ type statement struct {
 	// Field that contains Table.update columns descriptions
 	updateTableColumnsDescription string
 
-	// Field that contains the JSON string to authorize a vew to source datasets
+	// Field that contains the JSON string to authorize a view to source datasets
 	authorizeViewToDatasets string
 }
 
@@ -1180,8 +1180,8 @@ func (st *statement) executeAuthorizeViewToDatasets(ctx context.Context) (array.
 				return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to get dataset metadata: %v", err))
 			}
 
-			if slices.ContainsFunc(metadata.Access, func(entry *bigquery.AccessEntry) bool {
-				return entry.View != nil && entry.View.TableID == view.TableID && entry.View.DatasetID == view.DatasetID && entry.View.ProjectID == view.ProjectID
+			if slices.ContainsFunc(metadata.Access, func(existing *bigquery.AccessEntry) bool {
+				return tableEqual(existing.View, view)
 			}) {
 				continue
 			}
@@ -1201,7 +1201,14 @@ func (st *statement) executeAuthorizeViewToDatasets(ctx context.Context) (array.
 	return emptyResult()
 }
 
-// emptyResult returns an empty record reader when this the caller operation doesn't return any data
+func tableEqual(self *bigquery.Table, other *bigquery.Table) bool {
+	if self == nil || other == nil {
+		return self == other
+	}
+	return self.TableID == other.TableID && self.DatasetID == other.DatasetID && self.ProjectID == other.ProjectID
+}
+
+// emptyResult returns an empty record reader when the caller doesn't return any data
 func emptyResult() (array.RecordReader, int64, error) {
 	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
 	emptyRecord := array.NewRecord(emptySchema, []arrow.Array{}, 0)
