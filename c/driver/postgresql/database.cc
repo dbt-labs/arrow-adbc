@@ -37,6 +37,7 @@ namespace adbcpq {
 
 PostgresDatabase::PostgresDatabase() : open_connections_(0) {
   type_resolver_ = std::make_shared<PostgresTypeResolver>();
+  connection_params_ = std::make_shared<BaseConnectionParams>();
 }
 PostgresDatabase::~PostgresDatabase() = default;
 
@@ -86,6 +87,31 @@ AdbcStatusCode PostgresDatabase::SetOption(const char* key, const char* value,
                                            struct AdbcError* error) {
   if (strcmp(key, "uri") == 0) {
     uri_ = value;
+  // parameter based connection
+  } else if(strcmp(key, "user") == 0) {
+    connection_params_->user = value;
+  } else if(strcmp(key, "password") == 0) {
+    connection_params_->password = value;
+  } else if(strcmp(key, "host") == 0) {
+    connection_params_->host = value;
+  } else if(strcmp(key, "port") == 0) {
+    printf("Setting option: %s = %s\n", key, value);
+    connection_params_->port = value;
+    printf("Set option: %s = %s\n", key, value);
+  } else if(strcmp(key, "database") == 0) {
+    connection_params_->dbname = value;
+  } else if(strcmp(key, "connect_timeout") == 0) {
+    connection_params_->connect_timeout = value;
+  } else if(strcmp(key, "application_name") == 0) {
+    connection_params_->application_name = value;
+  } else if(strcmp(key, "sslmode") == 0) {
+    connection_params_->sslmode = value;
+  } else if(strcmp(key, "sslcert") == 0) {
+    connection_params_->sslcert = value;
+  } else if(strcmp(key, "sslkey") == 0) {
+    connection_params_->sslkey = value;
+  } else if(strcmp(key, "sslrootcert") == 0) {
+    connection_params_->sslrootcert = value;
   } else {
     SetError(error, "%s%s", "[libpq] Unknown database option ", key);
     return ADBC_STATUS_NOT_IMPLEMENTED;
@@ -111,13 +137,24 @@ AdbcStatusCode PostgresDatabase::SetOptionInt(const char* key, int64_t value,
   return ADBC_STATUS_NOT_IMPLEMENTED;
 }
 
-AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error) {
+  AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error) {
   if (uri_.empty()) {
-    SetError(error, "%s",
-             "[libpq] Must set database option 'uri' before creating a connection");
-    return ADBC_STATUS_INVALID_STATE;
+    std::optional<std::string> paramError = connection_params_->Validate();
+    if (paramError.has_value()) {
+        SetError(error, "%s%s", 
+            "[libpq] Must set database option 'uri' or valid connection parameters before creating a connection. Parameter validation error: ",
+            paramError.value().c_str());
+      return ADBC_STATUS_INVALID_STATE;
+    }
   }
-  *conn = PQconnectdb(uri_.c_str());
+  
+  // uri takes priority
+  if (!uri_.empty()) {
+    *conn = PQconnectdb(uri_.c_str());
+  } else {
+    auto [keywords, values] = connection_params_->BuildAllConnectionParams();
+    *conn = PQconnectdbParams(keywords.data(), values.data(), 0);
+  }
   if (PQstatus(*conn) != CONNECTION_OK) {
     SetError(error, "%s%s", "[libpq] Failed to connect: ", PQerrorMessage(*conn));
     PQfinish(*conn);
@@ -207,6 +244,119 @@ Status PostgresDatabase::InitVersions(PGconn* conn) {
   redshift_server_version_ = ParsePrefixedVersion(version_info, "Redshift");
 
   return Status::Ok();
+}
+
+std::optional<std::string> BaseConnectionParams::Validate() const {
+  // Check required parameters
+  if (host.empty()) {
+    return "Missing required parameter: host";
+  }
+  
+  if (user.empty()) {
+    return "Missing required parameter: user";
+  }
+  
+  if (dbname.empty()) {
+    return "Missing required parameter: dbname";
+  }
+
+  // Port must be 1-65535
+  try {
+    int port_num = std::stoi(port);
+    if (port_num <= 0 || port_num > 65535) {
+      return "Invalid port number: " + port + " (must be 1-65535)";
+    }
+  } catch (const std::exception&) {
+    return "Invalid port number: " + port + " (must be a number)";
+  }
+  
+  if (sslmode.has_value()) {
+    const std::string& mode = sslmode.value();
+    if (mode != "disable" && mode != "allow" && mode != "prefer" && 
+        mode != "require" && mode != "verify-ca" && mode != "verify-full") {
+      return "Invalid sslmode: " + mode + " (must be one of: disable, allow, prefer, require, verify-ca, verify-full)";
+    }
+  }
+  
+  if (sslcert.has_value() && sslkey.has_value()) {
+    if (sslcert->empty() || sslkey->empty()) {
+      return "SSL certificate and key files cannot be empty";
+    }
+  } else if (sslcert.has_value() && !sslkey.has_value()) {
+    return "SSL certificate specified without SSL key";
+  } else if (sslkey.has_value() && !sslcert.has_value()) {
+    return "SSL key specified without SSL certificate";
+  }
+  
+  if (connect_timeout.has_value()) {
+    try {
+      int timeout = std::stoi(connect_timeout.value());
+      if (timeout < 0) {
+        return "connect_timeout must be non-negative, got: " + connect_timeout.value();
+      }
+    } catch (const std::exception&) {
+      return "Invalid connect_timeout: " + connect_timeout.value() + " (must be a number)";
+    }
+  }
+  
+  return std::nullopt;
+}
+
+std::pair<std::vector<const char*>, std::vector<const char*>> BaseConnectionParams::BuildAllConnectionParams() const {
+  std::vector<const char*> keywords;
+  std::vector<const char*> values;
+  
+  // Required parameters
+  keywords.push_back("host");
+  values.push_back(host.c_str());
+
+  keywords.push_back("user");
+  values.push_back(user.c_str());
+
+  if (password.has_value()) {
+    keywords.push_back("password");
+    values.push_back(password->c_str());
+  }
+
+  keywords.push_back("port");
+  values.push_back(port.c_str());
+
+  keywords.push_back("dbname");
+  values.push_back(dbname.c_str());
+
+  // Optional parameters
+  if (connect_timeout.has_value()) {
+    keywords.push_back("connect_timeout");
+    values.push_back(connect_timeout->c_str());
+  }
+  if (application_name.has_value()) {
+    keywords.push_back("application_name");
+    values.push_back(application_name->c_str());
+  }
+  if (sslmode.has_value()) {
+    keywords.push_back("sslmode");
+    values.push_back(sslmode->c_str());
+  }
+  if (sslcert.has_value()) {
+    keywords.push_back("sslcert");
+    values.push_back(sslcert->c_str());
+  }
+  if (sslkey.has_value()) {
+    keywords.push_back("sslkey");
+    values.push_back(sslkey->c_str());
+  }
+  if (sslrootcert.has_value()) {
+    keywords.push_back("sslrootcert");
+    values.push_back(sslrootcert->c_str());
+  }
+  for (const auto& [key, value] : custom_params) {
+    keywords.push_back(key.c_str());
+    values.push_back(value.c_str());
+  }
+  // Add null terminators
+  keywords.push_back(nullptr);
+  values.push_back(nullptr);
+  return {keywords, values};
 }
 
 // Helpers for building the type resolver from queries

@@ -19,8 +19,12 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
+#include <optional>
+#include <unordered_map>
+#include <vector>
 
 #include <arrow-adbc/adbc.h>
 #include <libpq-fe.h>
@@ -30,6 +34,33 @@
 
 namespace adbcpq {
 using adbc::driver::Status;
+
+struct BaseConnectionParams {
+  // See: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING
+  std::string host;
+  std::string user;
+  std::optional<std::string> password;
+  std::string port = "5432";
+  std::string dbname;
+  // Optional parameters
+  std::optional<std::string> connect_timeout;
+  std::optional<std::string> application_name;
+  std::optional<std::string> sslmode;
+  std::optional<std::string> sslcert;
+  std::optional<std::string> sslkey;
+  std::optional<std::string> sslrootcert;
+  // Custom parameters 
+  std::unordered_map<std::string, std::string> custom_params;
+  // Add more as needed
+  
+  BaseConnectionParams() = default;
+  
+  // Validate connection parameters and return error message if invalid
+  std::optional<std::string> Validate() const;
+  
+  // Convert to PQconnectdbParams format including custom parameters
+  std::pair<std::vector<const char*>, std::vector<const char*>> BuildAllConnectionParams() const;
+};
 
 class PostgresDatabase {
  public:
@@ -85,6 +116,7 @@ class PostgresDatabase {
   std::shared_ptr<PostgresTypeResolver> type_resolver_;
   std::array<int, 3> postgres_server_version_{};
   std::array<int, 3> redshift_server_version_{};
+  std::shared_ptr<BaseConnectionParams> connection_params_;
 };
 }  // namespace adbcpq
 
