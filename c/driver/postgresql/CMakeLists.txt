@@ -26,11 +26,15 @@ else()
   pkg_check_modules(LIBPQ REQUIRED libpq)
 endif()
 
+# For AWS Redshift Support
+find_package(AWSSDK CONFIG COMPONENTS core sts redshift REQUIRED)
+
 add_arrow_lib(adbc_driver_postgresql
               SOURCES
               connection.cc
               error.cc
               database.cc
+              redshift_auth.cc
               postgresql.cc
               result_helper.cc
               result_reader.cc
@@ -57,7 +61,9 @@ foreach(LIB_TARGET ${ADBC_LIBRARIES})
   target_compile_definitions(${LIB_TARGET} PRIVATE ADBC_EXPORTING)
   target_include_directories(${LIB_TARGET} SYSTEM
                              PRIVATE ${REPOSITORY_ROOT}/c/ ${REPOSITORY_ROOT}/c/include/
-                                     ${LIBPQ_INCLUDE_DIRS} ${REPOSITORY_ROOT}/c/driver)
+                                     ${LIBPQ_INCLUDE_DIRS} ${REPOSITORY_ROOT}/c/driver
+                                     ${AWSSDK_INCLUDE_DIRS})
+  target_link_libraries(${LIB_TARGET} PRIVATE ${AWSSDK_LIBRARIES})
 endforeach()
 
 if(ADBC_TEST_LINKAGE STREQUAL "shared")

@@ -21,13 +21,14 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <string>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include <arrow-adbc/adbc.h>
 #include <libpq-fe.h>
+#include <postgresql/redshift_auth.h>
 
 #include "driver/framework/status.h"
 #include "postgres_type.h"
@@ -49,17 +50,18 @@ struct BaseConnectionParams {
   std::optional<std::string> sslcert;
   std::optional<std::string> sslkey;
   std::optional<std::string> sslrootcert;
-  // Custom parameters 
+  // Custom parameters
   std::unordered_map<std::string, std::string> custom_params;
   // Add more as needed
-  
+
   BaseConnectionParams() = default;
-  
+
   // Validate connection parameters and return error message if invalid
   std::optional<std::string> Validate() const;
-  
+
   // Convert to PQconnectdbParams format including custom parameters
-  std::pair<std::vector<const char*>, std::vector<const char*>> BuildAllConnectionParams() const;
+  std::pair<std::vector<const char*>, std::vector<const char*>> BuildAllConnectionParams()
+      const;
 };
 
 class PostgresDatabase {
@@ -117,6 +119,7 @@ class PostgresDatabase {
   std::array<int, 3> postgres_server_version_{};
   std::array<int, 3> redshift_server_version_{};
   std::shared_ptr<BaseConnectionParams> connection_params_;
+  AwsAuthSettings aws_auth_settings_;
 };
 }  // namespace adbcpq
 

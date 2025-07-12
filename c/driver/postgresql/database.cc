@@ -31,6 +31,7 @@
 #include <nanoarrow/nanoarrow.h>
 
 #include "driver/common/utils.h"
+#include "redshift_auth.h"
 #include "result_helper.h"
 
 namespace adbcpq {
@@ -87,31 +88,40 @@ AdbcStatusCode PostgresDatabase::SetOption(const char* key, const char* value,
                                            struct AdbcError* error) {
   if (strcmp(key, "uri") == 0) {
     uri_ = value;
-  // parameter based connection
-  } else if(strcmp(key, "user") == 0) {
+    // parameter based connection
+  } else if (strcmp(key, "user") == 0) {
     connection_params_->user = value;
-  } else if(strcmp(key, "password") == 0) {
+  } else if (strcmp(key, "password") == 0) {
     connection_params_->password = value;
-  } else if(strcmp(key, "host") == 0) {
+  } else if (strcmp(key, "host") == 0) {
     connection_params_->host = value;
-  } else if(strcmp(key, "port") == 0) {
-    printf("Setting option: %s = %s\n", key, value);
+  } else if (strcmp(key, "port") == 0) {
     connection_params_->port = value;
-    printf("Set option: %s = %s\n", key, value);
-  } else if(strcmp(key, "database") == 0) {
+  } else if (strcmp(key, "database") == 0) {
     connection_params_->dbname = value;
-  } else if(strcmp(key, "connect_timeout") == 0) {
+  } else if (strcmp(key, "connect_timeout") == 0) {
     connection_params_->connect_timeout = value;
-  } else if(strcmp(key, "application_name") == 0) {
+  } else if (strcmp(key, "application_name") == 0) {
     connection_params_->application_name = value;
-  } else if(strcmp(key, "sslmode") == 0) {
+  } else if (strcmp(key, "sslmode") == 0) {
     connection_params_->sslmode = value;
-  } else if(strcmp(key, "sslcert") == 0) {
+  } else if (strcmp(key, "sslcert") == 0) {
     connection_params_->sslcert = value;
-  } else if(strcmp(key, "sslkey") == 0) {
+  } else if (strcmp(key, "sslkey") == 0) {
     connection_params_->sslkey = value;
-  } else if(strcmp(key, "sslrootcert") == 0) {
+  } else if (strcmp(key, "sslrootcert") == 0) {
     connection_params_->sslrootcert = value;
+    // IAM Authentication for Redshift
+  } else if (strcmp(key, "auth_profile") == 0) {
+    aws_auth_settings_.profile = value;
+  } else if (strcmp(key, "cluster_id") == 0) {
+    aws_auth_settings_.cluster_id = value;
+  } else if (strcmp(key, "region") == 0) {
+    aws_auth_settings_.region = value;
+  } else if (strcmp(key, "access_key_id") == 0) {
+    aws_auth_settings_.access_key_id = value;
+  } else if (strcmp(key, "secret_access_key") == 0) {
+    aws_auth_settings_.secret_access_key = value;
   } else {
     SetError(error, "%s%s", "[libpq] Unknown database option ", key);
     return ADBC_STATUS_NOT_IMPLEMENTED;
@@ -137,17 +147,44 @@ AdbcStatusCode PostgresDatabase::SetOptionInt(const char* key, int64_t value,
   return ADBC_STATUS_NOT_IMPLEMENTED;
 }
 
-  AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error) {
+AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error) {
+  // Check for IAM authentication parameters
+  bool use_iam_auth = aws_auth_settings_.profile.has_value() ||
+                      (aws_auth_settings_.access_key_id.has_value() &&
+                       aws_auth_settings_.secret_access_key.has_value());
+
+  // provided password takes priority
+  if (use_iam_auth && !connection_params_->password.has_value()) {
+    aws_auth_settings_.host = connection_params_->host;
+    aws_auth_settings_.port = connection_params_->port;
+    aws_auth_settings_.database = connection_params_->dbname;
+    aws_auth_settings_.user = connection_params_->user;
+
+    // Get Redshift credentials using IAM authentication
+    AwsAuthClient auth_client;
+    RedshiftCredentials credentials;
+    Status status =
+        auth_client.GetRedshiftCredentials(aws_auth_settings_, credentials, error);
+    if (!status.ok()) {
+      return status.ToAdbc(error);
+    }
+
+    // Hydrate connection params with username and password
+    connection_params_->user = credentials.db_user;
+    connection_params_->password = credentials.db_password;
+  }
+
   if (uri_.empty()) {
     std::optional<std::string> paramError = connection_params_->Validate();
     if (paramError.has_value()) {
-        SetError(error, "%s%s", 
-            "[libpq] Must set database option 'uri' or valid connection parameters before creating a connection. Parameter validation error: ",
-            paramError.value().c_str());
+      SetError(error, "%s%s",
+               "[libpq] Must set database option 'uri' or valid connection parameters "
+               "before creating a connection. Parameter validation error: ",
+               paramError.value().c_str());
       return ADBC_STATUS_INVALID_STATE;
     }
   }
-  
+
   // uri takes priority
   if (!uri_.empty()) {
     *conn = PQconnectdb(uri_.c_str());
@@ -251,11 +288,11 @@ std::optional<std::string> BaseConnectionParams::Validate() const {
   if (host.empty()) {
     return "Missing required parameter: host";
   }
-  
+
   if (user.empty()) {
     return "Missing required parameter: user";
   }
-  
+
   if (dbname.empty()) {
     return "Missing required parameter: dbname";
   }
@@ -269,15 +306,16 @@ std::optional<std::string> BaseConnectionParams::Validate() const {
   } catch (const std::exception&) {
     return "Invalid port number: " + port + " (must be a number)";
   }
-  
+
   if (sslmode.has_value()) {
     const std::string& mode = sslmode.value();
-    if (mode != "disable" && mode != "allow" && mode != "prefer" && 
-        mode != "require" && mode != "verify-ca" && mode != "verify-full") {
-      return "Invalid sslmode: " + mode + " (must be one of: disable, allow, prefer, require, verify-ca, verify-full)";
+    if (mode != "disable" && mode != "allow" && mode != "prefer" && mode != "require" &&
+        mode != "verify-ca" && mode != "verify-full") {
+      return "Invalid sslmode: " + mode +
+             " (must be one of: disable, allow, prefer, require, verify-ca, verify-full)";
     }
   }
-  
+
   if (sslcert.has_value() && sslkey.has_value()) {
     if (sslcert->empty() || sslkey->empty()) {
       return "SSL certificate and key files cannot be empty";
@@ -287,7 +325,7 @@ std::optional<std::string> BaseConnectionParams::Validate() const {
   } else if (sslkey.has_value() && !sslcert.has_value()) {
     return "SSL key specified without SSL certificate";
   }
-  
+
   if (connect_timeout.has_value()) {
     try {
       int timeout = std::stoi(connect_timeout.value());
@@ -295,17 +333,19 @@ std::optional<std::string> BaseConnectionParams::Validate() const {
         return "connect_timeout must be non-negative, got: " + connect_timeout.value();
       }
     } catch (const std::exception&) {
-      return "Invalid connect_timeout: " + connect_timeout.value() + " (must be a number)";
+      return "Invalid connect_timeout: " + connect_timeout.value() +
+             " (must be a number)";
     }
   }
-  
+
   return std::nullopt;
 }
 
-std::pair<std::vector<const char*>, std::vector<const char*>> BaseConnectionParams::BuildAllConnectionParams() const {
+std::pair<std::vector<const char*>, std::vector<const char*>>
+BaseConnectionParams::BuildAllConnectionParams() const {
   std::vector<const char*> keywords;
   std::vector<const char*> values;
-  
+
   // Required parameters
   keywords.push_back("host");
   values.push_back(host.c_str());
