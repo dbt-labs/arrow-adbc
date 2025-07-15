@@ -21,10 +21,24 @@
 #include <string>
 
 #include <arrow-adbc/adbc.h>
+#include <aws/core/Aws.h>
 #include "driver/framework/status.h"
 
 namespace adbcpq {
 using adbc::driver::Status;
+
+class AwsClientSingleton {
+public:
+    static AwsClientSingleton& Instance() {
+        static AwsClientSingleton S;
+        return S;
+    }
+
+private:
+    Aws::SDKOptions options_;
+    AwsClientSingleton();
+    ~AwsClientSingleton();
+};
 
 // Redshift cluster credentials returned from GetClusterCredentials API
 struct RedshiftCredentials {

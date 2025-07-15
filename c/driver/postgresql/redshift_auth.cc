@@ -30,20 +30,27 @@
 
 namespace adbcpq {
 
+AwsClientSingleton::AwsClientSingleton() {
+    static bool initialized = false;
+    if (!initialized) {
+        Aws::InitAPI(options_);
+        initialized = true;
+    }
+}
+
+AwsClientSingleton::~AwsClientSingleton() {
+  Aws::ShutdownAPI(options_);
+}
+
 class AwsAuthClient::Impl {
  public:
   Impl() {
-    // Initialize AWS SDK if not already initialized
-    static bool initialized = false;
-    if (!initialized) {
-      Aws::InitAPI(options_);
-      initialized = true;
-    }
+    // Meyer's Singleton
+    AwsClientSingleton::Instance();
   }
 
   ~Impl() {
-    // todo: determine if we should shut down AWS API here
-    // even in multi-connection scenarios as shut down is global
+    // no-op
   }
 
   Status GetRedshiftCredentials(const AwsAuthSettings& settings,
@@ -140,8 +147,6 @@ class AwsAuthClient::Impl {
 
     return Status::Ok();
   }
-
-  Aws::SDKOptions options_;
 };
 
 AwsAuthClient::AwsAuthClient() : pimpl_(std::make_unique<Impl>()) {}

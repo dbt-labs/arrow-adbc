@@ -88,7 +88,9 @@ if(ADBC_BUILD_TESTS)
   target_compile_features(adbc-driver-postgresql-test PRIVATE cxx_std_17)
   target_include_directories(adbc-driver-postgresql-test SYSTEM
                              PRIVATE ${REPOSITORY_ROOT}/c/ ${REPOSITORY_ROOT}/c/include/
-                                     ${LIBPQ_INCLUDE_DIRS} ${REPOSITORY_ROOT}/c/driver)
+                                     ${LIBPQ_INCLUDE_DIRS} ${REPOSITORY_ROOT}/c/driver
+                                     ${AWSSDK_INCLUDE_DIRS})
+  target_link_libraries(adbc-driver-postgresql-test PRIVATE ${AWSSDK_LIBRARIES})
   adbc_configure_target(adbc-driver-postgresql-test)
 
   add_test_case(driver_postgresql_copy_test
@@ -106,7 +108,9 @@ if(ADBC_BUILD_TESTS)
   target_compile_features(adbc-driver-postgresql-copy-test PRIVATE cxx_std_17)
   target_include_directories(adbc-driver-postgresql-copy-test SYSTEM
                              PRIVATE ${REPOSITORY_ROOT}/c/ ${REPOSITORY_ROOT}/c/include/
-                                     ${LIBPQ_INCLUDE_DIRS} ${REPOSITORY_ROOT}/c/driver)
+                                     ${LIBPQ_INCLUDE_DIRS} ${REPOSITORY_ROOT}/c/driver
+                                     ${AWSSDK_INCLUDE_DIRS})
+  target_link_libraries(adbc-driver-postgresql-copy-test PRIVATE ${AWSSDK_LIBRARIES})
   adbc_configure_target(adbc-driver-postgresql-copy-test)
 endif()
 
