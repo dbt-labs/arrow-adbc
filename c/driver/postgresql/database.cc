@@ -328,34 +328,28 @@ std::optional<std::string> ConnectionParams::Validate() const {
     return "Invalid port number: " + port + " (must be a number)";
   }
 
-  if (sslmode.has_value()) {
-    const std::string& mode = sslmode.value();
-    if (mode != "disable" && mode != "allow" && mode != "prefer" && mode != "require" &&
-        mode != "verify-ca" && mode != "verify-full") {
-      return "Invalid sslmode: " + mode +
+  if (!sslmode.empty()) {
+    if (sslmode != "disable" && sslmode != "allow" && sslmode != "prefer" &&
+        sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full") {
+      return "Invalid sslmode: " + sslmode +
              " (must be one of: disable, allow, prefer, require, verify-ca, verify-full)";
     }
   }
 
-  if (sslcert.has_value() && sslkey.has_value()) {
-    if (sslcert->empty() || sslkey->empty()) {
-      return "SSL certificate and key files cannot be empty";
-    }
-  } else if (sslcert.has_value() && !sslkey.has_value()) {
+  if (sslkey.empty() && !sslcert.empty()) {
     return "SSL certificate specified without SSL key";
-  } else if (sslkey.has_value() && !sslcert.has_value()) {
+  } else if (!sslkey.empty() && sslcert.empty()) {
     return "SSL key specified without SSL certificate";
   }
 
-  if (connect_timeout.has_value()) {
+  if (!connect_timeout.empty()) {
     try {
-      int timeout = std::stoi(connect_timeout.value());
+      int timeout = std::stoi(connect_timeout);
       if (timeout < 0) {
-        return "connect_timeout must be non-negative, got: " + connect_timeout.value();
+        return "connect_timeout must be non-negative, got: " + connect_timeout;
       }
     } catch (const std::exception&) {
-      return "Invalid connect_timeout: " + connect_timeout.value() +
-             " (must be a number)";
+      return "Invalid connect_timeout: " + connect_timeout + " (must be a number)";
     }
   }
 
@@ -386,29 +380,29 @@ ConnectionParams::BuildAllConnectionParams() const {
   values.push_back(dbname.c_str());
 
   // Optional parameters
-  if (connect_timeout.has_value()) {
+  if (!connect_timeout.empty()) {
     keywords.push_back("connect_timeout");
-    values.push_back(connect_timeout->c_str());
+    values.push_back(connect_timeout.c_str());
   }
-  if (application_name.has_value()) {
+  if (!application_name.empty()) {
     keywords.push_back("application_name");
-    values.push_back(application_name->c_str());
+    values.push_back(application_name.c_str());
   }
-  if (sslmode.has_value()) {
+  if (!sslmode.empty()) {
     keywords.push_back("sslmode");
-    values.push_back(sslmode->c_str());
+    values.push_back(sslmode.c_str());
   }
-  if (sslcert.has_value()) {
+  if (!sslcert.empty()) {
     keywords.push_back("sslcert");
-    values.push_back(sslcert->c_str());
+    values.push_back(sslcert.c_str());
   }
-  if (sslkey.has_value()) {
+  if (!sslkey.empty()) {
     keywords.push_back("sslkey");
-    values.push_back(sslkey->c_str());
+    values.push_back(sslkey.c_str());
   }
-  if (sslrootcert.has_value()) {
+  if (!sslrootcert.empty()) {
     keywords.push_back("sslrootcert");
-    values.push_back(sslrootcert->c_str());
+    values.push_back(sslrootcert.c_str());
   }
   for (const auto& [key, value] : custom_params) {
     keywords.push_back(key.c_str());

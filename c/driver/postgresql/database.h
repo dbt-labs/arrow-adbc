@@ -52,12 +52,12 @@ struct ConnectionParams {
   std::string dbname;
 
   // Optional parameters
-  std::optional<std::string> connect_timeout;
-  std::optional<std::string> application_name;
-  std::optional<std::string> sslmode;
-  std::optional<std::string> sslcert;
-  std::optional<std::string> sslkey;
-  std::optional<std::string> sslrootcert;
+  std::string connect_timeout;
+  std::string application_name;
+  std::string sslmode;
+  std::string sslcert;
+  std::string sslkey;
+  std::string sslrootcert;
 
   // Custom parameters
   std::unordered_map<std::string, std::string> custom_params;
