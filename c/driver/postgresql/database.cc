@@ -31,14 +31,16 @@
 #include <nanoarrow/nanoarrow.h>
 
 #include "driver/common/utils.h"
-#include "redshift_auth.h"
 #include "result_helper.h"
+
+#ifdef ADBC_REDSHIFT_FLAVOR
+#include "redshift_auth.h"
+#endif  // ADBC_REDSHIFT_FLAVOR
 
 namespace adbcpq {
 
 PostgresDatabase::PostgresDatabase() : open_connections_(0) {
   type_resolver_ = std::make_shared<PostgresTypeResolver>();
-  connection_params_ = std::make_shared<BaseConnectionParams>();
 }
 PostgresDatabase::~PostgresDatabase() = default;
 
@@ -88,45 +90,64 @@ AdbcStatusCode PostgresDatabase::SetOption(const char* key, const char* value,
                                            struct AdbcError* error) {
   if (strcmp(key, "uri") == 0) {
     uri_ = value;
-    // parameter based connection
-  } else if (strcmp(key, "user") == 0) {
-    connection_params_->user = value;
-  } else if (strcmp(key, "password") == 0) {
-    connection_params_->password = value;
-  } else if (strcmp(key, "host") == 0) {
-    connection_params_->host = value;
-  } else if (strcmp(key, "port") == 0) {
-    connection_params_->port = value;
-  } else if (strcmp(key, "database") == 0) {
-    connection_params_->dbname = value;
-  } else if (strcmp(key, "connect_timeout") == 0) {
-    connection_params_->connect_timeout = value;
-  } else if (strcmp(key, "application_name") == 0) {
-    connection_params_->application_name = value;
-  } else if (strcmp(key, "sslmode") == 0) {
-    connection_params_->sslmode = value;
-  } else if (strcmp(key, "sslcert") == 0) {
-    connection_params_->sslcert = value;
-  } else if (strcmp(key, "sslkey") == 0) {
-    connection_params_->sslkey = value;
-  } else if (strcmp(key, "sslrootcert") == 0) {
-    connection_params_->sslrootcert = value;
-    // IAM Authentication for Redshift
-  } else if (strcmp(key, "auth_profile") == 0) {
-    aws_auth_settings_.profile = value;
-  } else if (strcmp(key, "cluster_id") == 0) {
-    aws_auth_settings_.cluster_id = value;
-  } else if (strcmp(key, "region") == 0) {
-    aws_auth_settings_.region = value;
-  } else if (strcmp(key, "access_key_id") == 0) {
-    aws_auth_settings_.access_key_id = value;
-  } else if (strcmp(key, "secret_access_key") == 0) {
-    aws_auth_settings_.secret_access_key = value;
-  } else {
-    SetError(error, "%s%s", "[libpq] Unknown database option ", key);
-    return ADBC_STATUS_NOT_IMPLEMENTED;
+    return ADBC_STATUS_OK;
   }
-  return ADBC_STATUS_OK;
+  // parameter based connection
+  if (strcmp(key, "user") == 0) {
+    params_.user = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "password") == 0) {
+    params_.password = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "host") == 0) {
+    params_.host = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "port") == 0) {
+    params_.port = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "database") == 0) {
+    params_.dbname = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "connect_timeout") == 0) {
+    params_.connect_timeout = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "application_name") == 0) {
+    params_.application_name = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "sslmode") == 0) {
+    params_.sslmode = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "sslcert") == 0) {
+    params_.sslcert = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "sslkey") == 0) {
+    params_.sslkey = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "sslrootcert") == 0) {
+    params_.sslrootcert = value;
+    return ADBC_STATUS_OK;
+  }
+#ifdef ADBC_REDSHIFT_FLAVOR
+  // IAM Authentication for Redshift
+  if (strcmp(key, "auth_profile") == 0) {
+    aws_opts.profile = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "cluster_id") == 0) {
+    aws_opts.cluster_id = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "region") == 0) {
+    aws_opts.region = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "access_key_id") == 0) {
+    aws_opts.access_key_id = value;
+    return ADBC_STATUS_OK;
+  } else if (strcmp(key, "secret_access_key") == 0) {
+    aws_opts.secret_access_key = value;
+    return ADBC_STATUS_OK;
+  }
+#endif  // ADBC_REDSHIFT_FLAVOR
+  SetError(error, "%s%s", "[libpq] Unknown database option ", key);
+  return ADBC_STATUS_NOT_IMPLEMENTED;
 }
 
 AdbcStatusCode PostgresDatabase::SetOptionBytes(const char* key, const uint8_t* value,
@@ -148,39 +169,40 @@ AdbcStatusCode PostgresDatabase::SetOptionInt(const char* key, int64_t value,
 }
 
 AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error) {
+#ifdef ADBC_REDSHIFT_FLAVOR
   // Check for IAM authentication parameters
-  bool use_iam_auth = aws_auth_settings_.profile.has_value() ||
-                      (aws_auth_settings_.access_key_id.has_value() &&
-                       aws_auth_settings_.secret_access_key.has_value());
+  bool use_iam_auth =
+      aws_opts.profile.has_value() ||
+      (aws_opts.access_key_id.has_value() && aws_opts.secret_access_key.has_value());
 
   // provided password takes priority
-  if (use_iam_auth && !connection_params_->password.has_value()) {
-    aws_auth_settings_.host = connection_params_->host;
-    aws_auth_settings_.port = connection_params_->port;
-    aws_auth_settings_.database = connection_params_->dbname;
-    aws_auth_settings_.user = connection_params_->user;
+  if (use_iam_auth && !params_.password.has_value()) {
+    aws_opts.host = params_.host;
+    aws_opts.port = params_.port;
+    aws_opts.database = params_.dbname;
+    aws_opts.user = params_.user;
 
     // Get Redshift credentials using IAM authentication
-    AwsAuthClient auth_client;
+    auto& aws_auth_client = AwsAuthClient::Instance();
     RedshiftCredentials credentials;
-    Status status =
-        auth_client.GetRedshiftCredentials(aws_auth_settings_, credentials, error);
+    Status status = aws_auth_client.GetRedshiftCredentials(aws_opts, &credentials);
     if (!status.ok()) {
       return status.ToAdbc(error);
     }
 
     // Hydrate connection params with username and password
-    connection_params_->user = credentials.db_user;
-    connection_params_->password = credentials.db_password;
+    params_.user = credentials.db_user;
+    params_.password = credentials.db_password;
   }
+#endif  // ADBC_REDSHIFT_FLAVOR
 
   if (uri_.empty()) {
-    std::optional<std::string> paramError = connection_params_->Validate();
-    if (paramError.has_value()) {
+    std::optional<std::string> param_error = params_.Validate();
+    if (param_error.has_value()) {
       SetError(error, "%s%s",
                "[libpq] Must set database option 'uri' or valid connection parameters "
                "before creating a connection. Parameter validation error: ",
-               paramError.value().c_str());
+               param_error.value().c_str());
       return ADBC_STATUS_INVALID_STATE;
     }
   }
@@ -189,7 +211,7 @@ AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error)
   if (!uri_.empty()) {
     *conn = PQconnectdb(uri_.c_str());
   } else {
-    auto [keywords, values] = connection_params_->BuildAllConnectionParams();
+    auto [keywords, values] = params_.BuildAllConnectionParams();
     *conn = PQconnectdbParams(keywords.data(), values.data(), 0);
   }
   if (PQstatus(*conn) != CONNECTION_OK) {
@@ -283,7 +305,7 @@ Status PostgresDatabase::InitVersions(PGconn* conn) {
   return Status::Ok();
 }
 
-std::optional<std::string> BaseConnectionParams::Validate() const {
+std::optional<std::string> ConnectionParams::Validate() const {
   // Check required parameters
   if (host.empty()) {
     return "Missing required parameter: host";
@@ -342,7 +364,7 @@ std::optional<std::string> BaseConnectionParams::Validate() const {
 }
 
 std::pair<std::vector<const char*>, std::vector<const char*>>
-BaseConnectionParams::BuildAllConnectionParams() const {
+ConnectionParams::BuildAllConnectionParams() const {
   std::vector<const char*> keywords;
   std::vector<const char*> values;
 

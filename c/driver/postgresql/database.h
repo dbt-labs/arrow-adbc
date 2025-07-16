@@ -36,13 +36,21 @@
 namespace adbcpq {
 using adbc::driver::Status;
 
-struct BaseConnectionParams {
+struct ConnectionParams {
+  // Validate connection parameters and return error message if invalid
+  std::optional<std::string> Validate() const;
+
+  // Convert to PQconnectdbParams format including custom parameters
+  std::pair<std::vector<const char*>, std::vector<const char*>> BuildAllConnectionParams()
+      const;
+
   // See: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING
   std::string host;
   std::string user;
   std::optional<std::string> password;
   std::string port = "5432";
   std::string dbname;
+
   // Optional parameters
   std::optional<std::string> connect_timeout;
   std::optional<std::string> application_name;
@@ -50,18 +58,10 @@ struct BaseConnectionParams {
   std::optional<std::string> sslcert;
   std::optional<std::string> sslkey;
   std::optional<std::string> sslrootcert;
+
   // Custom parameters
   std::unordered_map<std::string, std::string> custom_params;
   // Add more as needed
-
-  BaseConnectionParams() = default;
-
-  // Validate connection parameters and return error message if invalid
-  std::optional<std::string> Validate() const;
-
-  // Convert to PQconnectdbParams format including custom parameters
-  std::pair<std::vector<const char*>, std::vector<const char*>> BuildAllConnectionParams()
-      const;
 };
 
 class PostgresDatabase {
@@ -115,11 +115,13 @@ class PostgresDatabase {
  private:
   int32_t open_connections_;
   std::string uri_;
+  ConnectionParams params_;
+#ifdef ADBC_REDSHIFT_FLAVOR
+  AwsAuthOptions aws_opts;
+#endif
   std::shared_ptr<PostgresTypeResolver> type_resolver_;
   std::array<int, 3> postgres_server_version_{};
   std::array<int, 3> redshift_server_version_{};
-  std::shared_ptr<BaseConnectionParams> connection_params_;
-  AwsAuthSettings aws_auth_settings_;
 };
 }  // namespace adbcpq
 

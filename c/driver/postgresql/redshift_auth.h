@@ -16,41 +16,20 @@
 // under the License.
 
 #pragma once
+
 #include <memory>
 #include <optional>
 #include <string>
 
 #include <arrow-adbc/adbc.h>
-#include <aws/core/Aws.h>
+#include <aws/core/Aws.h>  // for Aws::SDKOptions
 #include "driver/framework/status.h"
 
 namespace adbcpq {
 using adbc::driver::Status;
 
-class AwsClientSingleton {
-public:
-    static AwsClientSingleton& Instance() {
-        static AwsClientSingleton S;
-        return S;
-    }
-
-private:
-    Aws::SDKOptions options_;
-    AwsClientSingleton();
-    ~AwsClientSingleton();
-};
-
-// Redshift cluster credentials returned from GetClusterCredentials API
-struct RedshiftCredentials {
-  std::string db_user;
-  std::string db_password;
-  std::optional<std::string> expiration;
-
-  RedshiftCredentials() = default;
-};
-
-// AWS authentication settings for Redshift
-struct AwsAuthSettings {
+// AWS authentication options for Redshift
+struct AwsAuthOptions {
   std::string host;
   std::string port;
   std::string database;
@@ -62,23 +41,37 @@ struct AwsAuthSettings {
   // Explicit IAM
   std::optional<std::string> access_key_id;
   std::optional<std::string> secret_access_key;
+};
 
-  AwsAuthSettings() = default;
+// Redshift cluster credentials returned from GetClusterCredentials API
+struct RedshiftCredentials {
+  std::string db_user;
+  std::string db_password;
+  std::optional<std::string> expiration;
 };
 
 class AwsAuthClient {
+ private:
+  class Impl;
+
  public:
+  static AwsAuthClient& Instance() {
+    static AwsAuthClient instance;
+    return instance;
+  }
+
+ private:
   AwsAuthClient();
   ~AwsAuthClient();
 
-  // Get Redshift cluster credentials using IAM authentication
-  // This calls the Redshift GetClusterCredentials API
-  Status GetRedshiftCredentials(const AwsAuthSettings& settings,
-                                RedshiftCredentials& credentials,
-                                struct AdbcError* error) const;
+ public:
+  // Get Redshift cluster credentials using IAM authentication by
+  // calling the Redshift GetClusterCredentials API.
+  Status GetRedshiftCredentials(const AwsAuthOptions& options,
+                                RedshiftCredentials* out_credentials) const;
 
  private:
-  class Impl;
+  Aws::SDKOptions options_;
   std::unique_ptr<Impl> pimpl_;
 };
 }  // namespace adbcpq
