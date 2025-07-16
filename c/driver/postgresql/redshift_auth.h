@@ -18,7 +18,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <string>
 
 #include <arrow-adbc/adbc.h>
@@ -33,21 +32,22 @@ struct AwsAuthOptions {
   std::string host;
   std::string port;
   std::string database;
-  std::optional<std::string> profile;  // IAM profile name
-  std::optional<std::string> cluster_id;
-  std::optional<std::string> region;
-  std::optional<std::string> user;  // UID
+
+  std::string profile;  // IAM profile name
+  std::string cluster_id;
+  std::string region;
+  std::string user;  // UID
 
   // Explicit IAM
-  std::optional<std::string> access_key_id;
-  std::optional<std::string> secret_access_key;
+  std::string access_key_id;
+  std::string secret_access_key;
 };
 
 // Redshift cluster credentials returned from GetClusterCredentials API
 struct RedshiftCredentials {
   std::string db_user;
   std::string db_password;
-  std::optional<std::string> expiration;
+  std::string expiration;
 };
 
 class AwsAuthClient {

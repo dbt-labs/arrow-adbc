@@ -171,9 +171,8 @@ AdbcStatusCode PostgresDatabase::SetOptionInt(const char* key, int64_t value,
 AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error) {
 #ifdef ADBC_REDSHIFT_FLAVOR
   // Check for IAM authentication parameters
-  bool use_iam_auth =
-      aws_opts.profile.has_value() ||
-      (aws_opts.access_key_id.has_value() && aws_opts.secret_access_key.has_value());
+  bool use_iam_auth = !aws_opts.profile.empty() || (!aws_opts.access_key_id.empty() &&
+                                                    !aws_opts.secret_access_key.empty());
 
   // provided password takes priority
   if (use_iam_auth && !params_.password.has_value()) {

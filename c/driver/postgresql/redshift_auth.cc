@@ -34,24 +34,22 @@ class AwsAuthClient::Impl {
   Status GetRedshiftCredentials(const AwsAuthOptions& aws_options,
                                 RedshiftCredentials* out_credentials) const {
     try {
-      if (aws_options.profile.has_value()) {
+      if (!aws_options.profile.empty()) {
         Aws::Auth::AWSCredentials aws_credentials;
-        auto status =
-            GetCredentialsFromProfile(aws_options.profile.value(), &aws_credentials);
+        auto status = GetCredentialsFromProfile(aws_options.profile, &aws_credentials);
         if (!status.ok()) {
           return status;
         }
         return GetClusterCredentials(aws_options, aws_credentials, out_credentials);
       }
 
-      if (!aws_options.access_key_id.has_value() ||
-          !aws_options.secret_access_key.has_value()) {
+      if (aws_options.access_key_id.empty() || aws_options.secret_access_key.empty()) {
         return Status::InvalidArgument(
             "[aws] Both access_key_id and secret_access_key must be provided when not "
             "using AWS profile");
       }
-      Aws::Auth::AWSCredentials aws_credentials(aws_options.access_key_id.value(),
-                                                aws_options.secret_access_key.value());
+      Aws::Auth::AWSCredentials aws_credentials(aws_options.access_key_id,
+                                                aws_options.secret_access_key);
       return GetClusterCredentials(aws_options, aws_credentials, out_credentials);
     } catch (const std::exception& e) {
       return Status::IO("Redshift IAM authentication: ", e.what());
@@ -79,20 +77,20 @@ class AwsAuthClient::Impl {
                                const Aws::Auth::AWSCredentials& aws_credentials,
                                RedshiftCredentials* out_credentials) const {
     Aws::Client::ClientConfiguration config;
-    if (aws_options.region.has_value()) {
-      config.region = aws_options.region.value();
+    if (!aws_options.region.empty()) {
+      config.region = aws_options.region;
     }
 
     Aws::Redshift::RedshiftClient redshift_client(aws_credentials, config);
     Aws::Redshift::Model::GetClusterCredentialsRequest request;
 
     // Strip 'IAM:' prefix if provided
-    std::string db_user = aws_options.user.value_or("awsuser");
+    std::string db_user = aws_options.user.empty() ? "awsuser" : aws_options.user;
     if (db_user.size() >= 4 && db_user.substr(0, 4) == "IAM:") {
       db_user = db_user.substr(4);
     }
 
-    request.SetClusterIdentifier(aws_options.cluster_id.value_or(""));
+    request.SetClusterIdentifier(aws_options.cluster_id);
     request.SetDbUser(db_user);
     request.SetDbName(aws_options.database);
 
@@ -124,7 +122,7 @@ AwsAuthClient::AwsAuthClient() : options_{}, pimpl_(nullptr) {
 AwsAuthClient::~AwsAuthClient() { Aws::ShutdownAPI(options_); }
 
 Status AwsAuthClient::GetRedshiftCredentials(const AwsAuthOptions& settings,
-                                         RedshiftCredentials* credentials) const {
+                                             RedshiftCredentials* credentials) const {
   return pimpl_->GetRedshiftCredentials(settings, credentials);
 }
 }  // namespace adbcpq
