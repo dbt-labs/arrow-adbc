@@ -31,7 +31,14 @@ if(ADBC_REDSHIFT_FLAVOR)
   find_package(AWSSDK CONFIG COMPONENTS core sts redshift REQUIRED)
 endif()
 
-add_arrow_lib(adbc_driver_postgresql
+# Set library name based on flavor
+if(ADBC_REDSHIFT_FLAVOR)
+  set(DRIVER_LIB_NAME adbc_driver_redshift)
+else()
+  set(DRIVER_LIB_NAME adbc_driver_postgresql)
+endif()
+
+add_arrow_lib(${DRIVER_LIB_NAME}
               SOURCES
               connection.cc
               error.cc
@@ -74,9 +81,9 @@ foreach(LIB_TARGET ${ADBC_LIBRARIES})
 endforeach()
 
 if(ADBC_TEST_LINKAGE STREQUAL "shared")
-  set(TEST_LINK_LIBS adbc_driver_postgresql_shared)
+  set(TEST_LINK_LIBS ${DRIVER_LIB_NAME}_shared)
 else()
-  set(TEST_LINK_LIBS adbc_driver_postgresql_static)
+  set(TEST_LINK_LIBS ${DRIVER_LIB_NAME}_static)
 endif()
 
 if(ADBC_BUILD_TESTS)
