@@ -767,21 +767,25 @@ func buildField(schema *bigquery.FieldSchema, level uint) (arrow.Field, error) {
 		field.Type = arrow.FixedWidthTypes.Timestamp_ms
 	case bigquery.RecordFieldType:
 		if schema.Repeated {
-			if len(schema.Schema) == 1 {
-				arrayField, err := buildField(schema.Schema[0], level+1)
+			// For repeated records (arrays), create a struct from the nested fields
+			nestedFields := make([]arrow.Field, len(schema.Schema))
+			for i, nestedSchema := range schema.Schema {
+				f, err := buildField(nestedSchema, level+1)
 				if err != nil {
 					return arrow.Field{}, err
 				}
-				field.Type = arrow.ListOf(arrayField.Type)
-				field.Metadata = arrayField.Metadata
-				field.Nullable = arrayField.Nullable
-			} else {
+				nestedFields[i] = f
+			}
+			structType := arrow.StructOf(nestedFields...)
+			if structType == nil {
 				return arrow.Field{}, adbc.Error{
 					Code: adbc.StatusInvalidArgument,
-					Msg:  fmt.Sprintf("Cannot create array schema for filed `%s`: len(schema.Schema) != 1", schema.Name),
+					Msg:  fmt.Sprintf("Cannot create a struct schema for record `%s`", schema.Name),
 				}
 			}
+			field.Type = arrow.ListOf(structType)
 		} else {
+			// For non-repeated records, create a struct
 			nestedFields := make([]arrow.Field, len(schema.Schema))
 			for i, nestedSchema := range schema.Schema {
 				f, err := buildField(nestedSchema, level+1)
