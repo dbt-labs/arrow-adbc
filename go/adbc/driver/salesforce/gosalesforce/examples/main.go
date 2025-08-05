@@ -57,15 +57,15 @@ func main() {
 	demonstrateSqlQuery(client, token)
 
 	// Example 3: Query API V2
-	fmt.Println("\n=== SQL Query Example (Query API V2) ===")
+	// fmt.Println("\n=== SQL Query Example (Query API V2) ===")
 	demonstrateQueryV2(client, token)
 
 	// Example 4: Metadata API
-	fmt.Println("\n=== Metadata API Example ===")
+	// fmt.Println("\n=== Metadata API Example ===")
 	demonstrateMetadata(client, token)
 
 	// Example 5: Data Ingestion API
-	fmt.Println("\n=== Data Ingestion API Example ===")
+	// fmt.Println("\n=== Data Ingestion API Example ===")
 	demonstrateIngestion(client, token)
 }
 
@@ -424,7 +424,7 @@ func demonstrateIngestion(client *api.Client, cdpToken *api.Token) {
 	fmt.Println("\n--- Step 1: Creating ingestion job ---")
 	jobRequest := &api.CreateJobRequest{
 		Object:     "Order",
-		SourceName: "test",
+		SourceName: "test_upload",
 		Operation:  "upsert",
 	}
 
@@ -481,7 +481,7 @@ ORD-005,Charlie Brown,2025-01-19T11:10:00Z,89.99,654 Maple Ln Seattle WA 98101,t
 	// Example: Demonstrate abort functionality (may conflict with existing jobs)
 	fmt.Println("\n--- Example: Demonstrating abort functionality ---")
 	abortJobRequest := &api.CreateJobRequest{
-		Object:     "Order",
+		Object:     "OrderItem",
 		SourceName: "test_abort", // Different source name to avoid conflicts
 		Operation:  "upsert",
 	}
