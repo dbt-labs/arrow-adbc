@@ -141,6 +141,19 @@ func TestBuildField(t *testing.T) {
 		expectError     bool
 	}{
 		{
+			name: "ArrayOfScalar",
+			schema: &bigquery.FieldSchema{
+				Name:        "test_array_scalar_field",
+				Type:        bigquery.IntegerFieldType,
+				Repeated:    true,
+				Required:    false,
+				Description: "Test array field with scalar type",
+				Schema:      nil,
+			},
+			expectedTypeStr: "list<item: int64, nullable>",
+			expectError:     false,
+		},
+		{
 			name: "ArrayOfRecordWithMultipleFields",
 			schema: &bigquery.FieldSchema{
 				Name:        "test_array_field",
