@@ -72,7 +72,7 @@ func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool) (b
 	var arrowIterator bigquery.ArrowIterator
 	// If there is no schema in the row iterator, then arrow
 	// iterator should be empty (#2173)
-	if iter.TotalRows > 0 {
+	if iter.TotalRows > 0 { // TODO(cwalden): iter.IsAccelerated()?
 		if arrowIterator, err = iter.ArrowIterator(); err != nil {
 			return nil, -1, err
 		}
@@ -291,6 +291,7 @@ type emptyArrowIterator struct {
 }
 
 func (e emptyArrowIterator) Next() (*bigquery.ArrowRecordBatch, error) {
+	// TODO(cwalden): shouldn't we return iterator.Done here?
 	return nil, errors.New("Next should never be invoked on an empty iterator")
 }
 
@@ -299,10 +300,21 @@ func (e emptyArrowIterator) Schema() bigquery.Schema {
 }
 
 func (e emptyArrowIterator) SerializedArrowSchema() []byte {
-	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
+
+	fields := make([]arrow.Field, len(e.schema))
+	for i, field := range e.schema {
+		f, err := buildField(field, 0)
+		if err != nil {
+			log.Fatalf("Error building field %s: %v", field.Name, err)
+		}
+		fields[i] = f
+	}
+
+	// TODO(cwalden): what do we do for metadata?
+	arrowSchema := arrow.NewSchema(fields, nil)
 
 	var buf bytes.Buffer
-	writer := ipc.NewWriter(&buf, ipc.WithSchema(emptySchema))
+	writer := ipc.NewWriter(&buf, ipc.WithSchema(arrowSchema))
 
 	err := writer.Close()
 	if err != nil {
