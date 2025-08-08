@@ -31,6 +31,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/ipc"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/api/iterator"
 )
 
 type reader struct {
@@ -70,9 +71,7 @@ func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool) (b
 	}
 
 	var arrowIterator bigquery.ArrowIterator
-	// If there is no schema in the row iterator, then arrow
-	// iterator should be empty (#2173)
-	if iter.TotalRows > 0 { // TODO(cwalden): iter.IsAccelerated()?
+	if iter.TotalRows > 0 {
 		if arrowIterator, err = iter.ArrowIterator(); err != nil {
 			return nil, -1, err
 		}
@@ -291,8 +290,7 @@ type emptyArrowIterator struct {
 }
 
 func (e emptyArrowIterator) Next() (*bigquery.ArrowRecordBatch, error) {
-	// TODO(cwalden): shouldn't we return iterator.Done here?
-	return nil, errors.New("Next should never be invoked on an empty iterator")
+	return nil, iterator.Done
 }
 
 func (e emptyArrowIterator) Schema() bigquery.Schema {
@@ -310,7 +308,6 @@ func (e emptyArrowIterator) SerializedArrowSchema() []byte {
 		fields[i] = f
 	}
 
-	// TODO(cwalden): what do we do for metadata?
 	arrowSchema := arrow.NewSchema(fields, nil)
 
 	var buf bytes.Buffer
