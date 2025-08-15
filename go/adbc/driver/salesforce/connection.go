@@ -33,16 +33,19 @@ type connectionImpl struct {
 	driverbase.ConnectionImplBase
 
 	// Authentication settings
-	authType      string
-	loginURL      string
-	version       string
-	jwtClientID   string
-	jwtUsername   string
-	jwtPrivateKey string
-	username      string
-	password      string
-	clientID      string
-	clientSecret  string
+	authType     string
+	loginURL     string
+	version      string
+	username     string
+	clientId     string
+	clientSecret string
+
+	// JWT Bearer Flow
+	jwtBearerPrivateKeyPath string
+
+	// Username password Flow
+	password string
+
 	instanceURL   string
 	queryRowLimit string
 	queryTimeout  string
@@ -52,11 +55,12 @@ type connectionImpl struct {
 	token  *api.Token
 }
 
+// Initializes the api client
 func (c *connectionImpl) newClient(ctx context.Context) error {
 	switch c.authType {
-	case OptionValueAuthTypeJWT:
+	case OptionValueAuthTypeJwtBearer:
 		return c.setupJWTAuth(ctx)
-	case OptionValueAuthTypeDefault:
+	case OptionValueAuthTypeUsernamePassword:
 		return c.setupUsernamePasswordAuth(ctx)
 	default:
 		return adbc.Error{
@@ -66,81 +70,41 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 	}
 }
 
+// Sets up (authenticates) the api client via the JWT Bearer Flow
 func (c *connectionImpl) setupJWTAuth(ctx context.Context) error {
-	if c.jwtClientID == "" {
-		return adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "JWT client ID is required for JWT authentication",
-		}
+	err := c.setupRequired(c.authType)
+	if err != nil {
+		return err
 	}
-	if c.jwtUsername == "" {
+
+	if c.jwtBearerPrivateKeyPath == "" {
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
-			Msg:  "JWT username is required for JWT authentication",
-		}
-	}
-	if c.jwtPrivateKey == "" {
-		return adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "JWT private key is required for JWT authentication",
+			Msg:  "jwtBearerPrivateKeyPath required for JWT Bearer authentication",
 		}
 	}
 
-	loginURL := c.loginURL
-	if loginURL == "" {
-		loginURL = DefaultLoginURL
-	}
-
-	config, err := api.NewJWTConfig(loginURL, c.jwtClientID, c.jwtUsername, c.jwtPrivateKey)
+	config, err := api.NewJWTConfig(c.loginURL, c.clientId, c.username, c.jwtBearerPrivateKeyPath)
 	if err != nil {
 		return adbc.Error{
 			Code: adbc.StatusInvalidState,
 			Msg:  fmt.Sprintf("failed to create JWT config: %v", err),
 		}
 	}
-
-	c.client = api.NewClient(config)
-
-	// Authenticate and get token
-	token, err := c.client.Authenticate(ctx)
-	if err != nil {
-		return adbc.Error{
-			Code: adbc.StatusInvalidState,
-			Msg:  fmt.Sprintf("JWT authentication failed: %v", err),
-		}
-	}
-
-	c.token = token
-
-	// Try to get CDP token for Data Cloud access
-	cdpToken, err := c.client.GetDataCloudToken(ctx, token.InstanceURL, token.AccessToken)
-	if err != nil {
-		// CDP token is optional - use the regular token if CDP is not available
-		c.token = token
-	} else {
-		c.token = cdpToken
-	}
-
-	return nil
+	return c.finalize(ctx, config)
 }
 
+// Sets up (authenticates) the api client via the Username/Password Flow
 func (c *connectionImpl) setupUsernamePasswordAuth(ctx context.Context) error {
-	if c.username == "" {
-		return adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "Username is required for username/password authentication",
-		}
+	err := c.setupRequired(c.authType)
+	if err != nil {
+		return err
 	}
+
 	if c.password == "" {
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
 			Msg:  "Password is required for username/password authentication",
-		}
-	}
-	if c.clientID == "" {
-		return adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "Client ID is required for username/password authentication",
 		}
 	}
 	if c.clientSecret == "" {
@@ -150,13 +114,35 @@ func (c *connectionImpl) setupUsernamePasswordAuth(ctx context.Context) error {
 		}
 	}
 
-	loginURL := c.loginURL
-	if loginURL == "" {
-		loginURL = DefaultLoginURL
+	config := api.NewUsernamePasswordConfig(c.loginURL, c.clientId, c.clientSecret, c.username, c.password)
+	return c.finalize(ctx, config)
+}
+
+// Validates and sets the required connectionImpl fields for the authentication flow
+func (c *connectionImpl) setupRequired(authType string) error {
+	if c.username == "" {
+		return adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("username is required for %s authentication", authType),
+		}
 	}
 
-	config := api.NewUsernamePasswordConfig(loginURL, c.clientID, c.clientSecret, c.username, c.password)
+	if c.clientId == "" {
+		return adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("client ID is required for %s authentication", authType),
+		}
+	}
 
+	if c.loginURL == "" {
+		c.loginURL = DefaultLoginURL
+	}
+
+	return nil
+}
+
+// Finalizes the connectionImpl fields for the authentication flow
+func (c *connectionImpl) finalize(ctx context.Context, config *api.AuthConfig) error {
 	c.client = api.NewClient(config)
 
 	// Authenticate and get token
@@ -164,10 +150,9 @@ func (c *connectionImpl) setupUsernamePasswordAuth(ctx context.Context) error {
 	if err != nil {
 		return adbc.Error{
 			Code: adbc.StatusInvalidState,
-			Msg:  fmt.Sprintf("username/password authentication failed: %v", err),
+			Msg:  fmt.Sprintf("%s authentication failed: %v", c.authType, err),
 		}
 	}
-
 	c.token = token
 
 	// Try to get CDP token for Data Cloud access

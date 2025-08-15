@@ -27,33 +27,32 @@ import (
 
 const (
 	// Authentication options
-	OptionStringAuthType       = "adbc.salesforce.sql.auth_type"
-	OptionValueAuthTypeDefault = "adbc.salesforce.sql.auth_type.default"
-	OptionValueAuthTypeJWT     = "adbc.salesforce.sql.auth_type.jwt"
+	OptionStringAuthType                = "adbc.salesforce.dc.auth_type"
+	OptionValueAuthTypeJwtBearer        = "adbc.salesforce.dc.auth_type.jwt_bearer"
+	OptionValueAuthTypeUsernamePassword = "adbc.salesforce.dc.auth_type.username_password"
+
+	OptionStringLoginURL     = "adbc.salesforce.dc.login_url"
+	OptionStringUsername     = "adbc.salesforce.dc.username"
+	OptionStringClientID     = "adbc.salesforce.dc.client_id"
+	OptionStringClientSecret = "adbc.salesforce.dc.client_secret"
 
 	// JWT Authentication options
-	OptionStringJWTClientID   = "adbc.salesforce.sql.jwt.client_id"
-	OptionStringJWTUsername   = "adbc.salesforce.sql.jwt.username"
-	OptionStringJWTPrivateKey = "adbc.salesforce.sql.jwt.private_key"
-	OptionStringJWTLoginURL   = "adbc.salesforce.sql.jwt.login_url"
+	OptionStringJWTPrivateKeyPath = "adbc.salesforce.dc.jwt.private_key_path"
 
-	// Username/Password Authentication options
-	OptionStringUsername     = "adbc.salesforce.sql.username"
-	OptionStringPassword     = "adbc.salesforce.sql.password"
-	OptionStringClientID     = "adbc.salesforce.sql.client_id"
-	OptionStringClientSecret = "adbc.salesforce.sql.client_secret"
+	// Username password Authentication options
+	OptionStringPassword = "adbc.salesforce.dc.password"
 
 	// Connection options
-	OptionStringInstanceURL = "adbc.salesforce.sql.instance_url"
-	OptionStringVersion     = "adbc.salesforce.sql.version"
+	OptionStringInstanceURL = "adbc.salesforce.dc.instance_url"
+	OptionStringVersion     = "adbc.salesforce.dc.version"
 
 	// Query options
-	OptionStringQueryRowLimit = "adbc.salesforce.sql.query.row_limit"
-	OptionStringQueryTimeout  = "adbc.salesforce.sql.query.timeout"
+	OptionStringQueryRowLimit = "adbc.salesforce.dc.query.row_limit"
+	OptionStringQueryTimeout  = "adbc.salesforce.dc.query.timeout"
 
 	// Default values
 	DefaultLoginURL = "https://login.salesforce.com"
-	DefaultVersion  = "v59.0"
+	DefaultVersion  = "v64.0"
 )
 
 // Driver implements the ADBC Driver interface for Salesforce Data Cloud
@@ -97,9 +96,10 @@ func NewDriver(alloc memory.Allocator) adbc.Driver {
 func (d *driverImpl) NewDatabase(opts map[string]string) (adbc.Database, error) {
 	db := &databaseImpl{
 		DatabaseImplBase: driverbase.NewDatabaseImplBase(&d.DriverImplBase),
-		authType:         OptionValueAuthTypeDefault,
-		loginURL:         DefaultLoginURL,
-		version:          DefaultVersion,
+		// Defaults to the JWT Bearer Flow
+		authType: OptionValueAuthTypeJwtBearer,
+		loginURL: DefaultLoginURL,
+		version:  DefaultVersion,
 	}
 	if err := db.SetOptions(opts); err != nil {
 		return nil, err

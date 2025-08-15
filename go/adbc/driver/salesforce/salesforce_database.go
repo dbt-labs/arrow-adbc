@@ -33,16 +33,15 @@ type databaseImpl struct {
 	loginURL string
 	version  string
 
-	// JWT Authentication
-	jwtClientID   string
-	jwtUsername   string
-	jwtPrivateKey string
-
-	// Username/Password Authentication
 	username     string
-	password     string
-	clientID     string
+	clientId     string
 	clientSecret string
+
+	// JWT Bearer Flow
+	jwtBearerPrivateKeyPath string
+
+	// Username password Flow
+	password string
 
 	// Connection settings
 	instanceURL string
@@ -57,16 +56,16 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		ConnectionImplBase: driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 
 		// Copy authentication settings
-		authType:      d.authType,
-		loginURL:      d.loginURL,
-		version:       d.version,
-		jwtClientID:   d.jwtClientID,
-		jwtUsername:   d.jwtUsername,
-		jwtPrivateKey: d.jwtPrivateKey,
-		username:      d.username,
-		password:      d.password,
-		clientID:      d.clientID,
-		clientSecret:  d.clientSecret,
+		authType: d.authType,
+		loginURL: d.loginURL,
+		version:  d.version,
+
+		username:     d.username,
+		clientId:     d.clientId,
+		clientSecret: d.clientSecret,
+
+		jwtBearerPrivateKeyPath: d.jwtBearerPrivateKeyPath,
+
 		instanceURL:   d.instanceURL,
 		queryRowLimit: d.queryRowLimit,
 		queryTimeout:  d.queryTimeout,
@@ -91,20 +90,27 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 	switch key {
 	case OptionStringAuthType:
 		return d.authType, nil
-	case OptionStringJWTClientID:
-		return d.jwtClientID, nil
-	case OptionStringJWTUsername:
-		return d.jwtUsername, nil
-	case OptionStringJWTLoginURL:
+	case OptionStringLoginURL:
 		return d.loginURL, nil
-	case OptionStringUsername:
-		return d.username, nil
-	case OptionStringClientID:
-		return d.clientID, nil
-	case OptionStringInstanceURL:
-		return d.instanceURL, nil
 	case OptionStringVersion:
 		return d.version, nil
+
+	case OptionStringClientID:
+		return d.clientId, nil
+	case OptionStringClientSecret:
+		return d.clientSecret, nil
+	case OptionStringUsername:
+		return d.username, nil
+
+	case OptionStringJWTPrivateKeyPath:
+		return d.jwtBearerPrivateKeyPath, nil
+
+	case OptionStringPassword:
+		return d.password, nil
+
+	case OptionStringInstanceURL:
+		return d.instanceURL, nil
+
 	case OptionStringQueryRowLimit:
 		return d.queryRowLimit, nil
 	case OptionStringQueryTimeout:
@@ -128,30 +134,23 @@ func (d *databaseImpl) SetOption(key string, value string) error {
 	switch key {
 	case OptionStringAuthType:
 		switch value {
-		case OptionValueAuthTypeDefault, OptionValueAuthTypeJWT:
+		case OptionValueAuthTypeJwtBearer, OptionValueAuthTypeUsernamePassword:
 			d.authType = value
 		default:
 			return adbc.Error{
 				Code: adbc.StatusInvalidArgument,
-				Msg:  fmt.Sprintf("unknown auth type value `%s`", value),
+				Msg:  fmt.Sprintf("unknown database auth type value `%s`", value),
 			}
 		}
-	case OptionStringJWTClientID:
-		d.jwtClientID = value
-	case OptionStringJWTUsername:
-		d.jwtUsername = value
-	case OptionStringJWTPrivateKey:
-		d.jwtPrivateKey = value
-	case OptionStringJWTLoginURL:
+	case OptionStringLoginURL:
 		d.loginURL = value
 	case OptionStringUsername:
 		d.username = value
-	case OptionStringPassword:
-		d.password = value
 	case OptionStringClientID:
-		d.clientID = value
+		d.clientId = value
 	case OptionStringClientSecret:
 		d.clientSecret = value
+
 	case OptionStringInstanceURL:
 		d.instanceURL = value
 	case OptionStringVersion:
