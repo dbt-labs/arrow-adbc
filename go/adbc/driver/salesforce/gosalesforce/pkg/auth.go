@@ -41,16 +41,10 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"os"
 )
 
 // NewJWTConfig creates a new AuthConfig for JWT authentication
-func NewJWTConfig(loginURL, clientID, username, privateKeyPath string) (*AuthConfig, error) {
-	privateKeyData, err := os.ReadFile(privateKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read private key file: %w", err)
-	}
-
+func NewJWTConfig(loginURL, clientID, username, privateKeyData string) (*AuthConfig, error) {
 	config := DefaultAuthConfig()
 	config.LoginURL = loginURL
 	config.ClientID = clientID

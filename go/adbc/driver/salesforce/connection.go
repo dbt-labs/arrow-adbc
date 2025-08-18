@@ -41,7 +41,7 @@ type connectionImpl struct {
 	clientSecret string
 
 	// JWT Bearer Flow
-	jwtBearerPrivateKeyPath string
+	jwtBearerPrivateKey string
 
 	// Username password Flow
 	password string
@@ -77,14 +77,14 @@ func (c *connectionImpl) setupJWTAuth(ctx context.Context) error {
 		return err
 	}
 
-	if c.jwtBearerPrivateKeyPath == "" {
+	if c.jwtBearerPrivateKey == "" {
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
-			Msg:  "jwtBearerPrivateKeyPath required for JWT Bearer authentication",
+			Msg:  "jwtBearerPrivateKey required for JWT Bearer authentication",
 		}
 	}
 
-	config, err := api.NewJWTConfig(c.loginURL, c.clientId, c.username, c.jwtBearerPrivateKeyPath)
+	config, err := api.NewJWTConfig(c.loginURL, c.clientId, c.username, c.jwtBearerPrivateKey)
 	if err != nil {
 		return adbc.Error{
 			Code: adbc.StatusInvalidState,

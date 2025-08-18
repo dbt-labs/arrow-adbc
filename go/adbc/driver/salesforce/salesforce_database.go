@@ -38,7 +38,7 @@ type databaseImpl struct {
 	clientSecret string
 
 	// JWT Bearer Flow
-	jwtBearerPrivateKeyPath string
+	jwtBearerPrivateKey string
 
 	// Username password Flow
 	password string
@@ -64,7 +64,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		clientId:     d.clientId,
 		clientSecret: d.clientSecret,
 
-		jwtBearerPrivateKeyPath: d.jwtBearerPrivateKeyPath,
+		jwtBearerPrivateKey: d.jwtBearerPrivateKey,
 
 		instanceURL:   d.instanceURL,
 		queryRowLimit: d.queryRowLimit,
@@ -102,8 +102,8 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 	case OptionStringUsername:
 		return d.username, nil
 
-	case OptionStringJWTPrivateKeyPath:
-		return d.jwtBearerPrivateKeyPath, nil
+	case OptionStringJWTPrivateKey:
+		return d.jwtBearerPrivateKey, nil
 
 	case OptionStringPassword:
 		return d.password, nil

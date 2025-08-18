@@ -105,11 +105,16 @@ func demonstrateJWTAuth() (*api.Client, *api.Token, error) {
 		return nil, nil, nil
 	}
 
+	privateKey, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read private key file: %w", err)
+	}
+
 	config, err := api.NewJWTConfig(
 		"https://login.salesforce.com",
 		getEnvOrPanic("SALESFORCE_CLIENT_ID"),
 		"storm.050b6314da1346@salesforce.com",
-		privateKeyPath,
+		string(privateKey),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create JWT config: %w", err)
