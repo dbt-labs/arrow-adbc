@@ -37,7 +37,7 @@ const (
 	OptionStringClientSecret = "adbc.salesforce.dc.client_secret"
 
 	// JWT Bearer Authentication options
-	OptionStringJWTPrivateKey = "adbc.salesforce.dc.jwt.private_key"
+	OptionStringJWTPrivateKey = "adbc.salesforce.dc.private_key"
 
 	// Username password Authentication options
 	OptionStringPassword = "adbc.salesforce.dc.password"

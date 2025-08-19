@@ -144,17 +144,25 @@ func (d *databaseImpl) SetOption(key string, value string) error {
 		}
 	case OptionStringLoginURL:
 		d.loginURL = value
-	case OptionStringUsername:
-		d.username = value
+	case OptionStringVersion:
+		d.version = value
+
 	case OptionStringClientID:
 		d.clientId = value
 	case OptionStringClientSecret:
 		d.clientSecret = value
+	case OptionStringUsername:
+		d.username = value
+
+	case OptionStringJWTPrivateKey:
+		d.jwtBearerPrivateKey = value
+
+	case OptionStringPassword:
+		d.password = value
 
 	case OptionStringInstanceURL:
 		d.instanceURL = value
-	case OptionStringVersion:
-		d.version = value
+
 	case OptionStringQueryRowLimit:
 		d.queryRowLimit = value
 	case OptionStringQueryTimeout:
