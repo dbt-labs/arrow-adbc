@@ -19,8 +19,10 @@ import (
 
 // Client provides authentication and query functionality for Salesforce Data Cloud
 type Client struct {
-	config     *AuthConfig
-	httpClient *http.Client
+	config      *AuthConfig
+	httpClient  *http.Client
+	accessToken *Token
+	cdpToken    *Token
 }
 
 // NewClient creates a new authentication client
@@ -37,6 +39,14 @@ func NewClient(config *AuthConfig) *Client {
 		config:     config,
 		httpClient: httpClient,
 	}
+}
+
+func (c *Client) GetToken() *Token {
+	return c.accessToken
+}
+
+func (c *Client) GetDataCloudToken() *Token {
+	return c.cdpToken
 }
 
 // normalizeURL ensures the URL has the https:// protocol
@@ -123,20 +133,23 @@ func validateToken(token *Token, tokenName string) error {
 
 // Authenticate with the Data Cloud API
 // reference: https://developer.salesforce.com/docs/marketing/marketing-cloud-growth/guide/mc-connect-apis-data-cloud.html
-func (c *Client) Authenticate(ctx context.Context) (*Token, error) {
+func (c *Client) Authenticate(ctx context.Context) error {
+	var token *Token
+	var err error
 	if c.config.PrivateKey != "" && c.config.Username != "" && c.config.ClientID != "" {
-		return c.authenticateJWT(ctx)
+		token, err = c.authenticateJWT(ctx)
 	} else if c.config.Username != "" && c.config.Password != "" && c.config.ClientID != "" && c.config.ClientSecret != "" {
-		return c.authenticateUsernamePassword(ctx)
+		token, err = c.authenticateUsernamePassword(ctx)
 	} else if c.config.RefreshToken != "" && c.config.ClientID != "" && c.config.ClientSecret != "" {
-		return c.authenticateRefreshToken(ctx)
+		token, err = c.authenticateRefreshToken(ctx)
 	}
 
-	return nil, &AuthError{
-		Code:    400,
-		Message: "Insufficient authentication credentials provided",
-		Type:    "insufficient_credentials",
+	if err != nil {
+		return err
 	}
+
+	c.accessToken = token
+	return nil
 }
 
 // authenticateJWT performs JWT Bearer flow authentication
@@ -212,33 +225,33 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 
 // Exchanges the access token for a Data Cloud token
 // reference: https://developer.salesforce.com/docs/marketing/marketing-cloud-growth/guide/mc-connect-apis-data-cloud.html
-func (c *Client) GetDataCloudToken(ctx context.Context, tenantURL string, accessToken string) (*Token, error) {
+func (c *Client) ExchangeAndSetDataCloudToken(ctx context.Context) error {
 	data := url.Values{}
 	data.Set("grant_type", "urn:salesforce:grant-type:external:cdp")
 	data.Set("subject_token_type", "urn:ietf:params:oauth:token-type:access_token")
-	data.Set("subject_token", accessToken)
+	data.Set("subject_token", c.accessToken.AccessToken)
 
-	tokenURL := tenantURL + "/services/a360/token"
+	tokenURL := c.accessToken.InstanceURL + "/services/a360/token"
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Data Cloud token request: %w", err)
+		return fmt.Errorf("failed to create Data Cloud token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	// Execute request with retries
 	resp, err := c.executeHTTPRequest(ctx, req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read data cloud token response: %w", err)
+		return fmt.Errorf("failed to read data cloud token response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, &AuthError{
+		return &AuthError{
 			Code:    resp.StatusCode,
 			Message: fmt.Sprintf("data cloud token retrieval failed with code %d: %s", resp.StatusCode, string(body)),
 			Type:    "data_cloud_token_failed",
@@ -254,16 +267,19 @@ func (c *Client) GetDataCloudToken(ctx context.Context, tenantURL string, access
 
 	var respParsed DataCloudTokenResponse
 	if err := json.Unmarshal(body, &respParsed); err != nil {
-		return nil, fmt.Errorf("failed to parse CDP token response: %w", err)
+		return fmt.Errorf("failed to parse CDP token response: %w", err)
 	}
 
 	expiresAt := time.Now().Add(time.Duration(respParsed.ExpiresIn) * time.Second)
-	return &Token{
+
+	c.cdpToken = &Token{
 		AccessToken: respParsed.AccessToken,
 		InstanceURL: respParsed.InstanceURL,
 		TokenType:   respParsed.TokenType,
 		ExpiresAt:   expiresAt,
-	}, nil
+	}
+
+	return nil
 }
 
 // RevokeToken revokes the given token
@@ -290,7 +306,7 @@ func (c *Client) RevokeToken(ctx context.Context, token string) error {
 }
 
 // ExecuteSqlQuery executes a SQL query against Data Cloud
-func (c *Client) ExecuteSqlQuery(ctx context.Context, instanceURL, accessToken string, queryRequest *SqlQueryRequest) (*SqlQueryResponse, error) {
+func (c *Client) ExecuteSqlQuery(ctx context.Context, queryRequest *SqlQueryRequest) (*SqlQueryResponse, error) {
 	if queryRequest == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -314,7 +330,7 @@ func (c *Client) ExecuteSqlQuery(ctx context.Context, instanceURL, accessToken s
 	}
 
 	// Construct the URL
-	instanceURL = normalizeURL(instanceURL)
+	instanceURL := normalizeURL(c.accessToken.InstanceURL)
 	queryURL := instanceURL + "/services/data/v63.0/ssot/query-sql"
 
 	// Add query parameters if specified
@@ -334,7 +350,7 @@ func (c *Client) ExecuteSqlQuery(ctx context.Context, instanceURL, accessToken s
 		return nil, fmt.Errorf("failed to create SQL query request: %w", err)
 	}
 
-	setCommonHeaders(req, accessToken)
+	setCommonHeaders(req, c.accessToken.AccessToken)
 
 	// Execute request with retries
 	resp, err := c.executeHTTPRequest(ctx, req)
@@ -361,7 +377,7 @@ func (c *Client) ExecuteSqlQuery(ctx context.Context, instanceURL, accessToken s
 }
 
 // ExecuteQueryV2 executes a SQL query against the Data Cloud v2 query API
-func (c *Client) ExecuteQueryV2(ctx context.Context, instanceURL, accessToken, query string, enableArrowStream bool) (*QueryV2Response, error) {
+func (c *Client) ExecuteQueryV2(ctx context.Context, query string, enableArrowStream bool) (*QueryV2Response, error) {
 	if query == "" {
 		return nil, &AuthError{
 			Code:    400,
@@ -381,7 +397,7 @@ func (c *Client) ExecuteQueryV2(ctx context.Context, instanceURL, accessToken, q
 	}
 
 	// Construct the URL for v2 API
-	instanceURL = normalizeURL(instanceURL)
+	instanceURL := normalizeURL(c.cdpToken.InstanceURL)
 	queryURL := instanceURL + "/api/v2/query"
 
 	req, err := http.NewRequestWithContext(ctx, "POST", queryURL, strings.NewReader(string(requestBody)))
@@ -389,7 +405,7 @@ func (c *Client) ExecuteQueryV2(ctx context.Context, instanceURL, accessToken, q
 		return nil, fmt.Errorf("failed to create query v2 request: %w", err)
 	}
 
-	setCommonHeaders(req, accessToken)
+	setCommonHeaders(req, c.cdpToken.AccessToken)
 	// Note: Removed Accept-Encoding: gzip as it causes parsing issues
 
 	if enableArrowStream {
@@ -557,14 +573,14 @@ func (c *Client) requestAccessToken(ctx context.Context, tokenURL string, data u
 }
 
 // GetMetadata retrieves metadata for Data Cloud objects
-func (c *Client) GetMetadata(ctx context.Context, cdpToken *Token, dataspace, entityCategory, entityName, entityType string) (*MetadataResponse, error) {
-	// Validate CDP token
-	if err := validateToken(cdpToken, "CDP token"); err != nil {
+func (c *Client) GetMetadata(ctx context.Context, dataspace, entityCategory, entityName, entityType string) (*MetadataResponse, error) {
+	token := c.accessToken
+	if err := validateToken(token, "Access token"); err != nil {
 		return nil, err
 	}
 
 	// Build metadata URL
-	metadataURL := normalizeURL(cdpToken.InstanceURL) + "/services/data/v63.0/ssot/metadata"
+	metadataURL := normalizeURL(token.InstanceURL) + "/services/data/v63.0/ssot/metadata"
 
 	// Create the request
 	req, err := http.NewRequestWithContext(ctx, "GET", metadataURL, nil)
@@ -589,7 +605,7 @@ func (c *Client) GetMetadata(ctx context.Context, cdpToken *Token, dataspace, en
 	req.URL.RawQuery = query.Encode()
 
 	// Set headers
-	setCommonHeaders(req, cdpToken.AccessToken)
+	setCommonHeaders(req, token.AccessToken)
 
 	// Execute request
 	resp, err := c.executeHTTPRequest(ctx, req)
@@ -624,9 +640,10 @@ func (c *Client) GetMetadata(ctx context.Context, cdpToken *Token, dataspace, en
 // Note: Depending on your org configuration, this may work with either the original Salesforce token
 // or the CDP token. Try both if one fails.
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-upload-job-data.html
-func (c *Client) CreateJob(ctx context.Context, token *Token, request *CreateJobRequest) (*CreateJobResponse, error) {
+func (c *Client) CreateJob(ctx context.Context, request *CreateJobRequest) (*CreateJobResponse, error) {
+	token := c.cdpToken
 	// Validate token
-	if err := validateToken(token, "token"); err != nil {
+	if err := validateToken(token, "CDP token"); err != nil {
 		return nil, err
 	}
 
@@ -683,9 +700,10 @@ func (c *Client) CreateJob(ctx context.Context, token *Token, request *CreateJob
 // Note: Use the same token type that was successful for CreateJob
 // contentType should be "text/csv" for CSV data or "application/json" for JSON data
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-upload-job-data.html
-func (c *Client) UploadJobData(ctx context.Context, token *Token, jobID string, data []byte, contentType string) error {
+func (c *Client) UploadJobData(ctx context.Context, jobID string, data []byte, contentType string) error {
+	token := c.cdpToken
 	// Validate token
-	if err := validateToken(token, "token"); err != nil {
+	if err := validateToken(token, "CDP token"); err != nil {
 		return err
 	}
 
@@ -725,9 +743,10 @@ func (c *Client) UploadJobData(ctx context.Context, token *Token, jobID string, 
 // CloseJob closes or aborts an ingestion job
 // state should be "UploadComplete" to close the job or "Aborted" to abort it
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-close-abort-job.html
-func (c *Client) CloseJob(ctx context.Context, token *Token, jobID string, state string) (*CloseJobResponse, error) {
+func (c *Client) CloseJob(ctx context.Context, jobID string, state string) (*CloseJobResponse, error) {
+	token := c.cdpToken
 	// Validate token
-	if err := validateToken(token, "token"); err != nil {
+	if err := validateToken(token, "CDP token"); err != nil {
 		return nil, err
 	}
 

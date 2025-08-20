@@ -52,7 +52,6 @@ type connectionImpl struct {
 
 	// Salesforce client
 	client *api.Client
-	token  *api.Token
 }
 
 // Initializes the api client
@@ -146,22 +145,18 @@ func (c *connectionImpl) finalize(ctx context.Context, config *api.AuthConfig) e
 	c.client = api.NewClient(config)
 
 	// Authenticate and get token
-	token, err := c.client.Authenticate(ctx)
+	err := c.client.Authenticate(ctx)
 	if err != nil {
 		return adbc.Error{
 			Code: adbc.StatusInvalidState,
 			Msg:  fmt.Sprintf("%s authentication failed: %v", c.authType, err),
 		}
 	}
-	c.token = token
 
 	// Try to get CDP token for Data Cloud access
-	cdpToken, err := c.client.GetDataCloudToken(ctx, token.InstanceURL, token.AccessToken)
+	err = c.client.ExchangeAndSetDataCloudToken(ctx)
 	if err != nil {
-		// CDP token is optional - use the regular token if CDP is not available
-		c.token = token
-	} else {
-		c.token = cdpToken
+		return err
 	}
 
 	return nil

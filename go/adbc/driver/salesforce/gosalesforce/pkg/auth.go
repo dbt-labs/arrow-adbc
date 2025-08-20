@@ -127,9 +127,9 @@ func GetInstanceFromToken(token *Token) string {
 	return ""
 }
 
-// ExecuteSqlQueryWithToken is a convenience function to execute a SQL query using a Data Cloud token
+// ExecuteSqlQuery is a convenience function to execute a SQL query using a Data Cloud token
 // This combines authentication and query execution in a single step
-func ExecuteSqlQueryWithToken(ctx context.Context, client *Client, cdpToken *Token, queryRequest *SqlQueryRequest) (*SqlQueryResponse, error) {
+func ExecuteSqlQuery(ctx context.Context, client *Client, queryRequest *SqlQueryRequest) (*SqlQueryResponse, error) {
 	if client == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -138,15 +138,15 @@ func ExecuteSqlQueryWithToken(ctx context.Context, client *Client, cdpToken *Tok
 		}
 	}
 
-	if err := validateToken(cdpToken, "CDP token"); err != nil {
+	if err := validateToken(client.accessToken, "CDP token"); err != nil {
 		return nil, err
 	}
 
-	return client.ExecuteSqlQuery(ctx, cdpToken.InstanceURL, cdpToken.AccessToken, queryRequest)
+	return client.ExecuteSqlQuery(ctx, queryRequest)
 }
 
-// ExecuteQueryV2WithToken is a convenience function to execute a v2 SQL query using a Data Cloud token
-func ExecuteQueryV2WithToken(ctx context.Context, client *Client, cdpToken *Token, query string, enableArrowStream bool) (*QueryV2Response, error) {
+// ExecuteQueryV2 is a convenience function to execute a v2 SQL query using a Data Cloud token
+func ExecuteQueryV2(ctx context.Context, client *Client, query string, enableArrowStream bool) (*QueryV2Response, error) {
 	if client == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -155,15 +155,15 @@ func ExecuteQueryV2WithToken(ctx context.Context, client *Client, cdpToken *Toke
 		}
 	}
 
-	if err := validateToken(cdpToken, "CDP token"); err != nil {
+	if err := validateToken(client.cdpToken, "CDP token"); err != nil {
 		return nil, err
 	}
 
-	return client.ExecuteQueryV2(ctx, cdpToken.InstanceURL, cdpToken.AccessToken, query, enableArrowStream)
+	return client.ExecuteQueryV2(ctx, query, enableArrowStream)
 }
 
 // GetNextBatchV2WithToken is a convenience function to get the next batch of v2 query results using a Data Cloud token
-func GetNextBatchV2WithToken(ctx context.Context, client *Client, cdpToken *Token, nextBatchId string, enableArrowStream bool) (*QueryV2Response, error) {
+func GetNextBatchV2WithToken(ctx context.Context, client *Client, nextBatchId string, enableArrowStream bool) (*QueryV2Response, error) {
 	if client == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -172,15 +172,16 @@ func GetNextBatchV2WithToken(ctx context.Context, client *Client, cdpToken *Toke
 		}
 	}
 
-	if err := validateToken(cdpToken, "CDP token"); err != nil {
+	if err := validateToken(client.GetDataCloudToken(), "CDP token"); err != nil {
 		return nil, err
 	}
 
+	cdpToken := client.GetDataCloudToken()
 	return client.GetNextBatchV2(ctx, cdpToken.InstanceURL, cdpToken.AccessToken, nextBatchId, enableArrowStream)
 }
 
-// GetMetadataWithToken is a convenience function to retrieve Data Cloud metadata using a token
-func GetMetadataWithToken(ctx context.Context, client *Client, cdpToken *Token, dataspace, entityCategory, entityName, entityType string) (*MetadataResponse, error) {
+// GetMetadata is a convenience function to retrieve Data Cloud metadata using a token
+func GetMetadata(ctx context.Context, client *Client, dataspace, entityCategory, entityName, entityType string) (*MetadataResponse, error) {
 	if client == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -189,15 +190,15 @@ func GetMetadataWithToken(ctx context.Context, client *Client, cdpToken *Token, 
 		}
 	}
 
-	if err := validateToken(cdpToken, "CDP token"); err != nil {
+	if err := validateToken(client.cdpToken, "CDP token"); err != nil {
 		return nil, err
 	}
 
-	return client.GetMetadata(ctx, cdpToken, dataspace, entityCategory, entityName, entityType)
+	return client.GetMetadata(ctx, dataspace, entityCategory, entityName, entityType)
 }
 
-// CreateJobWithToken is a convenience function to create a data ingestion job using a token
-func CreateJobWithToken(ctx context.Context, client *Client, token *Token, request *CreateJobRequest) (*CreateJobResponse, error) {
+// CreateJob is a convenience function to create a data ingestion job using a token
+func CreateJob(ctx context.Context, client *Client, request *CreateJobRequest) (*CreateJobResponse, error) {
 	if client == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -206,15 +207,15 @@ func CreateJobWithToken(ctx context.Context, client *Client, token *Token, reque
 		}
 	}
 
-	if err := validateToken(token, "token"); err != nil {
+	if err := validateToken(client.cdpToken, "CDP token"); err != nil {
 		return nil, err
 	}
 
-	return client.CreateJob(ctx, token, request)
+	return client.CreateJob(ctx, request)
 }
 
-// UploadJobDataWithToken is a convenience function to upload data to a job using a token
-func UploadJobDataWithToken(ctx context.Context, client *Client, token *Token, jobID string, data []byte, contentType string) error {
+// UploadJobData is a convenience function to upload data to a job using a token
+func UploadJobData(ctx context.Context, client *Client, jobID string, data []byte, contentType string) error {
 	if client == nil {
 		return &AuthError{
 			Code:    400,
@@ -223,15 +224,15 @@ func UploadJobDataWithToken(ctx context.Context, client *Client, token *Token, j
 		}
 	}
 
-	if err := validateToken(token, "token"); err != nil {
+	if err := validateToken(client.cdpToken, "CDP token"); err != nil {
 		return err
 	}
 
-	return client.UploadJobData(ctx, token, jobID, data, contentType)
+	return client.UploadJobData(ctx, jobID, data, contentType)
 }
 
-// CloseJobWithToken is a convenience function to close or abort a job using a token
-func CloseJobWithToken(ctx context.Context, client *Client, token *Token, jobID string, state string) (*CloseJobResponse, error) {
+// CloseJob is a convenience function to close or abort a job using a token
+func CloseJob(ctx context.Context, client *Client, jobID string, state string) (*CloseJobResponse, error) {
 	if client == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -240,9 +241,9 @@ func CloseJobWithToken(ctx context.Context, client *Client, token *Token, jobID 
 		}
 	}
 
-	if err := validateToken(token, "token"); err != nil {
+	if err := validateToken(client.cdpToken, "CDP token"); err != nil {
 		return nil, err
 	}
 
-	return client.CloseJob(ctx, token, jobID, state)
+	return client.CloseJob(ctx, jobID, state)
 }

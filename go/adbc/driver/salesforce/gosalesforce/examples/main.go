@@ -41,32 +41,28 @@ func main() {
 
 	// Example 1: JWT Authentication (matches Python implementation)
 	fmt.Println("\n=== JWT Authentication ===")
-	client, token, err := demonstrateJWTAuth()
+	client, err := demonstrateJWTAuth()
 	if err != nil {
 		log.Fatalf("JWT Auth failed: %v", err)
 		return
 	}
 
-	if token == nil {
-		log.Fatal("CDP token is nil")
-	}
-
 	// SQL Query Execution
 	// Example 2: Data Cloud Connector API
 	fmt.Println("\n=== SQL Query Example (Data Cloud Connector API) ===")
-	demonstrateSqlQuery(client, token)
+	demonstrateSqlQuery(client)
 
 	// Example 3: Query API V2
 	// fmt.Println("\n=== SQL Query Example (Query API V2) ===")
-	demonstrateQueryV2(client, token)
+	demonstrateQueryV2(client)
 
 	// Example 4: Metadata API
 	// fmt.Println("\n=== Metadata API Example ===")
-	demonstrateMetadata(client, token)
+	demonstrateMetadata(client)
 
 	// Example 5: Data Ingestion API
 	// fmt.Println("\n=== Data Ingestion API Example ===")
-	demonstrateIngestion(client, token)
+	demonstrateIngestion(client)
 }
 
 // Helper function to display row data consistently
@@ -92,22 +88,22 @@ func displayRowData(data [][]interface{}, description string) {
 	}
 }
 
-func demonstrateJWTAuth() (*api.Client, *api.Token, error) {
+func demonstrateJWTAuth() (*api.Client, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get home directory: %w", err)
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
 	privateKeyPath := fmt.Sprintf("%s/salesforce/JWT/server.key", home)
 	if _, err := os.Stat(privateKeyPath); os.IsNotExist(err) {
 		fmt.Printf("WARNING: Private key file not found at: %s\n", privateKeyPath)
 		fmt.Println("   Please ensure the private key file exists or update the path")
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	privateKey, err := os.ReadFile(privateKeyPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read private key file: %w", err)
+		return nil, fmt.Errorf("failed to read private key file: %w", err)
 	}
 
 	config, err := api.NewJWTConfig(
@@ -117,7 +113,7 @@ func demonstrateJWTAuth() (*api.Client, *api.Token, error) {
 		string(privateKey),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create JWT config: %w", err)
+		return nil, fmt.Errorf("failed to create JWT config: %w", err)
 	}
 
 	// Create client
@@ -125,33 +121,28 @@ func demonstrateJWTAuth() (*api.Client, *api.Token, error) {
 
 	// Authenticate
 	fmt.Println("Connecting to Salesforce CDP with JWT...")
-	token, err := client.Authenticate(context.Background())
+	err = client.Authenticate(context.Background())
 	if err != nil {
-		return nil, nil, fmt.Errorf("authentication failed: %w", err)
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	fmt.Println("Connection successful!")
-	printTokenInfo(token)
+	printTokenInfo(client.GetToken())
 
 	fmt.Println("\nTesting CDP token exchange...")
-	cdpToken, err := client.GetDataCloudToken(context.Background(), token.InstanceURL, token.AccessToken)
+	err = client.ExchangeAndSetDataCloudToken(context.Background())
 	if err != nil {
 		fmt.Printf("WARNING: CDP token exchange failed: %v\n", err)
 		fmt.Println("   This might be expected if CDP is not enabled for your org")
-		return client, nil, nil
+		return client, nil
 	} else {
 		fmt.Println("CDP token exchange successful!")
-		fmt.Printf("CDP Instance URL: %s\n", cdpToken.InstanceURL)
-		return client, cdpToken, nil
+		fmt.Printf("CDP Instance URL: %s\n", client.GetDataCloudToken().InstanceURL)
+		return client, nil
 	}
 }
 
-func demonstrateSqlQuery(client *api.Client, cdpToken *api.Token) {
-	originalToken, err := client.Authenticate(context.Background())
-	if err != nil {
-		log.Fatalf("Authentication failed: %v", err)
-	}
-
+func demonstrateSqlQuery(client *api.Client) {
 	rowLimit := int64(5)
 	queryRequest := &api.SqlQueryRequest{
 		SQL:      "SELECT * FROM \"CurrencyType_Home__dll\" LIMIT 10",
@@ -160,16 +151,10 @@ func demonstrateSqlQuery(client *api.Client, cdpToken *api.Token) {
 		// WorkloadName: "demonstrateSqlQuery", // Not supported by original API
 	}
 
-	response, err := client.ExecuteSqlQuery(context.Background(), originalToken.InstanceURL, originalToken.AccessToken, queryRequest)
+	response, err := client.ExecuteSqlQuery(context.Background(), queryRequest)
 	if err != nil {
 		fmt.Printf("ERROR: Query execution failed: %v\n", err)
-
-		fmt.Println("Trying with CDP token as fallback...")
-		response, err = api.ExecuteSqlQueryWithToken(context.Background(), client, cdpToken, queryRequest)
-		if err != nil {
-			fmt.Printf("ERROR: Query execution also failed with CDP token: %v\n", err)
-			return
-		}
+		return
 	}
 
 	fmt.Println("\nQuery executed successfully!")
@@ -209,7 +194,7 @@ func printTokenInfo(token *api.Token) {
 	fmt.Printf("   Has Refresh Token: %t\n", token.RefreshToken != "")
 }
 
-func demonstrateQueryV2(client *api.Client, cdpToken *api.Token) {
+func demonstrateQueryV2(client *api.Client) {
 	fmt.Println("SQL Query execution example (V2 API)")
 	fmt.Println("Executing a real SQL query against Data Cloud using v2 API")
 
@@ -217,7 +202,7 @@ func demonstrateQueryV2(client *api.Client, cdpToken *api.Token) {
 	fmt.Printf("Executing query: %s\n", query)
 
 	// Execute the query using v2 API
-	response, err := api.ExecuteQueryV2WithToken(context.Background(), client, cdpToken, query, false)
+	response, err := api.ExecuteQueryV2(context.Background(), client, query, false)
 	if err != nil {
 		fmt.Printf("ERROR: Query V2 execution failed: %v\n", err)
 		return
@@ -225,18 +210,6 @@ func demonstrateQueryV2(client *api.Client, cdpToken *api.Token) {
 
 	fmt.Println("\nQuery V2 executed successfully!")
 	displayQueryV2Results(response)
-
-	// If there are more batches, demonstrate fetching them
-	if !response.Done && response.NextBatchId != nil && *response.NextBatchId != "" {
-		fmt.Printf("\nFetching next batch (ID: %s)...\n", *response.NextBatchId)
-		nextBatch, err := api.GetNextBatchV2WithToken(context.Background(), client, cdpToken, *response.NextBatchId, false)
-		if err != nil {
-			fmt.Printf("ERROR: Failed to fetch next batch: %v\n", err)
-		} else {
-			fmt.Println("Next batch fetched successfully!")
-			displayQueryV2Results(nextBatch)
-		}
-	}
 }
 
 func displayQueryV2Results(response *api.QueryV2Response) {
@@ -272,34 +245,17 @@ func displayQueryV2Results(response *api.QueryV2Response) {
 }
 
 // demonstrateMetadata shows how to retrieve Data Cloud metadata
-func demonstrateMetadata(client *api.Client, cdpToken *api.Token) {
+func demonstrateMetadata(client *api.Client) {
 	fmt.Println("Retrieving Data Cloud metadata...")
 
 	ctx := context.Background()
 
-	fmt.Println("CDP Token:")
-	printTokenInfo(cdpToken)
-
-	// Try with original Salesforce token first
-	originalToken, err := client.Authenticate(ctx)
-	if err != nil {
-		log.Fatalf("Authentication failed: %v", err)
-	}
-	fmt.Println("Original Token:")
-	printTokenInfo(originalToken)
-
 	// Get all metadata first
 	fmt.Println("Fetching all metadata...")
-	metadataResp, err := api.GetMetadataWithToken(ctx, client, originalToken, "", "", "", "")
+	metadataResp, err := api.GetMetadata(ctx, client, "", "", "", "")
 	if err != nil {
-		fmt.Printf("ERROR: Metadata retrieval failed with original token: %v\n", err)
-
-		fmt.Println("Trying with CDP token as fallback...")
-		metadataResp, err = api.GetMetadataWithToken(ctx, client, cdpToken, "", "", "", "")
-		if err != nil {
-			fmt.Printf("ERROR: Metadata retrieval also failed with CDP token: %v\n", err)
-			return
-		}
+		fmt.Printf("ERROR: Metadata retrieval failed: %v\n", err)
+		return
 	}
 
 	fmt.Printf("Metadata retrieved successfully!\n")
@@ -394,12 +350,12 @@ func demonstrateMetadata(client *api.Client, cdpToken *api.Token) {
 
 	// Example with entity type filter
 	fmt.Println("\n--- Fetching only Profile entities ---")
-	profileResp, err := api.GetMetadataWithToken(ctx, client, originalToken, "", "Profile", "", "")
+	profileResp, err := api.GetMetadata(ctx, client, "", "Profile", "", "")
 	if err != nil {
 		fmt.Printf("ERROR: Profile metadata retrieval failed with original token: %v\n", err)
 
 		// Try with CDP token
-		profileResp, err = api.GetMetadataWithToken(ctx, client, cdpToken, "", "Profile", "", "")
+		profileResp, err = api.GetMetadata(ctx, client, "", "Profile", "", "")
 		if err != nil {
 			fmt.Printf("ERROR: Profile metadata retrieval also failed with CDP token: %v\n", err)
 		}
@@ -420,7 +376,7 @@ func demonstrateMetadata(client *api.Client, cdpToken *api.Token) {
 }
 
 // demonstrateIngestion shows how to use the Data Cloud ingestion APIs
-func demonstrateIngestion(client *api.Client, cdpToken *api.Token) {
+func demonstrateIngestion(client *api.Client) {
 	fmt.Println("Demonstrating Data Cloud ingestion workflow...")
 
 	ctx := context.Background()
@@ -433,13 +389,12 @@ func demonstrateIngestion(client *api.Client, cdpToken *api.Token) {
 		Operation:  "upsert",
 	}
 
-	jobResp, err := api.CreateJobWithToken(ctx, client, cdpToken, jobRequest)
+	jobResp, err := api.CreateJob(ctx, client, jobRequest)
 	if err != nil {
 		fmt.Printf("ERROR: Job creation failed with CDP token: %v\n", err)
 		return
 	}
 
-	workingToken := cdpToken
 	fmt.Printf("Job created successfully!\n")
 	fmt.Printf("   Job ID: %s\n", jobResp.ID)
 	fmt.Printf("   State: %s\n", jobResp.State)
@@ -460,7 +415,7 @@ ORD-005,Charlie Brown,2025-01-19T11:10:00Z,89.99,654 Maple Ln Seattle WA 98101,t
 
 	// Step 3: Upload CSV data to the job
 	fmt.Println("\n--- Step 3: Uploading CSV data ---")
-	err = api.UploadJobDataWithToken(ctx, client, workingToken, jobResp.ID, []byte(csvData), "text/csv")
+	err = api.UploadJobData(ctx, client, jobResp.ID, []byte(csvData), "text/csv")
 	if err != nil {
 		fmt.Printf("ERROR: Data upload failed: %v\n", err)
 		return
@@ -470,7 +425,7 @@ ORD-005,Charlie Brown,2025-01-19T11:10:00Z,89.99,654 Maple Ln Seattle WA 98101,t
 
 	// Step 4: Close the job to queue it for processing
 	fmt.Println("\n--- Step 4: Closing job for processing ---")
-	closeResp, err := api.CloseJobWithToken(ctx, client, workingToken, jobResp.ID, "UploadComplete")
+	closeResp, err := api.CloseJob(ctx, client, jobResp.ID, "UploadComplete")
 	if err != nil {
 		fmt.Printf("ERROR: Job close failed: %v\n", err)
 		return
@@ -491,7 +446,7 @@ ORD-005,Charlie Brown,2025-01-19T11:10:00Z,89.99,654 Maple Ln Seattle WA 98101,t
 		Operation:  "upsert",
 	}
 
-	abortJobResp, err := api.CreateJobWithToken(ctx, client, workingToken, abortJobRequest)
+	abortJobResp, err := api.CreateJob(ctx, client, abortJobRequest)
 	if err != nil {
 		fmt.Printf("NOTE: Cannot create second job (expected in some orgs): %v\n", err)
 		fmt.Printf("This is normal - many orgs limit concurrent jobs or duplicate configurations.\n")
@@ -502,7 +457,7 @@ ORD-005,Charlie Brown,2025-01-19T11:10:00Z,89.99,654 Maple Ln Seattle WA 98101,t
 		fmt.Printf("   State: %s\n", abortJobResp.State)
 
 		// Abort the job (simulating a cancellation scenario)
-		abortResp, err := api.CloseJobWithToken(ctx, client, workingToken, abortJobResp.ID, "Aborted")
+		abortResp, err := api.CloseJob(ctx, client, abortJobResp.ID, "Aborted")
 		if err != nil {
 			fmt.Printf("ERROR: Job abort failed: %v\n", err)
 		} else {

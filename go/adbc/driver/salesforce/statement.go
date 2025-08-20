@@ -80,7 +80,7 @@ func (s *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int64
 
 // executeSQLQuery executes a SQL query using the Salesforce Data Cloud APIs
 func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, int64, error) {
-	if s.cnxn.client == nil || s.cnxn.token == nil {
+	if s.cnxn.client == nil || s.cnxn.client.GetDataCloudToken() == nil {
 		return nil, 0, adbc.Error{
 			Code: adbc.StatusInvalidState,
 			Msg:  "connection not properly initialized",
@@ -88,7 +88,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 	}
 
 	// Try Query V2 API first (for Data Cloud)
-	response, err := api.ExecuteQueryV2WithToken(ctx, s.cnxn.client, s.cnxn.token, s.query, false)
+	response, err := api.ExecuteQueryV2(ctx, s.cnxn.client, s.query, false)
 	if err != nil {
 		// Fall back to original SQL Query API
 		return s.executeFallbackSQLQuery(ctx)
@@ -115,7 +115,7 @@ func (s *statement) executeFallbackSQLQuery(ctx context.Context) (array.RecordRe
 		RowLimit: rowLimit,
 	}
 
-	response, err := api.ExecuteSqlQueryWithToken(ctx, s.cnxn.client, s.cnxn.token, queryRequest)
+	response, err := api.ExecuteSqlQuery(ctx, s.cnxn.client, queryRequest)
 	if err != nil {
 		return nil, 0, adbc.Error{
 			Code: adbc.StatusInternal,
