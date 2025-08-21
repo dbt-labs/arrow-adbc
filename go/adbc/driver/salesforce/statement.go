@@ -212,7 +212,7 @@ func (s *statement) buildSchemaFromV2Metadata(metadata map[string]api.QueryV2Met
 	}
 
 	for _, col := range ordered {
-		arrowType := s.salesforceTypeToArrow(col.meta.Type)
+		arrowType := SalesforceTypeToArrow(col.meta.Type)
 		field := arrow.Field{
 			Name:     col.name,
 			Type:     arrowType,
@@ -229,7 +229,7 @@ func (s *statement) buildSchemaFromSqlMetadata(metadata []api.SqlQueryMetadata) 
 	fields := make([]arrow.Field, len(metadata))
 
 	for i, col := range metadata {
-		arrowType := s.salesforceTypeToArrow(col.Type)
+		arrowType := SalesforceTypeToArrow(col.Type)
 		field := arrow.Field{
 			Name:     col.Name,
 			Type:     arrowType,
@@ -239,27 +239,6 @@ func (s *statement) buildSchemaFromSqlMetadata(metadata []api.SqlQueryMetadata) 
 	}
 
 	return arrow.NewSchema(fields, nil)
-}
-
-// salesforceTypeToArrow maps Salesforce data types to Arrow types
-func (s *statement) salesforceTypeToArrow(sfType string) arrow.DataType {
-	switch sfType {
-	case "STRING", "TEXT", "VARCHAR":
-		return arrow.BinaryTypes.String
-	case "INTEGER", "INT":
-		return arrow.PrimitiveTypes.Int64
-	case "DECIMAL", "NUMERIC":
-		return arrow.PrimitiveTypes.Float64
-	case "BOOLEAN", "BOOL":
-		return arrow.FixedWidthTypes.Boolean
-	case "DATE":
-		return arrow.FixedWidthTypes.Date32
-	case "DATETIME", "TIMESTAMP":
-		return arrow.FixedWidthTypes.Timestamp_us
-	default:
-		// Default to string for unknown types
-		return arrow.BinaryTypes.String
-	}
 }
 
 // convertDataToArrowRecords converts the raw data to Arrow records

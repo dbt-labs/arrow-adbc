@@ -26,6 +26,7 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/pkg"
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
@@ -269,6 +270,60 @@ func (c *connectionImpl) getQueryRowLimit() *int64 {
 	}
 
 	return nil // fallback to no limit
+}
+
+// GetTableSchema retrieves the schema for a specific table using Salesforce metadata API
+func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, dbSchema *string, tableName string) (*arrow.Schema, error) {
+	if c.client == nil {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidState,
+			Msg:  "connection not initialized",
+		}
+	}
+
+	// Use catalog as dataspace, ignore dbSchema, use tableName as entityName
+	dataspace := ""
+	if catalog != nil {
+		dataspace = *catalog
+	}
+
+	// Call GetMetadata with the specified parameters
+	metadataResp, err := api.GetMetadata(ctx, c.client, dataspace, "", tableName, "")
+	if err != nil {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidState,
+			Msg:  fmt.Sprintf("failed to get metadata for table %s: %v", tableName, err),
+		}
+	}
+
+	// Check if we found the table
+	if len(metadataResp.Metadata) == 0 {
+		return nil, adbc.Error{
+			Code: adbc.StatusNotFound,
+			Msg:  fmt.Sprintf("table %s not found", tableName),
+		}
+	}
+
+	// Use the first matching entity (should be the only one since we specified entityName)
+	entity := metadataResp.Metadata[0]
+
+	// Convert metadata fields to Arrow schema fields
+	var fields []arrow.Field
+	for _, field := range entity.Fields {
+		arrowType := SalesforceTypeToArrow(field.Type)
+
+		arrowField := arrow.Field{
+			Name:     field.Name,
+			Type:     arrowType,
+			Nullable: field.Nullable,
+		}
+
+		fields = append(fields, arrowField)
+	}
+
+	// Create and return the Arrow schema
+	schema := arrow.NewSchema(fields, nil)
+	return schema, nil
 }
 
 // Base returns the underlying ConnectionImplBase
