@@ -20,7 +20,6 @@ package salesforce
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/pkg"
@@ -38,16 +37,6 @@ type statement struct {
 	// Parameter binding
 	paramBinding  *arrow.Record
 	streamBinding array.RecordReader
-}
-
-// NewStatement creates a new statement implementation
-func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
-	stmt := &statement{
-		alloc: c.Alloc,
-		cnxn:  c,
-	}
-
-	return stmt, nil
 }
 
 // Close cleans up the statement
@@ -74,7 +63,6 @@ func (s *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int64
 			Msg:  "no query set",
 		}
 	}
-
 	return s.executeSQLQuery(ctx)
 }
 
@@ -87,27 +75,6 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		}
 	}
 
-	// Try Query V2 API first (for Data Cloud)
-	response, err := api.ExecuteQueryV2(ctx, s.cnxn.client, s.query, false)
-	if err != nil {
-		// Fall back to original SQL Query API
-		return s.executeFallbackSQLQuery(ctx)
-	}
-
-	// Convert the response to Arrow format
-	reader, rowCount, err := s.convertQueryV2ResponseToArrow(response)
-	if err != nil {
-		return nil, 0, adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to convert query response to Arrow: %v", err),
-		}
-	}
-
-	return reader, rowCount, nil
-}
-
-// executeFallbackSQLQuery uses the original SQL Query API as fallback
-func (s *statement) executeFallbackSQLQuery(ctx context.Context) (array.RecordReader, int64, error) {
 	rowLimit := s.cnxn.getQueryRowLimit()
 
 	queryRequest := &api.SqlQueryRequest{
@@ -135,46 +102,17 @@ func (s *statement) executeFallbackSQLQuery(ctx context.Context) (array.RecordRe
 	return reader, rowCount, nil
 }
 
-// convertQueryV2ResponseToArrow converts Query V2 API response to Arrow format
-func (s *statement) convertQueryV2ResponseToArrow(response *api.QueryV2Response) (array.RecordReader, int64, error) {
-	if len(response.Data) == 0 {
-		// Return empty reader with schema if available
-		schema := s.buildSchemaFromV2Metadata(response.Metadata)
-		reader, err := array.NewRecordReader(schema, []arrow.Record{})
-		return reader, 0, err
-	}
-
-	// Build Arrow schema from metadata
-	schema := s.buildSchemaFromV2Metadata(response.Metadata)
-
-	// Convert data to Arrow records
-	records, err := s.convertDataToArrowRecords(schema, response.Data)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	reader, err := array.NewRecordReader(schema, records)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return reader, int64(response.RowCount), nil
-}
-
 // convertSqlQueryResponseToArrow converts SQL Query API response to Arrow format
 func (s *statement) convertSqlQueryResponseToArrow(response *api.SqlQueryResponse) (array.RecordReader, int64, error) {
 	if len(response.Data) == 0 {
 		// Return empty reader with schema if available
-		schema := s.buildSchemaFromSqlMetadata(response.Metadata)
+		schema := s.buildArrowSchema(response.Metadata)
 		reader, err := array.NewRecordReader(schema, []arrow.Record{})
 		return reader, 0, err
 	}
 
-	// Build Arrow schema from metadata
-	schema := s.buildSchemaFromSqlMetadata(response.Metadata)
-
-	// Convert data to Arrow records
-	records, err := s.convertDataToArrowRecords(schema, response.Data)
+	schema := s.buildArrowSchema(response.Metadata)
+	records, err := s.buildArrowRecords(schema, response.Data)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -185,165 +123,6 @@ func (s *statement) convertSqlQueryResponseToArrow(response *api.SqlQueryRespons
 	}
 
 	return reader, int64(response.ReturnedRows), nil
-}
-
-// buildSchemaFromV2Metadata builds Arrow schema from Query V2 metadata
-func (s *statement) buildSchemaFromV2Metadata(metadata map[string]api.QueryV2Metadata) *arrow.Schema {
-	fields := make([]arrow.Field, 0, len(metadata))
-
-	// Create a slice to maintain order by PlaceInOrder
-	type orderedColumn struct {
-		name string
-		meta api.QueryV2Metadata
-	}
-	ordered := make([]orderedColumn, 0, len(metadata))
-
-	for name, meta := range metadata {
-		ordered = append(ordered, orderedColumn{name: name, meta: meta})
-	}
-
-	// Sort by PlaceInOrder
-	for i := 0; i < len(ordered); i++ {
-		for j := i + 1; j < len(ordered); j++ {
-			if ordered[i].meta.PlaceInOrder > ordered[j].meta.PlaceInOrder {
-				ordered[i], ordered[j] = ordered[j], ordered[i]
-			}
-		}
-	}
-
-	for _, col := range ordered {
-		arrowType := SalesforceTypeToArrow(col.meta.Type)
-		field := arrow.Field{
-			Name:     col.name,
-			Type:     arrowType,
-			Nullable: true, // Salesforce fields are generally nullable
-		}
-		fields = append(fields, field)
-	}
-
-	return arrow.NewSchema(fields, nil)
-}
-
-// buildSchemaFromSqlMetadata builds Arrow schema from SQL Query API metadata
-func (s *statement) buildSchemaFromSqlMetadata(metadata []api.SqlQueryMetadata) *arrow.Schema {
-	fields := make([]arrow.Field, len(metadata))
-
-	for i, col := range metadata {
-		arrowType := SalesforceTypeToArrow(col.Type)
-		field := arrow.Field{
-			Name:     col.Name,
-			Type:     arrowType,
-			Nullable: col.Nullable,
-		}
-		fields[i] = field
-	}
-
-	return arrow.NewSchema(fields, nil)
-}
-
-// convertDataToArrowRecords converts the raw data to Arrow records
-func (s *statement) convertDataToArrowRecords(schema *arrow.Schema, data [][]interface{}) ([]arrow.Record, error) {
-	if len(data) == 0 {
-		return []arrow.Record{}, nil
-	}
-
-	// For now, create a simple single record
-	// In a full implementation, you might want to batch this
-	builders := make([]array.Builder, len(schema.Fields()))
-	for i, field := range schema.Fields() {
-		builders[i] = array.NewBuilder(s.alloc, field.Type)
-	}
-	defer func() {
-		for _, builder := range builders {
-			builder.Release()
-		}
-	}()
-
-	// Add data to builders
-	for _, row := range data {
-		for i, value := range row {
-			if i >= len(builders) {
-				break // Skip extra columns
-			}
-
-			if value == nil {
-				builders[i].AppendNull()
-			} else {
-				s.appendValueToBuilder(builders[i], value, schema.Field(i).Type)
-			}
-		}
-	}
-
-	// Build arrays
-	arrays := make([]arrow.Array, len(builders))
-	for i, builder := range builders {
-		arrays[i] = builder.NewArray()
-	}
-
-	// Create record
-	record := array.NewRecord(schema, arrays, int64(len(data)))
-
-	// Release arrays
-	for _, arr := range arrays {
-		arr.Release()
-	}
-
-	return []arrow.Record{record}, nil
-}
-
-// appendValueToBuilder appends a value to the appropriate builder type
-func (s *statement) appendValueToBuilder(builder array.Builder, value interface{}, dataType arrow.DataType) {
-	switch b := builder.(type) {
-	case *array.StringBuilder:
-		if str, ok := value.(string); ok {
-			b.Append(str)
-		} else {
-			b.Append(fmt.Sprintf("%v", value))
-		}
-	case *array.Int64Builder:
-		if i, ok := value.(int64); ok {
-			b.Append(i)
-		} else if i, ok := value.(int); ok {
-			b.Append(int64(i))
-		} else if str, ok := value.(string); ok {
-			if i, err := strconv.ParseInt(str, 10, 64); err == nil {
-				b.Append(i)
-			} else {
-				b.AppendNull()
-			}
-		} else {
-			b.AppendNull()
-		}
-	case *array.Float64Builder:
-		if f, ok := value.(float64); ok {
-			b.Append(f)
-		} else if f, ok := value.(float32); ok {
-			b.Append(float64(f))
-		} else if str, ok := value.(string); ok {
-			if f, err := strconv.ParseFloat(str, 64); err == nil {
-				b.Append(f)
-			} else {
-				b.AppendNull()
-			}
-		} else {
-			b.AppendNull()
-		}
-	case *array.BooleanBuilder:
-		if b_val, ok := value.(bool); ok {
-			b.Append(b_val)
-		} else if str, ok := value.(string); ok {
-			if b_val, err := strconv.ParseBool(str); err == nil {
-				b.Append(b_val)
-			} else {
-				b.AppendNull()
-			}
-		} else {
-			b.AppendNull()
-		}
-	default:
-		// Fallback - treat as null for unsupported types
-		builder.AppendNull()
-	}
 }
 
 // Bind operations

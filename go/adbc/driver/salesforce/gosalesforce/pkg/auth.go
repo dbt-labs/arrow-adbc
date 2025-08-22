@@ -145,8 +145,8 @@ func ExecuteSqlQuery(ctx context.Context, client *Client, queryRequest *SqlQuery
 	return client.ExecuteSqlQuery(ctx, queryRequest)
 }
 
-// ExecuteQueryV2 is a convenience function to execute a v2 SQL query using a Data Cloud token
-func ExecuteQueryV2(ctx context.Context, client *Client, query string, enableArrowStream bool) (*QueryV2Response, error) {
+// ExecuteSqlQueryLegacy is a convenience function to execute a v2 SQL query using a Data Cloud token
+func ExecuteSqlQueryLegacy(ctx context.Context, client *Client, query string, enableArrowStream bool) (*QueryV2Response, error) {
 	if client == nil {
 		return nil, &AuthError{
 			Code:    400,

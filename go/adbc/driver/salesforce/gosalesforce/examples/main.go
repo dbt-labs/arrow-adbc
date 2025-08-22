@@ -202,7 +202,7 @@ func demonstrateQueryV2(client *api.Client) {
 	fmt.Printf("Executing query: %s\n", query)
 
 	// Execute the query using v2 API
-	response, err := api.ExecuteQueryV2(context.Background(), client, query, false)
+	response, err := api.ExecuteSqlQueryLegacy(context.Background(), client, query, false)
 	if err != nil {
 		fmt.Printf("ERROR: Query V2 execution failed: %v\n", err)
 		return

@@ -281,14 +281,8 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 		}
 	}
 
-	// Use catalog as dataspace, ignore dbSchema, use tableName as entityName
-	dataspace := ""
-	if catalog != nil {
-		dataspace = *catalog
-	}
-
-	// Call GetMetadata with the specified parameters
-	metadataResp, err := api.GetMetadata(ctx, c.client, dataspace, "", tableName, "")
+	// use catalog as data space
+	metadataResp, err := api.GetMetadata(ctx, c.client, *catalog, "", tableName, "")
 	if err != nil {
 		return nil, adbc.Error{
 			Code: adbc.StatusInvalidState,
@@ -296,7 +290,6 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 		}
 	}
 
-	// Check if we found the table
 	if len(metadataResp.Metadata) == 0 {
 		return nil, adbc.Error{
 			Code: adbc.StatusNotFound,
@@ -304,13 +297,17 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 		}
 	}
 
-	// Use the first matching entity (should be the only one since we specified entityName)
-	entity := metadataResp.Metadata[0]
+	if len(metadataResp.Metadata) > 1 {
+		return nil, adbc.Error{
+			Code: adbc.StatusUnknown,
+			Msg:  fmt.Sprintf("multiple entities found for table %s", tableName),
+		}
+	}
+	table := metadataResp.Metadata[0]
 
-	// Convert metadata fields to Arrow schema fields
 	var fields []arrow.Field
-	for _, field := range entity.Fields {
-		arrowType := SalesforceTypeToArrow(field.Type)
+	for _, field := range table.Fields {
+		arrowType := SalesforceTypeToArrowType(field.Type)
 
 		arrowField := arrow.Field{
 			Name:     field.Name,
@@ -321,9 +318,18 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 		fields = append(fields, arrowField)
 	}
 
-	// Create and return the Arrow schema
 	schema := arrow.NewSchema(fields, nil)
 	return schema, nil
+}
+
+// NewStatement creates a new statement implementation
+func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
+	stmt := &statement{
+		alloc: c.Alloc,
+		cnxn:  c,
+	}
+
+	return stmt, nil
 }
 
 // Base returns the underlying ConnectionImplBase
