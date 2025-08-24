@@ -121,7 +121,7 @@ func demonstrateJWTAuth() (*api.Client, error) {
 	}
 
 	// Create client
-	client := api.NewClient(config)
+	client := api.NewClient(config, "v64.0")
 
 	// Authenticate
 	fmt.Println("Connecting to Salesforce CDP with JWT...")

@@ -23,10 +23,11 @@ type Client struct {
 	httpClient  *http.Client
 	accessToken *Token
 	cdpToken    *Token
+	version     string
 }
 
 // NewClient creates a new authentication client
-func NewClient(config *AuthConfig) *Client {
+func NewClient(config *AuthConfig, version string) *Client {
 	if config == nil {
 		config = DefaultAuthConfig()
 	}
@@ -38,6 +39,7 @@ func NewClient(config *AuthConfig) *Client {
 	return &Client{
 		config:     config,
 		httpClient: httpClient,
+		version:    version,
 	}
 }
 
@@ -47,6 +49,10 @@ func (c *Client) GetToken() *Token {
 
 func (c *Client) GetDataCloudToken() *Token {
 	return c.cdpToken
+}
+
+func (c *Client) buildServicesURL(instanceURL, path string) string {
+	return fmt.Sprintf("%s/services/data/%s/ssot/%s", instanceURL, c.version, path)
 }
 
 // normalizeURL ensures the URL has the https:// protocol
@@ -329,11 +335,8 @@ func (c *Client) ExecuteSqlQuery(ctx context.Context, queryRequest *SqlQueryRequ
 		return nil, fmt.Errorf("failed to marshal SQL query request: %w", err)
 	}
 
-	// Construct the URL
-	instanceURL := normalizeURL(c.accessToken.InstanceURL)
-	queryURL := instanceURL + "/services/data/v63.0/ssot/query-sql"
+	queryURL := c.buildServicesURL(c.accessToken.InstanceURL, "query-sql")
 
-	// Add query parameters if specified
 	if queryRequest.Dataspace != "" {
 		queryURL += "?dataspace=" + url.QueryEscape(queryRequest.Dataspace)
 	}
@@ -580,7 +583,7 @@ func (c *Client) GetMetadata(ctx context.Context, dataspace, entityCategory, ent
 	}
 
 	// Build metadata URL
-	metadataURL := normalizeURL(token.InstanceURL) + "/services/data/v63.0/ssot/metadata"
+	metadataURL := c.buildServicesURL(token.InstanceURL, "metadata")
 
 	// Create the request
 	req, err := http.NewRequestWithContext(ctx, "GET", metadataURL, nil)
@@ -842,10 +845,8 @@ func (c *Client) CreateDataTransform(ctx context.Context, request *CreateDataTra
 		}
 	}
 
-	// Build data transform creation URL - using v60.0 as mentioned in API spec
-	transformURL := normalizeURL(token.InstanceURL) + "/services/data/v60.0/ssot/data-transforms"
+	transformURL := c.buildServicesURL(token.InstanceURL, "data-transforms")
 
-	// Marshal request body
 	requestBody, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data transform request: %w", err)
