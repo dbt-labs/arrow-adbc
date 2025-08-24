@@ -242,3 +242,178 @@ type CloseJobResponse struct {
 	ContentType    string `json:"contentType"`
 	APIVersion     string `json:"apiVersion"`
 }
+
+// DataTransformType represents the type of data transform
+type DataTransformType string
+
+const (
+	DataTransformTypeBatch     DataTransformType = "BATCH"
+	DataTransformTypeStreaming DataTransformType = "STREAMING"
+)
+
+// DataTransformCreationType represents the creation type of the data transform
+type DataTransformCreationType string
+
+const (
+	DataTransformCreationTypeCustom DataTransformCreationType = "Custom"
+	DataTransformCreationTypeSystem DataTransformCreationType = "System"
+)
+
+// DataTransformDefinitionType represents the type of definition
+type DataTransformDefinitionType string
+
+const (
+	DataTransformDefinitionTypeSQL       DataTransformDefinitionType = "SQL"
+	DataTransformDefinitionTypeSTL       DataTransformDefinitionType = "STL"
+	DataTransformDefinitionTypeDBT       DataTransformDefinitionType = "DBT"
+	DataTransformDefinitionTypeSQLHidden DataTransformDefinitionType = "SqlHidden"
+	DataTransformDefinitionTypeSTLHidden DataTransformDefinitionType = "StlHidden"
+	DataTransformDefinitionTypeDBTHidden DataTransformDefinitionType = "DbtHidden"
+)
+
+// DataTransformStatus represents the status of the data transform
+type DataTransformStatus string
+
+const (
+	DataTransformStatusActive     DataTransformStatus = "Active"
+	DataTransformStatusDeleting   DataTransformStatus = "Deleting"
+	DataTransformStatusError      DataTransformStatus = "Error"
+	DataTransformStatusProcessing DataTransformStatus = "Processing"
+)
+
+// DataTransformLastRunStatus represents the status of the last run
+type DataTransformLastRunStatus string
+
+const (
+	DataTransformLastRunStatusCanceled          DataTransformLastRunStatus = "Canceled"
+	DataTransformLastRunStatusFailure           DataTransformLastRunStatus = "Failure"
+	DataTransformLastRunStatusInProgress        DataTransformLastRunStatus = "InProgress"
+	DataTransformLastRunStatusNone              DataTransformLastRunStatus = "None"
+	DataTransformLastRunStatusPartialFailure    DataTransformLastRunStatus = "PartialFailure"
+	DataTransformLastRunStatusPartiallyCanceled DataTransformLastRunStatus = "PartiallyCanceled"
+	DataTransformLastRunStatusPending           DataTransformLastRunStatus = "Pending"
+	DataTransformLastRunStatusSuccess           DataTransformLastRunStatus = "Success"
+)
+
+// CreateDataTransformRequest represents a request to create a data transform
+type CreateDataTransformRequest struct {
+	CreationType    DataTransformCreationType `json:"creationType,omitempty"`
+	CurrencyIsoCode string                    `json:"currencyIsoCode,omitempty"`
+	DataSpaceName   string                    `json:"dataSpaceName,omitempty"`
+	Definition      DataTransformDefinition   `json:"definition"`
+	Description     string                    `json:"description,omitempty"`
+	Label           string                    `json:"label"`
+	Name            string                    `json:"name"`
+	PrimarySource   string                    `json:"primarySource,omitempty"`
+	Type            DataTransformType         `json:"type"`
+}
+
+// DataTransformDefinition represents the base definition of a data transform
+type DataTransformDefinition struct {
+	Type    DataTransformDefinitionType `json:"type"`
+	Version string                      `json:"version"`
+	// For batch transforms
+	Nodes map[string]DataTransformNode `json:"nodes,omitempty"`
+	UI    interface{}                  `json:"ui,omitempty"`
+	// For streaming transforms
+	Expression        string                          `json:"expression,omitempty"`
+	TargetDlo         string                          `json:"targetDlo,omitempty"`
+	OutputDataObjects []DataTransformOutputDataObject `json:"outputDataObjects,omitempty"`
+}
+
+// DataTransformNode represents a node in a data transform
+type DataTransformNode struct {
+	Action     string                      `json:"action"`
+	Parameters DataTransformNodeParameters `json:"parameters"`
+	Sources    []string                    `json:"sources"`
+}
+
+// DataTransformNodeParameters represents parameters for a transform node
+type DataTransformNodeParameters struct {
+	// For load action
+	Dataset       *DataTransformDataset       `json:"dataset,omitempty"`
+	Fields        []string                    `json:"fields,omitempty"`
+	SampleDetails *DataTransformSampleDetails `json:"sampleDetails,omitempty"`
+	// For output action
+	FieldsMappings []DataTransformFieldMapping `json:"fieldsMappings,omitempty"`
+	Name           string                      `json:"name,omitempty"`
+	Type           string                      `json:"type,omitempty"`
+}
+
+// DataTransformDataset represents a dataset reference
+type DataTransformDataset struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// DataTransformSampleDetails represents sampling details
+type DataTransformSampleDetails struct {
+	SortBy []interface{} `json:"sortBy"`
+	Type   string        `json:"type"`
+}
+
+// DataTransformFieldMapping represents field mapping for output
+type DataTransformFieldMapping struct {
+	SourceField string `json:"sourceField"`
+	TargetField string `json:"targetField"`
+}
+
+// DataTransformOutputDataObject represents output data object information
+type DataTransformOutputDataObject struct {
+	Category         string               `json:"category,omitempty"`
+	CreatedDate      string               `json:"createdDate,omitempty"`
+	Fields           []DataTransformField `json:"fields,omitempty"`
+	ID               string               `json:"id,omitempty"`
+	Label            string               `json:"label"`
+	LastModifiedDate string               `json:"lastModifiedDate,omitempty"`
+	Name             string               `json:"name"`
+	Status           string               `json:"status,omitempty"`
+	Type             string               `json:"type"`
+}
+
+// DataTransformField represents a field in a data transform output
+type DataTransformField struct {
+	IsPrimaryKey      bool   `json:"isPrimaryKey,omitempty"`
+	KeyQualifierField string `json:"keyQualifierField,omitempty"`
+	Label             string `json:"label"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+}
+
+// DataTransformResponse represents the response from creating a data transform
+type DataTransformResponse struct {
+	ActionUrls       DataTransformActionUrls    `json:"actionUrls,omitempty"`
+	CreatedBy        DataTransformUser          `json:"createdBy"`
+	CreatedDate      string                     `json:"createdDate"`
+	CreationType     DataTransformCreationType  `json:"creationType,omitempty"`
+	Definition       DataTransformDefinition    `json:"definition"`
+	ID               string                     `json:"id"`
+	Label            string                     `json:"label"`
+	LastModifiedBy   DataTransformUser          `json:"lastModifiedBy"`
+	LastModifiedDate string                     `json:"lastModifiedDate"`
+	LastRunStatus    DataTransformLastRunStatus `json:"lastRunStatus"`
+	Name             string                     `json:"name"`
+	Namespace        string                     `json:"namespace,omitempty"`
+	Status           DataTransformStatus        `json:"status"`
+	Type             DataTransformType          `json:"type"`
+	URL              string                     `json:"url"`
+	DataSpaceName    string                     `json:"dataSpaceName,omitempty"`
+	Description      string                     `json:"description,omitempty"`
+	LastRunDate      string                     `json:"lastRunDate,omitempty"`
+	Version          int64                      `json:"version,omitempty"`
+}
+
+// DataTransformActionUrls represents available actions for the data transform
+type DataTransformActionUrls struct {
+	CancelAction        string `json:"cancelAction,omitempty"`
+	RefreshStatusAction string `json:"refreshStatusAction,omitempty"`
+	RetryAction         string `json:"retryAction,omitempty"`
+	RunAction           string `json:"runAction,omitempty"`
+}
+
+// DataTransformUser represents user information in data transform responses
+type DataTransformUser struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	ProfilePhotoURL string `json:"profilePhotoUrl,omitempty"`
+}

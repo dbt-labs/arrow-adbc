@@ -63,6 +63,10 @@ func main() {
 	// Example 5: Data Ingestion API
 	// fmt.Println("\n=== Data Ingestion API Example ===")
 	demonstrateIngestion(client)
+
+	// Example 6: Data Transform API
+	fmt.Println("\n=== Data Transform API Example ===")
+	demonstrateDataTransform(client)
 }
 
 // Helper function to display row data consistently
@@ -474,4 +478,183 @@ ORD-005,Charlie Brown,2025-01-19T11:10:00Z,89.99,654 Maple Ln Seattle WA 98101,t
 	fmt.Println("   - Closed job for processing (data queued)")
 	fmt.Println("   - Demonstrated job abort functionality")
 	fmt.Println("   - Jobs can be monitored via Data Cloud UI or additional API calls")
+}
+
+// demonstrateDataTransform shows how to create data transforms in Data Cloud
+func demonstrateDataTransform(client *api.Client) {
+	fmt.Println("Demonstrating Data Cloud transform creation...")
+
+	ctx := context.Background()
+
+	// Verify tokens are available
+	accessToken := client.GetToken()
+
+	if accessToken == nil || accessToken.AccessToken == "" {
+		fmt.Println("WARNING: No access token available")
+		return
+	}
+
+	fmt.Printf("Using Salesforce instance: %s\n", accessToken.InstanceURL)
+
+	// Example 1: Create a Batch Data Transform
+	fmt.Println("\n--- Creating Batch Data Transform (STL) ---")
+	err := demonstrateBatchTransform(ctx, client)
+	if err != nil {
+		fmt.Printf("ERROR: Batch transform creation failed: %v\n", err)
+	} else {
+		fmt.Println("✅ Batch transform creation successful!")
+	}
+
+	// Example 2: Create a Streaming Data Transform
+	fmt.Println("\n--- Creating Streaming Data Transform (SQL) ---")
+	err = demonstrateStreamingTransform(ctx, client)
+	if err != nil {
+		fmt.Printf("ERROR: Streaming transform creation failed: %v\n", err)
+	} else {
+		fmt.Println("✅ Streaming transform creation successful!")
+	}
+
+	fmt.Println("\n✅ Data Transform demonstration completed!")
+	fmt.Println("📊 Summary:")
+	fmt.Println("   - Demonstrated batch data transform creation (STL)")
+	fmt.Println("   - Demonstrated streaming data transform creation (SQL)")
+	fmt.Println("   - Transforms can be monitored and managed via Data Cloud UI")
+}
+
+func demonstrateBatchTransform(ctx context.Context, client *api.Client) error {
+	// Create nodes for a batch transform that loads data and outputs it
+	// Using actual data objects that exist in the org
+	nodes := map[string]api.DataTransformNode{
+		"LOAD_DATASET0": api.NewLoadDatasetNode(
+			"CurrencyType_Home__dll",
+			"dataLakeObject",
+			[]string{"Id__c", "IsoCode__c"},
+		),
+		"OUTPUT0": api.NewOutputNode(
+			"Currency_Transform_Output__dll",
+			"dataLakeObject",
+			[]api.DataTransformFieldMapping{
+				api.NewFieldMapping("Id__c", "Id__c"),
+				api.NewFieldMapping("IsoCode__c", "IsoCode__c"),
+			},
+			[]string{"LOAD_DATASET0"},
+		),
+	}
+
+	// Create the batch transform request
+	request := api.NewBatchDataTransformRequest(
+		"BatchCurrencyCleaningExample",
+		"Batch Currency Cleaning Example",
+		nodes,
+	)
+
+	// Add optional fields
+	request.Description = "Example batch data transform that cleans currency data"
+	request.CreationType = api.DataTransformCreationTypeCustom
+
+	fmt.Printf("Creating batch transform: %s\n", request.Name)
+	fmt.Printf("   Label: %s\n", request.Label)
+	fmt.Printf("   Type: %s\n", request.Type)
+	fmt.Printf("   Definition Type: %s\n", request.Definition.Type)
+	fmt.Printf("   Nodes: %d\n", len(request.Definition.Nodes))
+
+	// Execute the request
+	response, err := api.CreateDataTransform(ctx, client, request)
+	if err != nil {
+		return err
+	}
+
+	// Display results
+	fmt.Printf("✅ Batch transform created successfully!\n")
+	fmt.Printf("   Transform ID: %s\n", response.ID)
+	fmt.Printf("   Name: %s\n", response.Name)
+	fmt.Printf("   Label: %s\n", response.Label)
+	fmt.Printf("   Status: %s\n", response.Status)
+	fmt.Printf("   Type: %s\n", response.Type)
+	fmt.Printf("   Created Date: %s\n", response.CreatedDate)
+	fmt.Printf("   Created By: %s\n", response.CreatedBy.Name)
+	fmt.Printf("   Last Run Status: %s\n", response.LastRunStatus)
+	fmt.Printf("   URL: %s\n", response.URL)
+
+	// Display available actions
+	if response.ActionUrls.RunAction != "" {
+		fmt.Printf("   Available Actions:\n")
+		if response.ActionUrls.RunAction != "" {
+			fmt.Printf("     - Run: %s\n", response.ActionUrls.RunAction)
+		}
+		if response.ActionUrls.CancelAction != "" {
+			fmt.Printf("     - Cancel: %s\n", response.ActionUrls.CancelAction)
+		}
+		if response.ActionUrls.RetryAction != "" {
+			fmt.Printf("     - Retry: %s\n", response.ActionUrls.RetryAction)
+		}
+		if response.ActionUrls.RefreshStatusAction != "" {
+			fmt.Printf("     - Refresh Status: %s\n", response.ActionUrls.RefreshStatusAction)
+		}
+	}
+
+	// Display output data objects if present
+	if len(response.Definition.OutputDataObjects) > 0 {
+		fmt.Printf("   Output Data Objects: %d\n", len(response.Definition.OutputDataObjects))
+		for i, obj := range response.Definition.OutputDataObjects {
+			fmt.Printf("     %d. %s (%s)\n", i+1, obj.Name, obj.Label)
+			if obj.Status != "" {
+				fmt.Printf("        Status: %s\n", obj.Status)
+			}
+			if len(obj.Fields) > 0 {
+				fmt.Printf("        Fields: %d\n", len(obj.Fields))
+			}
+		}
+	}
+
+	return nil
+}
+
+func demonstrateStreamingTransform(ctx context.Context, client *api.Client) error {
+	// Create the streaming transform request using existing data objects
+	request := api.NewStreamingDataTransformRequest(
+		"StreamingCurrencyTransformExample",
+		"Streaming Currency Transform Example",
+		"SELECT Id__c, IsoCode__c FROM CurrencyType_Home__dll",
+		"Currency_Stream_Output__dll",
+	)
+
+	// Add optional fields
+	request.Description = "Example streaming data transform that processes currency data in real-time"
+	request.CreationType = api.DataTransformCreationTypeCustom
+
+	fmt.Printf("Creating streaming transform: %s\n", request.Name)
+	fmt.Printf("   Label: %s\n", request.Label)
+	fmt.Printf("   Type: %s\n", request.Type)
+	fmt.Printf("   Definition Type: %s\n", request.Definition.Type)
+	fmt.Printf("   SQL Expression: %s\n", request.Definition.Expression)
+	fmt.Printf("   Target DLO: %s\n", request.Definition.TargetDlo)
+
+	// Execute the request
+	response, err := api.CreateDataTransform(ctx, client, request)
+	if err != nil {
+		return err
+	}
+
+	// Display results
+	fmt.Printf("✅ Streaming transform created successfully!\n")
+	fmt.Printf("   Transform ID: %s\n", response.ID)
+	fmt.Printf("   Name: %s\n", response.Name)
+	fmt.Printf("   Label: %s\n", response.Label)
+	fmt.Printf("   Status: %s\n", response.Status)
+	fmt.Printf("   Type: %s\n", response.Type)
+	fmt.Printf("   Created Date: %s\n", response.CreatedDate)
+	fmt.Printf("   Created By: %s\n", response.CreatedBy.Name)
+	fmt.Printf("   Last Run Status: %s\n", response.LastRunStatus)
+	fmt.Printf("   URL: %s\n", response.URL)
+
+	// Display the SQL expression from the definition
+	if response.Definition.Expression != "" {
+		fmt.Printf("   SQL Expression: %s\n", response.Definition.Expression)
+	}
+	if response.Definition.TargetDlo != "" {
+		fmt.Printf("   Target DLO: %s\n", response.Definition.TargetDlo)
+	}
+
+	return nil
 }
