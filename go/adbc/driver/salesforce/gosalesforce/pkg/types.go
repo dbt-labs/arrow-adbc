@@ -476,8 +476,6 @@ type CreateDataLakeObjectRequest struct {
 	RecordModifiedFieldName           string                             `json:"recordModifiedFieldName"`
 	DataLakeFieldInputRepresentations []DataLakeFieldInputRepresentation `json:"dataLakeFieldInputRepresentations"`
 	EventDateTimeFieldName            string                             `json:"eventDateTimeFieldName,omitempty"`
-	Description                       string                             `json:"description,omitempty"`
-	DataspaceName                     string                             `json:"dataspaceName,omitempty"`
 }
 
 // DataspaceInfo represents information about a data space

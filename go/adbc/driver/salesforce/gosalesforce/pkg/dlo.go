@@ -128,15 +128,12 @@ func NewFilterCondition(fieldName, filterValue, tableName string, operator Filte
 
 // NewProfileDataLakeObject creates a new Profile category Data Lake Object request
 func NewProfileDataLakeObject(name, label string, fields []DataLakeFieldInputRepresentation) *CreateDataLakeObjectRequest {
-	request := NewDataLakeObjectRequest(name, label, DataLakeObjectCategoryProfile, fields)
-	request.Description = fmt.Sprintf("Profile Data Lake Object: %s", label)
-	return request
+	return NewDataLakeObjectRequest(name, label, DataLakeObjectCategoryProfile, fields)
 }
 
 // NewEngagementDataLakeObject creates a new Engagement category Data Lake Object request
 func NewEngagementDataLakeObject(name, label, eventDateTimeFieldName string, fields []DataLakeFieldInputRepresentation) *CreateDataLakeObjectRequest {
 	request := NewDataLakeObjectRequest(name, label, DataLakeObjectCategoryEngagement, fields)
 	request.EventDateTimeFieldName = eventDateTimeFieldName
-	request.Description = fmt.Sprintf("Engagement Data Lake Object: %s", label)
 	return request
 }
