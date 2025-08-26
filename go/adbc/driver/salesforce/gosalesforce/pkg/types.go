@@ -417,3 +417,135 @@ type DataTransformUser struct {
 	Name            string `json:"name"`
 	ProfilePhotoURL string `json:"profilePhotoUrl,omitempty"`
 }
+
+// DataLakeObjectCategory represents the category of a Data Lake Object
+type DataLakeObjectCategory string
+
+const (
+	DataLakeObjectCategoryDirectoryTable DataLakeObjectCategory = "Directory_Table"
+	DataLakeObjectCategoryEngagement     DataLakeObjectCategory = "Engagement"
+	DataLakeObjectCategoryInsights       DataLakeObjectCategory = "Insights"
+	DataLakeObjectCategoryOther          DataLakeObjectCategory = "Other"
+	DataLakeObjectCategoryProfile        DataLakeObjectCategory = "Profile"
+)
+
+// DataLakeObjectStatus represents the status of a Data Lake Object
+type DataLakeObjectStatus string
+
+const (
+	DataLakeObjectStatusActive     DataLakeObjectStatus = "Active"
+	DataLakeObjectStatusDeleting   DataLakeObjectStatus = "Deleting"
+	DataLakeObjectStatusError      DataLakeObjectStatus = "Error"
+	DataLakeObjectStatusInactive   DataLakeObjectStatus = "Inactive"
+	DataLakeObjectStatusProcessing DataLakeObjectStatus = "Processing"
+)
+
+// DataLakeFieldDataType represents the data type of a field
+type DataLakeFieldDataType string
+
+const (
+	DataLakeFieldDataTypeText     DataLakeFieldDataType = "Text"
+	DataLakeFieldDataTypeNumber   DataLakeFieldDataType = "Number"
+	DataLakeFieldDataTypeDateTime DataLakeFieldDataType = "DateTime"
+	DataLakeFieldDataTypeDate     DataLakeFieldDataType = "Date"
+	DataLakeFieldDataTypeBoolean  DataLakeFieldDataType = "Boolean"
+)
+
+// FilterOperator represents filter operators
+type FilterOperator string
+
+const (
+	FilterOperatorEquals FilterOperator = "EqualsOperator"
+)
+
+// ConjunctiveOperator represents conjunctive operators
+type ConjunctiveOperator string
+
+const (
+	ConjunctiveOperatorAnd ConjunctiveOperator = "AndOperator"
+	ConjunctiveOperatorOr  ConjunctiveOperator = "OrOperator"
+)
+
+// CreateDataLakeObjectRequest represents a request to create a Data Lake Object
+type CreateDataLakeObjectRequest struct {
+	Name                              string                             `json:"name"`
+	Label                             string                             `json:"label"`
+	Category                          DataLakeObjectCategory             `json:"category"`
+	DataspaceInfo                     []DataspaceInfo                    `json:"dataspaceInfo"`
+	OrgUnitIdentifierFieldName        string                             `json:"orgUnitIdentifierFieldName"`
+	RecordModifiedFieldName           string                             `json:"recordModifiedFieldName"`
+	DataLakeFieldInputRepresentations []DataLakeFieldInputRepresentation `json:"dataLakeFieldInputRepresentations"`
+	EventDateTimeFieldName            string                             `json:"eventDateTimeFieldName,omitempty"`
+	Description                       string                             `json:"description,omitempty"`
+	DataspaceName                     string                             `json:"dataspaceName,omitempty"`
+}
+
+// DataspaceInfo represents information about a data space
+type DataspaceInfo struct {
+	Name   string       `json:"name"`
+	Filter FilterConfig `json:"filter"`
+}
+
+// FilterConfig represents filter configuration
+type FilterConfig struct {
+	ConjunctiveOperator ConjunctiveOperator `json:"conjunctiveOperator"`
+	Conditions          FilterConditions    `json:"conditions"`
+}
+
+// FilterConditions represents filter conditions
+type FilterConditions struct {
+	Conditions []FilterCondition `json:"conditions"`
+}
+
+// FilterCondition represents a single filter condition
+type FilterCondition struct {
+	FieldName   string         `json:"fieldName"`
+	FilterValue string         `json:"filterValue"`
+	Operator    FilterOperator `json:"operator"`
+	TableName   string         `json:"tableName"`
+}
+
+// DataLakeFieldInputRepresentation represents a field in the DLO input
+type DataLakeFieldInputRepresentation struct {
+	Name         string                `json:"name"`
+	Label        string                `json:"label"`
+	DataType     DataLakeFieldDataType `json:"dataType"`
+	IsPrimaryKey string                `json:"isPrimaryKey"` // "true" or "false" as string
+}
+
+// DataLakeObjectResponse represents the response from creating a Data Lake Object
+type DataLakeObjectResponse struct {
+	Capabilities                    map[string]interface{} `json:"capabilities"`
+	Category                        DataLakeObjectCategory `json:"category"`
+	DataLakeFieldInfoRepresentation []DataLakeFieldOutput  `json:"dataLakeFieldInfoRepresentation"`
+	DataSpaceInfo                   []DataSpaceObject      `json:"dataSpaceInfo"`
+	Fields                          []DataLakeFieldOutput  `json:"fields"`
+	ID                              string                 `json:"id"`
+	Label                           string                 `json:"label"`
+	Name                            string                 `json:"name"`
+	Namespace                       string                 `json:"namespace"`
+	Status                          DataLakeObjectStatus   `json:"status"`
+	EventDateTimeFieldName          string                 `json:"eventDateTimeFieldName,omitempty"`
+	OrgUnitIdentifierFieldName      string                 `json:"orgUnitIdentifierFieldName,omitempty"`
+	RecordModifiedFieldName         string                 `json:"recordModifiedFieldName,omitempty"`
+	CreatedBy                       DataTransformUser      `json:"createdBy,omitempty"`
+	CreatedDate                     string                 `json:"createdDate,omitempty"`
+	LastModifiedBy                  DataTransformUser      `json:"lastModifiedBy,omitempty"`
+	LastModifiedDate                string                 `json:"lastModifiedDate,omitempty"`
+	URL                             string                 `json:"url,omitempty"`
+}
+
+// DataLakeFieldOutput represents a field in the DLO output
+type DataLakeFieldOutput struct {
+	DataType     DataLakeFieldDataType `json:"dataType"`
+	IsPrimaryKey bool                  `json:"isPrimaryKey"`
+	Label        string                `json:"label"`
+	Name         string                `json:"name"`
+}
+
+// DataSpaceObject represents data space information in the response
+type DataSpaceObject struct {
+	Filter FilterConfig `json:"filter"`
+	Label  string       `json:"label"`
+	Name   string       `json:"name"`
+}
