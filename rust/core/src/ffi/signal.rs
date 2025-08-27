@@ -249,5 +249,5 @@ mod imp {
 }
 
 #[allow(unused_imports)]
-pub(crate) use imp::sigaltstack_enabled;
-pub(crate) use imp::SignalStackGuard;
+pub use imp::sigaltstack_enabled;
+pub use imp::SignalStackGuard;

@@ -118,7 +118,7 @@ use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use arrow_array::{Array, RecordBatch, RecordBatchReader, StructArray};
 use toml::de::DeTable;
 
-use crate::ffi::signal::SignalStackGuard;
+use adbc_core::ffi::signal::SignalStackGuard;
 use adbc_core::{
     error::{Error, Result, Status},
     options::{self, AdbcVersion, InfoCode, OptionValue},
