@@ -51,6 +51,7 @@ regenerate:
 	go run gen/main.go -prefix FlightSQL -o ./flightsql/ -driver ../driver/flightsql
 	go run gen/main.go -prefix PanicDummy -o ./panicdummy/ -driver ../driver/panicdummy
 	go run gen/main.go -prefix Snowflake -o ./snowflake/ -driver ../driver/snowflake
+	go run gen/main.go -prefix Salesforce -o ./salesforce/ -driver ../driver/salesforce
 
 clean:
 	$(RM) $(DRIVERS)
