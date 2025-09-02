@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
+	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
 	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/examples/shared"
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/pkg"
 )
 
 func main() {

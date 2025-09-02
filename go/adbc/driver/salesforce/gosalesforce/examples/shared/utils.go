@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/pkg"
+	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
 )
 
 func GetEnvOrPanic(key string) string {

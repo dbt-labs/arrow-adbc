@@ -247,8 +247,8 @@ type CloseJobResponse struct {
 type DataTransformType string
 
 const (
-	DataTransformTypeBatch     DataTransformType = "BATCH"
-	DataTransformTypeStreaming DataTransformType = "STREAMING"
+	DataTransformTypeBatch DataTransformType = "BATCH"
+	// "STREAMING" is not supported on purpose since it's not supposed to be used by dbt
 )
 
 // DataTransformCreationType represents the creation type of the data transform
@@ -263,12 +263,10 @@ const (
 type DataTransformDefinitionType string
 
 const (
-	DataTransformDefinitionTypeSQL       DataTransformDefinitionType = "SQL"
-	DataTransformDefinitionTypeSTL       DataTransformDefinitionType = "STL"
-	DataTransformDefinitionTypeDBT       DataTransformDefinitionType = "DBT"
-	DataTransformDefinitionTypeSQLHidden DataTransformDefinitionType = "SqlHidden"
-	DataTransformDefinitionTypeSTLHidden DataTransformDefinitionType = "StlHidden"
-	DataTransformDefinitionTypeDBTHidden DataTransformDefinitionType = "DbtHidden"
+	DataTransformDefinitionTypeDCSQL DataTransformDefinitionType = "DCSQL"
+	// "SQL" and "STL" are not supported on purpose since they are not supposed to be used by dbt
+	// "SQL" is sql expression that defines the streaming data transform
+	// "STL" is the DSL used to describe the Node components that defines the batch data transform
 )
 
 // DataTransformStatus represents the status of the data transform
@@ -309,75 +307,30 @@ type CreateDataTransformRequest struct {
 }
 
 // DataTransformDefinition represents the base definition of a data transform
+// This only supports BATCH data transform
 type DataTransformDefinition struct {
 	Type    DataTransformDefinitionType `json:"type"`
 	Version string                      `json:"version"`
-	// For batch transforms
-	Nodes map[string]DataTransformNode `json:"nodes,omitempty"`
-	UI    interface{}                  `json:"ui,omitempty"`
-	// For streaming transforms
-	Expression        string                          `json:"expression,omitempty"`
-	TargetDlo         string                          `json:"targetDlo,omitempty"`
-	OutputDataObjects []DataTransformOutputDataObject `json:"outputDataObjects,omitempty"`
+	//
+	Manifest DbtDataTransformDefinition `json:"manifest,omitempty"`
+}
+
+type DbtDataTransformDefinition struct {
+	Nodes map[string]DbtDataTransformNode `json:"nodes,omitempty"`
 }
 
 // DataTransformNode represents a node in a data transform
-type DataTransformNode struct {
-	Action     string                      `json:"action"`
-	Parameters DataTransformNodeParameters `json:"parameters"`
-	Sources    []string                    `json:"sources"`
-}
-
-// DataTransformNodeParameters represents parameters for a transform node
-type DataTransformNodeParameters struct {
-	// For load action
-	Dataset       *DataTransformDataset       `json:"dataset,omitempty"`
-	Fields        []string                    `json:"fields,omitempty"`
-	SampleDetails *DataTransformSampleDetails `json:"sampleDetails,omitempty"`
-	// For output action
-	FieldsMappings []DataTransformFieldMapping `json:"fieldsMappings,omitempty"`
-	Name           string                      `json:"name,omitempty"`
-	Type           string                      `json:"type,omitempty"`
-}
-
-// DataTransformDataset represents a dataset reference
-type DataTransformDataset struct {
+type DbtDataTransformNode struct {
 	Name string `json:"name"`
-	Type string `json:"type"`
+	// The name of the target DLO/DMO of this data transform
+	RelationName string                     `json:"relation_name,omitempty"`
+	Config       DbtDataTransformNodeConfig `json:"config"`
+	CompiledCode string                     `json:"compiled_code"`
+	DependsOn    map[string]interface{}     `json:"depends_on,omitempty"`
 }
 
-// DataTransformSampleDetails represents sampling details
-type DataTransformSampleDetails struct {
-	SortBy []interface{} `json:"sortBy"`
-	Type   string        `json:"type"`
-}
-
-// DataTransformFieldMapping represents field mapping for output
-type DataTransformFieldMapping struct {
-	SourceField string `json:"sourceField"`
-	TargetField string `json:"targetField"`
-}
-
-// DataTransformOutputDataObject represents output data object information
-type DataTransformOutputDataObject struct {
-	Category         string               `json:"category,omitempty"`
-	CreatedDate      string               `json:"createdDate,omitempty"`
-	Fields           []DataTransformField `json:"fields,omitempty"`
-	ID               string               `json:"id,omitempty"`
-	Label            string               `json:"label"`
-	LastModifiedDate string               `json:"lastModifiedDate,omitempty"`
-	Name             string               `json:"name"`
-	Status           string               `json:"status,omitempty"`
-	Type             string               `json:"type"`
-}
-
-// DataTransformField represents a field in a data transform output
-type DataTransformField struct {
-	IsPrimaryKey      bool   `json:"isPrimaryKey,omitempty"`
-	KeyQualifierField string `json:"keyQualifierField,omitempty"`
-	Label             string `json:"label"`
-	Name              string `json:"name"`
-	Type              string `json:"type"`
+type DbtDataTransformNodeConfig struct {
+	Materialized string `json:"materialized"`
 }
 
 // DataTransformResponse represents the response from creating a data transform
