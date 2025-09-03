@@ -35,7 +35,7 @@ func demonstrateDCSQLDataTransform(client *api.Client) error {
 		client.DeleteDataTransform(ctx, name)
 	}
 
-	err := shared.DeleteDataTransformIfExists(ctx, client, name)
+	err := client.DeleteDataTransformIfExists(ctx, name)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to delete Data Transform: %v\n", err)
 		return err

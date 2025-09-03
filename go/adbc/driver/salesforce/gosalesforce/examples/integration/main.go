@@ -26,7 +26,7 @@ func main() {
 	targetDLO := "customers_child__dll"
 	query := "SELECT \"CustomerId__c\" as \"CustomerId_child__c\" FROM \"customers_raw__dll\""
 
-	err = shared.DeleteIfDloExists(ctx, client, targetDLO)
+	err = client.DeleteIfDloExists(ctx, targetDLO)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to delete DLO: %v\n", err)
 		return
@@ -92,7 +92,7 @@ func CreateDataLakeObject(ctx context.Context, client *api.Client, sqlResponse *
 }
 
 func createDCSQLDataTransform(ctx context.Context, client *api.Client, dataLakeObject *api.DataLakeObject, sql string) (*api.DataTransform, error) {
-	err := shared.DeleteDataTransformIfExists(ctx, client, dataLakeObject.Name)
+	err := client.DeleteDataTransformIfExists(ctx, dataLakeObject.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete Data Transform: %w", err)
 	}

@@ -70,7 +70,7 @@ func demonstrateDataLakeObject(client *api.Client) {
 
 func demonstrateProfileDLO(ctx context.Context, client *api.Client) error {
 	name := "CustomerProfile_Example"
-	err := shared.DeleteIfDloExists(ctx, client, name)
+	err := client.DeleteIfDloExists(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func demonstrateProfileDLO(ctx context.Context, client *api.Client) error {
 
 func demonstrateEngagementDLO(ctx context.Context, client *api.Client) error {
 	name := "CustomerEvents_Example"
-	err := shared.DeleteIfDloExists(ctx, client, name)
+	err := client.DeleteIfDloExists(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func demonstrateEngagementDLO(ctx context.Context, client *api.Client) error {
 
 func demonstrateDLOWithFilters(ctx context.Context, client *api.Client) error {
 	name := "RegionalOrders_Example"
-	err := shared.DeleteIfDloExists(ctx, client, name)
+	err := client.DeleteIfDloExists(ctx, name)
 	if err != nil {
 		return err
 	}
