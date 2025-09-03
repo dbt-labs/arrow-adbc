@@ -9,6 +9,13 @@ import (
 	"github.com/cenkalti/backoff/v5"
 )
 
+// Constants for exponential backoff
+const (
+	MAX_ELAPSED_TIME = 5 * time.Minute
+	INITIAL_INTERVAL = 100 * time.Millisecond
+	MAX_INTERVAL     = 1 * time.Second
+)
+
 // DeleteIfDloExists deletes a DLO if it exists
 func (client *Client) DeleteIfDloExists(ctx context.Context, name string) error {
 	// Delete all data transforms that are targeting the DLO
@@ -29,8 +36,8 @@ func (client *Client) DeleteIfDloExists(ctx context.Context, name string) error 
 
 	// Configure exponential backoff
 	exponentialBackOff := backoff.NewExponentialBackOff()
-	exponentialBackOff.InitialInterval = 100 * time.Millisecond
-	exponentialBackOff.MaxInterval = 1 * time.Second
+	exponentialBackOff.InitialInterval = INITIAL_INTERVAL
+	exponentialBackOff.MaxInterval = MAX_INTERVAL
 
 	operation := func() (interface{}, error) {
 		_, err := client.GetDataLakeObjectByName(ctx, name)
@@ -54,7 +61,7 @@ func (client *Client) DeleteIfDloExists(ctx context.Context, name string) error 
 	// Retry with exponential backoff
 	_, err = backoff.Retry(ctx, operation,
 		backoff.WithBackOff(exponentialBackOff),
-		backoff.WithMaxElapsedTime(5*time.Minute),
+		backoff.WithMaxElapsedTime(MAX_ELAPSED_TIME),
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			log.Printf("🕒 DLO deletion in progress, retrying in %v...\n", duration)
 		}))
@@ -72,8 +79,8 @@ func (client *Client) DeleteDataTransformIfExists(ctx context.Context, name stri
 
 	// Configure exponential backoff
 	exponentialBackOff := backoff.NewExponentialBackOff()
-	exponentialBackOff.InitialInterval = 100 * time.Millisecond
-	exponentialBackOff.MaxInterval = 1 * time.Second
+	exponentialBackOff.InitialInterval = INITIAL_INTERVAL
+	exponentialBackOff.MaxInterval = MAX_INTERVAL
 
 	operation := func() (interface{}, error) {
 		_, err := client.GetDataTransform(ctx, name)
@@ -98,7 +105,7 @@ func (client *Client) DeleteDataTransformIfExists(ctx context.Context, name stri
 	// Retry with exponential backoff
 	_, err := backoff.Retry(ctx, operation,
 		backoff.WithBackOff(exponentialBackOff),
-		backoff.WithMaxElapsedTime(5*time.Minute),
+		backoff.WithMaxElapsedTime(MAX_ELAPSED_TIME),
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			log.Printf("🕒 Data Transform deletion in progress, retrying in %v...\n", duration)
 		}))
