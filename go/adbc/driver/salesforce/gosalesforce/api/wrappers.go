@@ -118,7 +118,8 @@ func (client *Client) DeleteDataTransformIfExists(ctx context.Context, name stri
 }
 
 // CreateDataLakeObject creates a Data Lake Object using the inferred schema via the SQL execution
-// sqt must be a Query, DDL or DML is disallowed by the Salesforce Data Cloud API
+//
+// sql must be a Query, DDL or DML is disallowed by the Salesforce Data Cloud API
 func (client *Client) CreateDataLakeObjectWithInferredSchema(ctx context.Context, sql string, targetDLOName string, primaryKeyFieldName string, category DataLakeObjectCategory) (*DataLakeObject, error) {
 	// Infer the target DLO schema using the SQL Query API
 	queryRequest := &SqlQueryRequest{
@@ -153,23 +154,25 @@ func (client *Client) CreateDataLakeObjectWithInferredSchema(ctx context.Context
 	return dataLakeObject, nil
 }
 
-func (client *Client) CreateDCSQLDataTransform(ctx context.Context, dataLakeObject *DataLakeObject, sql string, recreateIfExists bool) (*DataTransform, error) {
+// CreateDbtBatchDataTransform creates a DBT batch data transform
+// using the compiled SQL
+func (client *Client) CreateDbtBatchDataTransform(ctx context.Context, targetDlo *DataLakeObject, sql string, recreateIfExists bool) (*DataTransform, error) {
 	var dataTransform *DataTransform
 	var err error
 	if recreateIfExists {
-		err := client.DeleteDataTransformIfExists(ctx, dataLakeObject.Name)
+		err := client.DeleteDataTransformIfExists(ctx, targetDlo.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to delete Data Transform: %w", err)
 		}
 
 		// Creates a data transform
 		request := NewBatchDataTransformRequest(
-			dataLakeObject.Name,
-			fmt.Sprintf("Create the target DLO %s", dataLakeObject.Name),
+			targetDlo.Name,
+			fmt.Sprintf("Create the target DLO %s", targetDlo.Name),
 			map[string]DbtDataTransformNode{
 				"node": NewSimpleDbtDataTransformNode(
 					"node",
-					dataLakeObject.Name,
+					targetDlo.Name,
 					sql,
 				),
 			},
@@ -179,7 +182,7 @@ func (client *Client) CreateDCSQLDataTransform(ctx context.Context, dataLakeObje
 			return nil, err
 		}
 	} else {
-		dataTransform, err = client.GetDataTransform(ctx, dataLakeObject.Name)
+		dataTransform, err = client.GetDataTransform(ctx, targetDlo.Name)
 		if err != nil {
 			return nil, err
 		}

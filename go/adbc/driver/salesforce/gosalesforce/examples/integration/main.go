@@ -45,12 +45,12 @@ func main() {
 	fmt.Println("✅ DLO created using the inferred schema")
 
 	// Creates a DCSQL data transform
-	fmt.Println("\n=== Creating and running a DCSQL data transform ===")
-	dataTransform, err := client.CreateDCSQLDataTransform(ctx, dataLakeObject, query, true)
+	fmt.Println("\n=== Creating and running a dbt batch data transform ===")
+	dataTransform, err := client.CreateDbtBatchDataTransform(ctx, dataLakeObject, query, true)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to create DCSQL data transform: %v\n", err)
 		return
 	}
 	shared.PrettyPrintJSON(dataTransform)
-	fmt.Println("✅ DCSQL data transform succeeded!")
+	fmt.Println("✅ dbt batch data transform succeeded!")
 }
