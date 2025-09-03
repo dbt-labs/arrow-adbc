@@ -44,6 +44,36 @@ func (c *Client) GetDataTransform(ctx context.Context, dataTransformNameOrId str
 	return GetJSON[DataTransform](c, ctx, path, nil)
 }
 
+// GetDataTransformByDLO returns all data transforms that are targeting a DLO of the input name
+//
+// TODO: confirm if the DLO name is enough to uniquely identity a DLO,
+// or we also need to include the data space Name
+func (c *Client) GetDataTransformByDLO(ctx context.Context, dloName string) ([]DataTransform, error) {
+	// Validate required fields
+	if dloName == "" {
+		return nil, &AuthError{
+			Code:    400,
+			Message: "Data transform name or ID cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	dataTransforms, err := GetJSON[DataTransformList](c, ctx, "data-transforms", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	foundDataTransforms := []DataTransform{}
+	for _, dataTransform := range dataTransforms.DataTransforms {
+		for _, outputDataObject := range dataTransform.Definition.OutputDataObjects {
+			if outputDataObject.Name == dloName {
+				foundDataTransforms = append(foundDataTransforms, dataTransform)
+			}
+		}
+	}
+	return foundDataTransforms, nil
+}
+
 // RefreshDataTransformStatus refreshes the status of a data transform
 // reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=refreshDataTransformStatus
 func (c *Client) RefreshDataTransformStatus(ctx context.Context, dataTransformNameOrId string) (*DataCloudActionResponse, error) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
 )
@@ -79,4 +80,71 @@ func PrettyPrintJSON[T any](v T) {
 		return
 	}
 	fmt.Println(string(b))
+}
+
+func DeleteIfDloExists(ctx context.Context, client *api.Client, name string) error {
+	fmt.Printf("Checking if DLO exists: %s\n", name)
+
+	// Delete all data transforms that are targeting the DLO
+	dataTransforms, err := client.GetDataTransformByDLO(ctx, name)
+	PrettyPrintJSON(dataTransforms)
+	if err != nil {
+		return fmt.Errorf("failed to get data transform by DLO: %w", err)
+	}
+
+	for _, dataTransform := range dataTransforms {
+		err = DeleteDataTransformIfExists(ctx, client, dataTransform.Name)
+		if err != nil {
+			return fmt.Errorf("failed to delete data transform: %w", err)
+		}
+	}
+
+	// Delete the DLO
+	deletionInProgress := false
+	for {
+		existingDLO, err := client.GetDataLakeObjectByName(ctx, name)
+		if err == nil {
+			if !deletionInProgress {
+				fmt.Printf("🚨 DLO already exists (ID: %s), deleting it first...\n", existingDLO.ID)
+				err = client.DeleteDataLakeObjectByName(ctx, name)
+				if err != nil {
+					return fmt.Errorf("failed to delete existing DLO: %w", err)
+				} else {
+					deletionInProgress = true
+				}
+			}
+
+			// Wait for deletion to complete and verify
+			fmt.Println("🕒 Waiting 5 seconds for deletion to complete...")
+			time.Sleep(5 * time.Second)
+		} else {
+			fmt.Printf("✅ DLO does not exist, proceeding with creation\n")
+			return nil
+		}
+	}
+}
+
+func DeleteDataTransformIfExists(ctx context.Context, client *api.Client, name string) error {
+	fmt.Printf("Checking if Data Transform exists: %s\n", name)
+	deletionInProgress := false
+	for {
+		existingDataTransform, err := client.GetDataTransform(ctx, name)
+		if err == nil {
+			if !deletionInProgress {
+				fmt.Printf("🚨 Data Transform exists (ID: %s), deleting it first...\n", existingDataTransform.ID)
+				err = client.DeleteDataTransform(ctx, name)
+				if err != nil {
+					return fmt.Errorf("failed to delete existing Data Transform: %w", err)
+				} else {
+					deletionInProgress = true
+				}
+			}
+
+			fmt.Println("🕒 Waiting 5 seconds for deletion to complete...")
+			time.Sleep(5 * time.Second)
+		} else {
+			fmt.Printf("✅ Data Transform does not exist, proceeding with creation\n")
+			return nil
+		}
+	}
 }

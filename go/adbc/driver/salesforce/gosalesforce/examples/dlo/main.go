@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"time"
 
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
 	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/shared"
@@ -71,7 +70,7 @@ func demonstrateDataLakeObject(client *api.Client) {
 
 func demonstrateProfileDLO(ctx context.Context, client *api.Client) error {
 	name := "CustomerProfile_Example"
-	err := deleteIfExists(ctx, client, name)
+	err := shared.DeleteIfDloExists(ctx, client, name)
 	if err != nil {
 		return err
 	}
@@ -104,7 +103,7 @@ func demonstrateProfileDLO(ctx context.Context, client *api.Client) error {
 
 func demonstrateEngagementDLO(ctx context.Context, client *api.Client) error {
 	name := "CustomerEvents_Example"
-	err := deleteIfExists(ctx, client, name)
+	err := shared.DeleteIfDloExists(ctx, client, name)
 	if err != nil {
 		return err
 	}
@@ -141,7 +140,7 @@ func demonstrateEngagementDLO(ctx context.Context, client *api.Client) error {
 
 func demonstrateDLOWithFilters(ctx context.Context, client *api.Client) error {
 	name := "RegionalOrders_Example"
-	err := deleteIfExists(ctx, client, name)
+	err := shared.DeleteIfDloExists(ctx, client, name)
 	if err != nil {
 		return err
 	}
@@ -182,31 +181,4 @@ func demonstrateDLOWithFilters(ctx context.Context, client *api.Client) error {
 	fmt.Printf("✅ DLO with filters created successfully!\n")
 
 	return nil
-}
-
-func deleteIfExists(ctx context.Context, client *api.Client, name string) error {
-	fmt.Printf("Checking if DLO exists: %s\n", name)
-	deletionInProgress := false
-	for {
-		existingDLO, err := client.GetDataLakeObjectByName(ctx, name)
-		if err == nil {
-			if !deletionInProgress {
-				fmt.Printf("🚨 DLO already exists (ID: %s), deleting it first...\n", existingDLO.ID)
-				err = client.DeleteDataLakeObjectByName(ctx, name)
-				if err != nil {
-					return fmt.Errorf("failed to delete existing DLO: %w", err)
-				} else {
-					deletionInProgress = true
-				}
-			}
-
-			// Wait for deletion to complete and verify
-			fmt.Println("🕒 Waiting 5 seconds for deletion to complete...")
-			time.Sleep(5 * time.Second)
-		} else {
-			fmt.Printf("✅ DLO does not exist, proceeding with creation\n")
-			return nil
-		}
-	}
-
 }

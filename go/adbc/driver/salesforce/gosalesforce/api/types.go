@@ -360,11 +360,20 @@ type DataTransformDefinition struct {
 	Type    DataTransformDefinitionType `json:"type"`
 	Version string                      `json:"version"`
 	// This feature is not publicly available yet; be cautious of possible breaking changes in the future.
-	Manifest DbtDataTransformDefinition `json:"manifest,omitempty"`
+	Manifest          DbtDataTransformDefinition      `json:"manifest,omitempty"`
+	OutputDataObjects []DataTransformOutputDataObject `json:"outputDataObjects,omitempty"`
 }
 
 type DbtDataTransformDefinition struct {
 	Nodes map[string]DbtDataTransformNode `json:"nodes,omitempty"`
+}
+
+// Information about the objects into which the data transform writes the transformed data.
+// See `outputDataObjects` from reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=type:Batch+Data+Transform+Output
+type DataTransformOutputDataObject struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	// TODO: There are more fields to be included, add if necessary
 }
 
 // DataTransformNode represents a node in a data transform
@@ -405,6 +414,10 @@ type DataTransform struct {
 	Description      string                     `json:"description,omitempty"`
 	LastRunDate      string                     `json:"lastRunDate,omitempty"`
 	Version          int64                      `json:"version,omitempty"`
+}
+
+type DataTransformList struct {
+	DataTransforms []DataTransform `json:"dataTransforms"`
 }
 
 // DataTransformActionUrls represents available actions for the data transform

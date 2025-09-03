@@ -31,10 +31,9 @@ func main() {
 
 func demonstrateSqlQuery(client *api.Client, query string) {
 	fmt.Println("Executing query via the Data Cloud Connector API...")
-	rowLimit := int64(5)
 	queryRequest := &api.SqlQueryRequest{
 		SQL:      query,
-		RowLimit: &rowLimit,
+		RowLimit: 5,
 		// Dataspace:    "default",        // Not supported by original API
 		// WorkloadName: "demonstrateSqlQuery", // Not supported by original API
 	}

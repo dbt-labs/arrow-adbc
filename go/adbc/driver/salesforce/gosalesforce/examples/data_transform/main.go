@@ -35,22 +35,10 @@ func demonstrateDCSQLDataTransform(client *api.Client) error {
 		client.DeleteDataTransform(ctx, name)
 	}
 
-	deleteInProgress := false
-	for {
-		existingDataTransform, err := client.GetDataTransform(ctx, name)
-		if err == nil {
-			if !deleteInProgress {
-				fmt.Printf("🚨 Data transform exists (ID: %s), deleting it first...\n", existingDataTransform.ID)
-				client.DeleteDataTransform(ctx, name)
-				deleteInProgress = true
-			}
-
-			fmt.Println("🕒 Waiting 1 second for deletion to complete...")
-			time.Sleep(1 * time.Second)
-		} else {
-			fmt.Printf("✅ Data transform does not exist, proceeding with creation\n")
-			break
-		}
+	err := shared.DeleteDataTransformIfExists(ctx, client, name)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to delete Data Transform: %v\n", err)
+		return err
 	}
 
 	request := api.NewBatchDataTransformRequest(
