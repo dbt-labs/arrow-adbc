@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"time"
 )
 
@@ -263,6 +264,8 @@ const (
 type DataTransformDefinitionType string
 
 const (
+	// This type is not publicly available yet; be cautious of possible breaking changes in the future.
+	// This is only meant to use together with a DbtDataTransformDefinition (see DataTransformDefinition.Manifest)
 	DataTransformDefinitionTypeDCSQL DataTransformDefinitionType = "DCSQL"
 	// "SQL" and "STL" are not supported on purpose since they are not supposed to be used by dbt
 	// "SQL" is sql expression that defines the streaming data transform
@@ -311,7 +314,7 @@ type CreateDataTransformRequest struct {
 type DataTransformDefinition struct {
 	Type    DataTransformDefinitionType `json:"type"`
 	Version string                      `json:"version"`
-	//
+	// This feature is not publicly available yet; be cautious of possible breaking changes in the future.
 	Manifest DbtDataTransformDefinition `json:"manifest,omitempty"`
 }
 
@@ -321,6 +324,8 @@ type DbtDataTransformDefinition struct {
 
 // DataTransformNode represents a node in a data transform
 type DbtDataTransformNode struct {
+	// The name of the node, must match its associated key in the DbtDataTransformDefinition.Nodes map
+	// Otherwise, it seems that you can arbitrarily choose a value and without impacting the results of the operation
 	Name string `json:"name"`
 	// The name of the target DLO/DMO of this data transform
 	RelationName string                     `json:"relation_name,omitempty"`
@@ -333,8 +338,9 @@ type DbtDataTransformNodeConfig struct {
 	Materialized string `json:"materialized"`
 }
 
-// DataTransformResponse represents the response from creating a data transform
-type DataTransformResponse struct {
+// DataTransform represents the response from creating a data transform
+// see Responses from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=createDataTransform
+type DataTransform struct {
 	ActionUrls       DataTransformActionUrls    `json:"actionUrls,omitempty"`
 	CreatedBy        DataTransformUser          `json:"createdBy"`
 	CreatedDate      string                     `json:"createdDate"`
@@ -464,8 +470,8 @@ type DataLakeFieldInputRepresentation struct {
 	IsPrimaryKey string                `json:"isPrimaryKey"` // "true" or "false" as string
 }
 
-// DataLakeObjectResponse represents the response from creating a Data Lake Object
-type DataLakeObjectResponse struct {
+// DataLakeObject represents the response from creating a Data Lake Object
+type DataLakeObject struct {
 	Capabilities                    map[string]interface{} `json:"capabilities"`
 	Category                        DataLakeObjectCategory `json:"category"`
 	DataLakeFieldInfoRepresentation []DataLakeFieldOutput  `json:"dataLakeFieldInfoRepresentation"`
@@ -499,4 +505,51 @@ type DataSpaceObject struct {
 	Filter FilterConfig `json:"filter"`
 	Label  string       `json:"label"`
 	Name   string       `json:"name"`
+}
+
+// Error response.
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=type:Data+Cloud+Error
+type DataCloudError struct {
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
+// Data Cloud action response base.
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=type:Data+Cloud+Action+Response+Base
+type DataCloudActionResponse struct {
+	Errors  []DataCloudError `json:"errors"`
+	Success bool             `json:"success"`
+}
+
+func (s *DataTransform) IsActive() bool {
+	// Though it's documented that the status value is Camel case
+	// see `status` from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=getDataTransform
+	// it's actually returned as all upper case
+	return strings.EqualFold(string(s.Status), string(DataTransformStatusActive))
+}
+
+func (s *DataTransform) IsError() bool {
+	return strings.EqualFold(string(s.Status), string(DataTransformStatusError))
+}
+
+func (s *DataTransform) IsLastRunSuccess() bool {
+	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusSuccess))
+}
+
+func (s *DataTransform) IsLastRunFailure() bool {
+	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusFailure)) ||
+		strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusPartialFailure))
+}
+
+func (s *DataTransform) IsLastRunCanceled() bool {
+	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusCanceled)) ||
+		strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusPartiallyCanceled))
+}
+
+func (s *DataTransform) IsLastRunInProgress() bool {
+	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusInProgress))
+}
+
+func (s *DataTransform) IsLastRunPending() bool {
+	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusPending))
 }

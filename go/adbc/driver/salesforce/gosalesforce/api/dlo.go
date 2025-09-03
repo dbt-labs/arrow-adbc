@@ -8,7 +8,7 @@ import (
 
 // PostDataLakeObject creates a new Data Lake Object (DLO) in Data Cloud
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-data-lake-objects.html
-func (c *Client) PostDataLakeObject(ctx context.Context, request *CreateDataLakeObjectRequest) (*DataLakeObjectResponse, error) {
+func (c *Client) PostDataLakeObject(ctx context.Context, request *CreateDataLakeObjectRequest) (*DataLakeObject, error) {
 	if request == nil {
 		return nil, &AuthError{
 			Code:    400,
@@ -33,12 +33,12 @@ func (c *Client) PostDataLakeObject(ctx context.Context, request *CreateDataLake
 		}
 	}
 
-	return PostJSON[CreateDataLakeObjectRequest, DataLakeObjectResponse](c, ctx, "data-lake-objects", request)
+	return PostJSON[CreateDataLakeObjectRequest, DataLakeObject](c, ctx, "data-lake-objects", request)
 }
 
 // GetDataLakeObject retrieves a specific Data Lake Object (DLO) by ID or developer name
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-data-lake-objects.html
-func (c *Client) GetDataLakeObject(ctx context.Context, recordIdOrDeveloperName string, limit, offset *int, orderBy string) (*DataLakeObjectResponse, error) {
+func (c *Client) GetDataLakeObject(ctx context.Context, recordIdOrDeveloperName string, limit, offset *int, orderBy string) (*DataLakeObject, error) {
 	if recordIdOrDeveloperName == "" {
 		return nil, &AuthError{
 			Code:    400,
@@ -57,7 +57,7 @@ func (c *Client) GetDataLakeObject(ctx context.Context, recordIdOrDeveloperName 
 	if orderBy != "" {
 		queryParams.Add("orderBy", orderBy)
 	}
-	return GetJSON[DataLakeObjectResponse](c, ctx, fmt.Sprintf("data-lake-objects/%s", recordIdOrDeveloperName), queryParams)
+	return GetJSON[DataLakeObject](c, ctx, fmt.Sprintf("data-lake-objects/%s", recordIdOrDeveloperName), queryParams)
 }
 
 // DeleteDataLakeObject deletes a Data Lake Object (DLO) by ID or developer name
@@ -74,12 +74,12 @@ func (c *Client) DeleteDataLakeObject(ctx context.Context, recordIdOrDeveloperNa
 }
 
 // GetDataLakeObjectByID retrieves a DLO by its 18-character ID
-func (c *Client) GetDataLakeObjectByID(ctx context.Context, id string) (*DataLakeObjectResponse, error) {
+func (c *Client) GetDataLakeObjectByID(ctx context.Context, id string) (*DataLakeObject, error) {
 	return c.GetDataLakeObject(ctx, id, nil, nil, "")
 }
 
 // GetDataLakeObjectByName retrieves a DLO by its developer name
-func (c *Client) GetDataLakeObjectByName(ctx context.Context, name string) (*DataLakeObjectResponse, error) {
+func (c *Client) GetDataLakeObjectByName(ctx context.Context, name string) (*DataLakeObject, error) {
 	return c.GetDataLakeObject(ctx, name, nil, nil, "")
 }
 

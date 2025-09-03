@@ -2,6 +2,7 @@ package shared
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -56,7 +57,7 @@ func DemonstrateJWTAuth() (*api.Client, error) {
 	}
 
 	fmt.Println("Connection successful!")
-	printTokenInfo(client.GetToken())
+	PrettyPrintJSON(client.GetToken())
 
 	fmt.Println("\nTesting CDP token exchange...")
 	err = client.ExchangeAndSetDataCloudToken(context.Background())
@@ -71,12 +72,11 @@ func DemonstrateJWTAuth() (*api.Client, error) {
 	}
 }
 
-func printTokenInfo(token *api.Token) {
-	fmt.Printf("Token Information:\n")
-	fmt.Printf("   Instance URL: %s\n", token.InstanceURL)
-	fmt.Printf("   Token Type: %s\n", token.TokenType)
-	fmt.Printf("   Access Token: %s\n", token.AccessToken)
-	fmt.Printf("   Expires At: %s\n", token.ExpiresAt)
-	fmt.Printf("   Salesforce Instance: %s\n", api.GetInstanceFromToken(token))
-	fmt.Printf("   Has Refresh Token: %t\n", token.RefreshToken != "")
+func PrettyPrintJSON[T any](v T) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		fmt.Printf("Failed to marshal object: %v\n", err)
+		return
+	}
+	fmt.Println(string(b))
 }

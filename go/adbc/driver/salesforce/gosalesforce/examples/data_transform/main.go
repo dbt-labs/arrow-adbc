@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
 	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/examples/shared"
@@ -19,7 +20,6 @@ func main() {
 		log.Fatalf("JWT Auth failed: %v", err)
 		return
 	}
-
 	fmt.Println("\n=== Data Transform API Example ===")
 	demonstrateDCSQLDataTransform(client)
 }
@@ -27,61 +27,122 @@ func main() {
 func demonstrateDCSQLDataTransform(client *api.Client) error {
 	ctx := context.Background()
 
-	// Create a more complex DCSQL transform with multiple nodes and dependencies
-	nodes := map[string]api.DbtDataTransformNode{
-		"nodeName2": api.NewSimpleDbtDataTransformNode(
-			"nodeName2",
-			"customers_stg__dll",
-			"SELECT \"CustomerId__c\" FROM \"customers_raw__dll\"",
-		),
+	name := "demonstrateDCSQLDataTransform"
+
+	// Deletes if it exists
+	if _, err := client.GetDataTransform(ctx, name); err == nil {
+		fmt.Printf("Data transform %s already exists, deleting...\n", name)
+		client.DeleteDataTransform(ctx, name)
 	}
 
-	// Create the DCSQL transform request
+	deleteInProgress := false
+	for {
+		existingDataTransform, err := client.GetDataTransform(ctx, name)
+		if err == nil {
+			if !deleteInProgress {
+				fmt.Printf("🚨 Data transform exists (ID: %s), deleting it first...\n", existingDataTransform.ID)
+				client.DeleteDataTransform(ctx, name)
+				deleteInProgress = true
+			}
+
+			fmt.Println("🕒 Waiting 1 second for deletion to complete...")
+			time.Sleep(1 * time.Second)
+		} else {
+			fmt.Printf("✅ Data transform does not exist, proceeding with creation\n")
+			break
+		}
+	}
+
 	request := api.NewBatchDataTransformRequest(
 		"demonstrateDCSQLDataTransform",
 		"demonstrateDCSQLDataTransform Example",
-		nodes,
+		map[string]api.DbtDataTransformNode{
+			"node": api.NewSimpleDbtDataTransformNode(
+				"node",
+				"customers_stg__dll",
+				"SELECT \"CustomerId__c\" FROM \"customers_raw__dll\"",
+			),
+		},
 	)
 
-	fmt.Printf("Creating DCSQL transform: %s\n", request.Name)
-	fmt.Printf("   Label: %s\n", request.Label)
-	fmt.Printf("   Type: %s\n", request.Type)
-	fmt.Printf("   Definition Type: %s\n", request.Definition.Type)
-	fmt.Printf("   Nodes: %d\n", len(request.Definition.Manifest.Nodes))
-
-	// Execute the request
-	response, err := client.CreateDataTransform(ctx, request)
+	// Creates a data transform
+	dataTransform, err := client.CreateDataTransform(ctx, request)
 	if err != nil {
 		fmt.Printf("ERROR: DCSQL transform creation failed: %v\n", err)
 		return err
 	}
-
-	// Display results
 	fmt.Printf("✅ Advanced DCSQL transform created successfully!\n")
-	fmt.Printf("   Transform ID: %s\n", response.ID)
-	fmt.Printf("   Name: %s\n", response.Name)
-	fmt.Printf("   Label: %s\n", response.Label)
-	fmt.Printf("   Status: %s\n", response.Status)
-	fmt.Printf("   Type: %s\n", response.Type)
-	fmt.Printf("   Created Date: %s\n", response.CreatedDate)
-	fmt.Printf("   Created By: %s\n", response.CreatedBy.Name)
-	fmt.Printf("   Last Run Status: %s\n", response.LastRunStatus)
-	fmt.Printf("   URL: %s\n", response.URL)
+	shared.PrettyPrintJSON(dataTransform)
 
-	// Display node information with dependencies
-	if len(response.Definition.Manifest.Nodes) > 0 {
-		fmt.Printf("   Transform Nodes: %d\n", len(response.Definition.Manifest.Nodes))
-		for nodeName, node := range response.Definition.Manifest.Nodes {
-			fmt.Printf("     - %s: %s\n", nodeName, node.Name)
-			if node.RelationName != "" {
-				fmt.Printf("       Target: %s\n", node.RelationName)
-			}
-			if node.Config.Materialized != "" {
-				fmt.Printf("       Materialized: %s\n", node.Config.Materialized)
-			}
-			if len(node.DependsOn) > 0 {
-				fmt.Printf("       Dependencies: %v\n", node.DependsOn)
-			}
+	// Waits for the data transform to be active
+	for {
+		dataTransform, err := client.GetDataTransform(ctx, dataTransform.Name)
+		if err != nil {
+			fmt.Printf("ERROR: DCSQL transform get failed: %v\n", err)
+			return err
+		}
+		if dataTransform.IsActive() {
+			fmt.Printf("✅ DCSQL transform is active\n")
+			break
+		} else if dataTransform.IsError() {
+			fmt.Printf("ERROR: DCSQL transform error: %v\n", dataTransform.Status)
+			return err
+		}
+
+		fmt.Println("🕒 Waiting 1 seconds for status to update...")
+		time.Sleep(1 * time.Second)
+
+		// Eagerly refreshes status, otherwise `client.GetDataTransform` may respond with a stale status
+		refreshStatusResponse, err := client.RefreshDataTransformStatus(ctx, dataTransform.Name)
+		if err != nil {
+			fmt.Printf("ERROR: DCSQL transform status refresh failed: %v\n", err)
+			return err
+		}
+		if !refreshStatusResponse.Success {
+			// ignores the non-success response
+			// noticed that RefreshDataTransformStatus always returns a non-success response
+			// when invoked immediately after the data transform is created
+			fmt.Printf("WARNING: DCSQL transform status refresh failed: %v\n", refreshStatusResponse.Errors)
+		}
+	}
+
+	// Runs the data transform
+	runResponse, err := client.RunDataTransform(ctx, dataTransform.Name)
+	if err != nil {
+		fmt.Printf("ERROR: DCSQL transform run failed: %v\n", err)
+		return err
+	}
+	if !runResponse.Success {
+		fmt.Printf("ERROR: DCSQL transform run failed: %v\n", runResponse.Errors)
+		return err
+	}
+	fmt.Printf("✅ DCSQL transform run is triggered successfully!\n")
+
+	// Waits for the data transform to be active
+	for {
+		dataTransform, err := client.GetDataTransform(ctx, dataTransform.Name)
+		if err != nil {
+			fmt.Printf("ERROR: DCSQL transform get failed: %v\n", err)
+			return err
+		}
+		if dataTransform.IsLastRunSuccess() {
+			fmt.Printf("✅ DCSQL transform last run successfully!\n")
+			break
+		} else if dataTransform.IsLastRunFailure() || dataTransform.IsLastRunCanceled() {
+			fmt.Printf("ERROR: DCSQL transform last run did not complete successfully: %v\n", dataTransform.LastRunStatus)
+			return err
+		}
+
+		fmt.Println("🕒 Waiting 1 seconds for status to update...")
+		time.Sleep(1 * time.Second)
+
+		refreshStatusResponse, err := client.RefreshDataTransformStatus(ctx, dataTransform.Name)
+		if err != nil {
+			fmt.Printf("ERROR: DCSQL transform status refresh failed: %v\n", err)
+			return err
+		}
+		if !refreshStatusResponse.Success {
+			fmt.Printf("WARNING: DCSQL transform status refresh failed: %v\n", refreshStatusResponse.Errors)
 		}
 	}
 

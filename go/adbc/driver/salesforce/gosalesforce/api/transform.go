@@ -2,11 +2,12 @@ package api
 
 import (
 	"context"
+	"fmt"
 )
 
 // CreateDataTransform creates a new data transform in Data Cloud
 // reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=createDataTransform
-func (c *Client) CreateDataTransform(ctx context.Context, request *CreateDataTransformRequest) (*DataTransformResponse, error) {
+func (c *Client) CreateDataTransform(ctx context.Context, request *CreateDataTransformRequest) (*DataTransform, error) {
 	// Validate required fields
 	if request.Name == "" {
 		return nil, &AuthError{
@@ -24,7 +25,71 @@ func (c *Client) CreateDataTransform(ctx context.Context, request *CreateDataTra
 		}
 	}
 
-	return PostJSON[CreateDataTransformRequest, DataTransformResponse](c, ctx, "data-transforms", request)
+	return PostJSON[CreateDataTransformRequest, DataTransform](c, ctx, "data-transforms", request)
+}
+
+// CreateDataTransform creates a new data transform in Data Cloud
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=getDataTransform
+func (c *Client) GetDataTransform(ctx context.Context, dataTransformNameOrId string) (*DataTransform, error) {
+	// Validate required fields
+	if dataTransformNameOrId == "" {
+		return nil, &AuthError{
+			Code:    400,
+			Message: "Data transform name or ID cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	path := fmt.Sprintf("data-transforms/%s", dataTransformNameOrId)
+	return GetJSON[DataTransform](c, ctx, path, nil)
+}
+
+// RefreshDataTransformStatus refreshes the status of a data transform
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=refreshDataTransformStatus
+func (c *Client) RefreshDataTransformStatus(ctx context.Context, dataTransformNameOrId string) (*DataCloudActionResponse, error) {
+	// Validate required fields
+	if dataTransformNameOrId == "" {
+		return nil, &AuthError{
+			Code:    400,
+			Message: "Data transform name or ID cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	path := fmt.Sprintf("data-transforms/%s/actions/refresh-status", dataTransformNameOrId)
+	return PostJSON[interface{}, DataCloudActionResponse](c, ctx, path, nil)
+}
+
+// RunDataTransform runs a data transform
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=runDataTransform
+func (c *Client) RunDataTransform(ctx context.Context, dataTransformNameOrId string) (*DataCloudActionResponse, error) {
+	// Validate required fields
+	if dataTransformNameOrId == "" {
+		return nil, &AuthError{
+			Code:    400,
+			Message: "Data transform name or ID cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	path := fmt.Sprintf("data-transforms/%s/actions/run", dataTransformNameOrId)
+	return PostJSON[interface{}, DataCloudActionResponse](c, ctx, path, nil)
+}
+
+// DeleteDataTransform deletes a data transform
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=deleteDataTransform
+func (c *Client) DeleteDataTransform(ctx context.Context, dataTransformNameOrId string) error {
+	// Validate required fields
+	if dataTransformNameOrId == "" {
+		return &AuthError{
+			Code:    400,
+			Message: "Data transform name or ID cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	path := fmt.Sprintf("data-transforms/%s", dataTransformNameOrId)
+	return DeleteJSON(c, ctx, path)
 }
 
 // NewBatchDataTransformRequest creates a new batch data transform request with dbt-style definition
