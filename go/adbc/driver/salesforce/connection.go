@@ -260,16 +260,16 @@ func (c *connectionImpl) getQueryTimeout() time.Duration {
 }
 
 // Helper function to parse row limit
-func (c *connectionImpl) getQueryRowLimit() *int64 {
+func (c *connectionImpl) getQueryRowLimit() int64 {
 	if c.queryRowLimit == "" {
-		return nil // no limit
+		return -1 // no limit
 	}
 
 	if limit, err := strconv.ParseInt(c.queryRowLimit, 10, 64); err == nil {
-		return &limit
+		return limit
 	}
 
-	return nil // fallback to no limit
+	return -1 // fallback to no limit
 }
 
 // GetTableSchema retrieves the schema for a specific table using Salesforce metadata API
@@ -307,7 +307,7 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 
 	var fields []arrow.Field
 	for _, field := range table.Fields {
-		arrowType := SalesforceTypeToArrowType(field.Type)
+		arrowType := SalesforceSqlTypeToArrowType(field.Type)
 
 		arrowField := arrow.Field{
 			Name:     field.Name,

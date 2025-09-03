@@ -75,7 +75,7 @@ var (
 // SqlQueryRequest represents a SQL query request to Data Cloud
 type SqlQueryRequest struct {
 	SQL           string         `json:"sql"`
-	RowLimit      *int64         `json:"rowLimit,omitempty"`
+	RowLimit      int64          `json:"rowLimit,omitempty"`
 	SqlParameters []SqlParameter `json:"sqlParameters,omitempty"`
 	Dataspace     string         `json:"dataspace,omitempty"`
 	WorkloadName  string         `json:"workloadName,omitempty"`
@@ -98,11 +98,56 @@ type SqlQueryResponse struct {
 
 // SqlQueryMetadata represents metadata for a SQL query result column
 type SqlQueryMetadata struct {
-	Name      string `json:"name"`
-	Nullable  bool   `json:"nullable"`
-	Type      string `json:"type"`
-	Precision *int   `json:"precision,omitempty"`
-	Scale     *int   `json:"scale,omitempty"`
+	Name      string  `json:"name"`
+	Nullable  bool    `json:"nullable"`
+	Type      SqlType `json:"type"`
+	Precision *int    `json:"precision,omitempty"`
+	Scale     *int    `json:"scale,omitempty"`
+}
+
+// SqlType represents the type of a SQL query result column
+type SqlType string
+
+const (
+	SqlTypeArrayOfX    SqlType = "ArrayOfX"
+	SqlTypeBigInt      SqlType = "BigInt"
+	SqlTypeBool        SqlType = "Bool"
+	SqlTypeChar        SqlType = "Char"
+	SqlTypeDate        SqlType = "Date"
+	SqlTypeDouble      SqlType = "Double"
+	SqlTypeFloat       SqlType = "Float"
+	SqlTypeInteger     SqlType = "Integer"
+	SqlTypeNumeric     SqlType = "Numeric"
+	SqlTypeOid         SqlType = "Oid"
+	SqlTypeSmallInt    SqlType = "SmallInt"
+	SqlTypeTime        SqlType = "Time"
+	SqlTypeTimestamp   SqlType = "Timestamp"
+	SqlTypeTimestampTZ SqlType = "TimestampTZ"
+	SqlTypeUnspecified SqlType = "Unspecified"
+	SqlTypeVarchar     SqlType = "Varchar"
+)
+
+// ToDataLakeFieldDataType converts a SqlType to a DataLakeFieldDataType
+func (s SqlType) ToDataLakeFieldDataType() DataLakeFieldDataType {
+	switch s {
+	case SqlTypeBool:
+		return DataLakeFieldDataTypeBoolean
+	case SqlTypeDate:
+		return DataLakeFieldDataTypeDate
+	case SqlTypeTimestamp, SqlTypeTimestampTZ:
+		return DataLakeFieldDataTypeDateTime
+	case SqlTypeBigInt, SqlTypeInteger, SqlTypeSmallInt, SqlTypeDouble, SqlTypeFloat, SqlTypeNumeric:
+		return DataLakeFieldDataTypeNumber
+	case SqlTypeChar, SqlTypeVarchar, SqlTypeArrayOfX, SqlTypeOid, SqlTypeUnspecified:
+		return DataLakeFieldDataTypeText
+	case SqlTypeTime:
+		// TODO: investigates if this is a proper conversion
+		return DataLakeFieldDataTypeNumber
+	default:
+		// Default fallback
+		// TODO: supports `SqlTypeArrayOfX` properly
+		return DataLakeFieldDataTypeText
+	}
 }
 
 // SqlQueryStatus represents the status of a SQL query execution
@@ -165,14 +210,14 @@ type MetadataEntity struct {
 
 // MetadataField represents a field/column in a metadata entity
 type MetadataField struct {
-	Name         string `json:"name"`
-	DisplayName  string `json:"displayName"`
-	Type         string `json:"type"`
-	KeyQualifier string `json:"keyQualifier,omitempty"`
-	BusinessType string `json:"businessType,omitempty"`
-	Precision    int    `json:"precision,omitempty"`
-	Scale        int    `json:"scale,omitempty"`
-	Nullable     bool   `json:"nullable,omitempty"`
+	Name         string  `json:"name"`
+	DisplayName  string  `json:"displayName"`
+	Type         SqlType `json:"type"`
+	KeyQualifier string  `json:"keyQualifier,omitempty"`
+	BusinessType string  `json:"businessType,omitempty"`
+	Precision    int     `json:"precision,omitempty"`
+	Scale        int     `json:"scale,omitempty"`
+	Nullable     bool    `json:"nullable,omitempty"`
 }
 
 // MetadataRelationship represents a relationship between entities
@@ -400,14 +445,20 @@ const (
 )
 
 // DataLakeFieldDataType represents the data type of a field
+// reference: https://help.salesforce.com/s/articleView?id=data.c360_a_data_types.htm&type=5
 type DataLakeFieldDataType string
 
 const (
-	DataLakeFieldDataTypeText     DataLakeFieldDataType = "Text"
-	DataLakeFieldDataTypeNumber   DataLakeFieldDataType = "Number"
-	DataLakeFieldDataTypeDateTime DataLakeFieldDataType = "DateTime"
-	DataLakeFieldDataTypeDate     DataLakeFieldDataType = "Date"
 	DataLakeFieldDataTypeBoolean  DataLakeFieldDataType = "Boolean"
+	DataLakeFieldDataTypeDate     DataLakeFieldDataType = "Date"
+	DataLakeFieldDataTypeDateOnly DataLakeFieldDataType = "DateOnly"
+	DataLakeFieldDataTypeDateTime DataLakeFieldDataType = "DateTime"
+	DataLakeFieldDataTypeEmail    DataLakeFieldDataType = "Email"
+	DataLakeFieldDataTypeNumber   DataLakeFieldDataType = "Number"
+	DataLakeFieldDataTypePercent  DataLakeFieldDataType = "Percent"
+	DataLakeFieldDataTypePhone    DataLakeFieldDataType = "Phone"
+	DataLakeFieldDataTypeText     DataLakeFieldDataType = "Text"
+	DataLakeFieldDataTypeUrl      DataLakeFieldDataType = "Url"
 )
 
 // FilterOperator represents filter operators

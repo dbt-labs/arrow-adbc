@@ -155,3 +155,30 @@ func NewEngagementDataLakeObject(name, label, eventDateTimeFieldName string, fie
 	request.EventDateTimeFieldName = eventDateTimeFieldName
 	return request
 }
+
+// SqlMetadataToDataLakeFields converts SQL query metadata to Data Lake field representations
+func SqlMetadataToDataLakeFields(metadata []SqlQueryMetadata, primaryKeyFieldName string) []DataLakeFieldInputRepresentation {
+	fields := make([]DataLakeFieldInputRepresentation, 0, len(metadata))
+
+	for _, meta := range metadata {
+		isPrimaryKey := meta.Name == primaryKeyFieldName
+		dataType := meta.Type.ToDataLakeFieldDataType()
+
+		field := NewDataLakeField(
+			meta.Name,
+			meta.Name, // Using name as label, could be enhanced to use display name
+			dataType,
+			isPrimaryKey,
+		)
+
+		fields = append(fields, field)
+	}
+
+	return fields
+}
+
+// NewDataLakeObjectFromSqlResponse creates a Data Lake Object request from SQL query response metadata
+func NewDataLakeObjectFromSqlResponse(name, label string, category DataLakeObjectCategory, sqlResponse *SqlQueryResponse, primaryKeyFieldName string) *CreateDataLakeObjectRequest {
+	fields := SqlMetadataToDataLakeFields(sqlResponse.Metadata, primaryKeyFieldName)
+	return NewDataLakeObjectRequest(name, label, category, fields)
+}
