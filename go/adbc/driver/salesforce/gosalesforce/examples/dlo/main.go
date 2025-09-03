@@ -3,22 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
-	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/examples/shared"
+	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/shared"
 )
 
 func main() {
 	fmt.Println("Salesforce Data Cloud - Data Lake Object Examples")
 	fmt.Println("================================================")
 
-	// JWT Authentication
-	fmt.Println("\n=== JWT Authentication ===")
 	client, err := shared.DemonstrateJWTAuth()
 	if err != nil {
-		log.Fatalf("JWT Auth failed: %v", err)
+		fmt.Printf("JWT Auth failed: %v\n", err)
 		return
 	}
 
@@ -70,12 +67,6 @@ func demonstrateDataLakeObject(client *api.Client) {
 	}
 
 	fmt.Println("\n✅ Data Lake Object demonstration completed!")
-	fmt.Println("📊 Summary:")
-	fmt.Println("   - Demonstrated Profile DLO creation with GET/DELETE logic")
-	fmt.Println("   - Demonstrated Engagement DLO creation with GET/DELETE logic")
-	fmt.Println("   - Demonstrated DLO with data space filters with GET/DELETE logic")
-	fmt.Println("   - Each DLO checks for existence, deletes if found, then creates new")
-	fmt.Println("   - DLOs can be monitored and managed via Data Cloud UI")
 }
 
 func demonstrateProfileDLO(ctx context.Context, client *api.Client) error {
@@ -105,8 +96,8 @@ func demonstrateProfileDLO(ctx context.Context, client *api.Client) error {
 		return err
 	}
 
+	shared.PrettyPrintJSON(response)
 	fmt.Printf("✅ Profile DLO created successfully!\n")
-	fmt.Printf("   ID: %s, Status: %s, Fields: %d\n", response.ID, response.Status, len(response.Fields))
 
 	return nil
 }
@@ -142,8 +133,8 @@ func demonstrateEngagementDLO(ctx context.Context, client *api.Client) error {
 		return err
 	}
 
+	shared.PrettyPrintJSON(response)
 	fmt.Printf("✅ Engagement DLO created successfully!\n")
-	fmt.Printf("   ID: %s, Status: %s, Fields: %d\n", response.ID, response.Status, len(response.Fields))
 
 	return nil
 }
@@ -187,9 +178,8 @@ func demonstrateDLOWithFilters(ctx context.Context, client *api.Client) error {
 		return err
 	}
 
+	shared.PrettyPrintJSON(response)
 	fmt.Printf("✅ DLO with filters created successfully!\n")
-	fmt.Printf("   ID: %s, Status: %s, Fields: %d, Data Spaces: %d\n",
-		response.ID, response.Status, len(response.Fields), len(response.DataSpaceInfo))
 
 	return nil
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
-	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/examples/shared"
+	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/shared"
 )
 
 func main() {
@@ -133,8 +133,8 @@ func demonstrateDCSQLDataTransform(client *api.Client) error {
 			return err
 		}
 
-		fmt.Println("🕒 Waiting 1 seconds for status to update...")
-		time.Sleep(1 * time.Second)
+		fmt.Println("🕒 Waiting 5 seconds for status to update...")
+		time.Sleep(5 * time.Second)
 
 		refreshStatusResponse, err := client.RefreshDataTransformStatus(ctx, dataTransform.Name)
 		if err != nil {
