@@ -12,7 +12,7 @@ func main() {
 	fmt.Println("Salesforce Data Cloud SDK Examples")
 	fmt.Println("==========================================")
 
-	client, err := shared.DemonstrateJWTAuth()
+	client, err := api.NewClientWithJWT()
 	if err != nil {
 		fmt.Printf("JWT Auth failed: %v\n", err)
 		return

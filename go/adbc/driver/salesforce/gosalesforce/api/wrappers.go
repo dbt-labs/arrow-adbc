@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/shared"
 	"github.com/cenkalti/backoff/v5"
 )
 
@@ -268,4 +270,54 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 	}
 
 	return dataTransform, nil
+}
+
+// NewClientWithJWT creates a new client using JWT authentication
+// It expects the private key to be stored in the home directory at `~/.salesforce/JWT/server.key`
+// It expects the login URL to be stored in the environment variable `SALESFORCE_LOGIN_URL`
+// It expects the client ID to be stored in the environment variable `SALESFORCE_CLIENT_ID`
+// It expects the username to be stored in the environment variable `SALESFORCE_USERNAME`
+func NewClientWithJWT() (*Client, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	privateKeyPath := fmt.Sprintf("%s/salesforce/JWT/server.key", home)
+	if _, err := os.Stat(privateKeyPath); os.IsNotExist(err) {
+		fmt.Printf("WARNING: Private key file not found at: %s\n", privateKeyPath)
+		fmt.Println("   Please ensure the private key file exists or update the path")
+		return nil, nil
+	}
+
+	privateKey, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read private key file: %w", err)
+	}
+
+	config, err := NewJWTConfig(
+		shared.GetEnvOrPanic("SALESFORCE_LOGIN_URL"),
+		shared.GetEnvOrPanic("SALESFORCE_CLIENT_ID"),
+		shared.GetEnvOrPanic("SALESFORCE_USERNAME"),
+		string(privateKey),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JWT config: %w", err)
+	}
+
+	// Create client
+	client := NewClient(config, "v64.0")
+
+	// Authenticate
+	err = client.Authenticate(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("authentication failed: %w", err)
+	}
+
+	err = client.ExchangeAndSetDataCloudToken(context.Background())
+	if err != nil {
+		return client, nil
+	} else {
+		return client, nil
+	}
 }

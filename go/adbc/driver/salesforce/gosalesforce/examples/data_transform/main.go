@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("===============================================")
 
 	fmt.Println("\n=== JWT Authentication ===")
-	client, err := shared.DemonstrateJWTAuth()
+	client, err := api.NewClientWithJWT()
 	if err != nil {
 		log.Fatalf("JWT Auth failed: %v", err)
 		return

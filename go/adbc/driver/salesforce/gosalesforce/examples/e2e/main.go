@@ -14,7 +14,7 @@ func main() {
 	fmt.Println("===============================================")
 
 	// auth
-	client, err := shared.DemonstrateJWTAuth()
+	client, err := api.NewClientWithJWT()
 	if err != nil {
 		log.Fatalf("JWT Auth failed: %v", err)
 		return
