@@ -41,7 +41,7 @@ func main() {
 		}
 
 		primaryKeyField := fmt.Sprintf("CustomerId_child%s__c", map[int]string{0: "", 1: "_2"}[i])
-		dataLakeObject, err := client.CreateDataLakeObjectWithInferredSchema(ctx, queries[i], targetDLO, primaryKeyField, api.DataLakeObjectCategoryProfile)
+		dataLakeObject, err := client.CreateDataLakeObjectWithInferredSchema(ctx, queries[i], "default", targetDLO, primaryKeyField, api.DataLakeObjectCategoryProfile)
 		if err != nil {
 			fmt.Printf("ERROR: Failed to create DLO %s: %v\n", targetDLO, err)
 			return

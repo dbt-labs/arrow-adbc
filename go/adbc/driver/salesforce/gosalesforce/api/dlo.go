@@ -125,12 +125,6 @@ func NewDataLakeField(name, label string, dataType DataLakeFieldDataType, isPrim
 func NewDataspaceInfo(name string, conditions []FilterCondition, operator ConjunctiveOperator) DataspaceInfo {
 	return DataspaceInfo{
 		Name: name,
-		Filter: FilterConfig{
-			ConjunctiveOperator: operator,
-			Conditions: FilterConditions{
-				Conditions: conditions,
-			},
-		},
 	}
 }
 

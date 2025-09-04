@@ -45,6 +45,7 @@ const (
 	// Connection options
 	OptionStringInstanceURL = "adbc.salesforce.dc.instance_url"
 	OptionStringVersion     = "adbc.salesforce.dc.version"
+	OptionStringDataSpace   = "adbc.salesforce.dc.data_space"
 
 	// Stmt options
 	OptionStringDLOCategory   = "adbc.salesforce.dc.dlo.category"

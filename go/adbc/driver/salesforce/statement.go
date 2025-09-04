@@ -94,7 +94,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		}
 
 		// Creates the DLO
-		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.targetDLO, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
+		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.targetDLO, s.cnxn.dataSpace, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
 		if err != nil {
 			fmt.Printf("ERROR: Failed to create DLO from SQL response: %v\n", err)
 			return nil, 0, adbc.Error{

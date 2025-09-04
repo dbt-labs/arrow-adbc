@@ -48,6 +48,7 @@ type connectionImpl struct {
 	password string
 
 	instanceURL   string
+	dataSpace     string
 	queryRowLimit string
 	queryTimeout  string
 

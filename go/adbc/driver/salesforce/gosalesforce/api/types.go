@@ -14,6 +14,8 @@ const (
 	AuthTypeRefreshToken
 )
 
+const DATASPACE_DEFAULT = "default"
+
 // Token represents an authenticated token with expiry information
 type Token struct {
 	AccessToken  string
@@ -373,7 +375,7 @@ type DbtDataTransformDefinition struct {
 type DataTransformOutputDataObject struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
-	// TODO: There are more fields to be included, add if necessary
+	// TODO: There are more fields known to be missing, add if necessary
 }
 
 // DataTransformNode represents a node in a data transform
@@ -491,9 +493,12 @@ const (
 
 // CreateDataLakeObjectRequest represents a request to create a Data Lake Object
 type CreateDataLakeObjectRequest struct {
-	Name                              string                             `json:"name"`
-	Label                             string                             `json:"label"`
-	Category                          DataLakeObjectCategory             `json:"category"`
+	Name     string                 `json:"name"`
+	Label    string                 `json:"label"`
+	Category DataLakeObjectCategory `json:"category"`
+	// WARNING: `dataspaceName` field is seen in the doc but when passing it in, request fails.
+	// Therefore, use `dataspaceInfo` here instead
+	// This is recommended to set, otherwise it'll lead to a DLO unassigned to any data space which makes it not queryable via the SQL API
 	DataspaceInfo                     []DataspaceInfo                    `json:"dataspaceInfo"`
 	OrgUnitIdentifierFieldName        string                             `json:"orgUnitIdentifierFieldName"`
 	RecordModifiedFieldName           string                             `json:"recordModifiedFieldName"`
@@ -503,8 +508,8 @@ type CreateDataLakeObjectRequest struct {
 
 // DataspaceInfo represents information about a data space
 type DataspaceInfo struct {
-	Name   string       `json:"name"`
-	Filter FilterConfig `json:"filter"`
+	Name string `json:"name"`
+	// TODO: There are more fields known to be missing, add if necessary
 }
 
 // FilterConfig represents filter configuration

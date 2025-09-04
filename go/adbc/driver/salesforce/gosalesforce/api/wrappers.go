@@ -122,7 +122,7 @@ func (client *Client) DeleteDataTransformIfExists(ctx context.Context, name stri
 // CreateDataLakeObject creates a Data Lake Object using the inferred schema via the SQL execution
 //
 // sql must be a Query, DDL or DML is disallowed by the Salesforce Data Cloud API
-func (client *Client) CreateDataLakeObjectWithInferredSchema(ctx context.Context, sql string, targetDLOName string, primaryKeyFieldName string, category DataLakeObjectCategory) (*DataLakeObject, error) {
+func (client *Client) CreateDataLakeObjectWithInferredSchema(ctx context.Context, sql string, dataSpace string, targetDLOName string, primaryKeyFieldName string, category DataLakeObjectCategory) (*DataLakeObject, error) {
 	// Infer the target DLO schema using the SQL Query API
 	queryRequest := &SqlQueryRequest{
 		SQL:      sql,
@@ -147,6 +147,13 @@ func (client *Client) CreateDataLakeObjectWithInferredSchema(ctx context.Context
 	// Set required fields to empty as they're optional
 	request.OrgUnitIdentifierFieldName = ""
 	request.RecordModifiedFieldName = ""
+
+	// This assigned the DLO to a data space
+	request.DataspaceInfo = []DataspaceInfo{
+		{
+			Name: dataSpace,
+		},
+	}
 
 	// Create the DLO
 	dataLakeObject, err := client.PostDataLakeObject(ctx, request)
