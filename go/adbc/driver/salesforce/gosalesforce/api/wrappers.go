@@ -179,6 +179,9 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 				),
 			},
 		)
+		// TODO: remove debug lines
+		shared.PrettyPrintJSON(request)
+
 		dataTransform, err = client.CreateDataTransform(ctx, request)
 		if err != nil {
 			return nil, err
