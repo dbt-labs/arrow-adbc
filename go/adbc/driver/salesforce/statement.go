@@ -82,6 +82,48 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		}
 	}
 
+	// This is supposed to be equivalent to `CREATE OR REPLACE TABLE`
+	if s.dloCategory != "" && s.dloPrimaryKey != "" && s.targetDLO != "" {
+		// Delete the existing DLO
+		err := s.cnxn.client.DeleteIfDloExists(ctx, s.targetDLO)
+		if err != nil {
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("failed to delete DLO: %v", err),
+			}
+		}
+
+		// Creates the DLO
+		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.targetDLO, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
+		if err != nil {
+			fmt.Printf("ERROR: Failed to create DLO from SQL response: %v\n", err)
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("failed to create DLO from SQL response: %v", err),
+			}
+		}
+
+		// Inserts data
+		_, err = s.cnxn.client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, s.query, true)
+		if err != nil {
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("failed to create DCSQL data transform: %v", err),
+			}
+		}
+
+		// Returns empty
+		emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
+		reader, err := array.NewRecordReader(emptySchema, []arrow.Record{})
+		if err != nil {
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("failed to create empty record reader: %v", err),
+			}
+		}
+		return reader, 0, nil
+	}
+
 	rowLimit := s.cnxn.getQueryRowLimit()
 
 	queryRequest := &api.SqlQueryRequest{

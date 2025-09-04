@@ -262,14 +262,14 @@ func (c *connectionImpl) getQueryTimeout() time.Duration {
 // Helper function to parse row limit
 func (c *connectionImpl) getQueryRowLimit() int64 {
 	if c.queryRowLimit == "" {
-		return -1 // no limit
+		return 0
 	}
 
 	if limit, err := strconv.ParseInt(c.queryRowLimit, 10, 64); err == nil {
 		return limit
 	}
 
-	return -1 // fallback to no limit
+	return 0
 }
 
 // GetTableSchema retrieves the schema for a specific table using Salesforce metadata API

@@ -46,7 +46,7 @@ func main() {
 
 	// Creates a DCSQL data transform
 	fmt.Println("\n=== Creating and running a dbt batch data transform ===")
-	dataTransform, err := client.CreateDbtBatchDataTransform(ctx, dataLakeObject, query, true)
+	dataTransform, err := client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, query, true)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to create DCSQL data transform: %v\n", err)
 		return

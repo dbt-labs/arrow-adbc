@@ -154,9 +154,9 @@ func (client *Client) CreateDataLakeObjectWithInferredSchema(ctx context.Context
 	return dataLakeObject, nil
 }
 
-// CreateDbtBatchDataTransform creates a DBT batch data transform
-// using the compiled SQL
-func (client *Client) CreateDbtBatchDataTransform(ctx context.Context, targetDlo *DataLakeObject, sql string, recreateIfExists bool) (*DataTransform, error) {
+// If recreateIfExists is true, delete the existing data transform and create a new one before running it.
+// Otherwise, run the existing data transform.
+func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDlo *DataLakeObject, sql string, recreateIfExists bool) (*DataTransform, error) {
 	var dataTransform *DataTransform
 	var err error
 	if recreateIfExists {

@@ -49,7 +49,7 @@ const (
 	// Stmt options
 	OptionStringDLOCategory   = "adbc.salesforce.dc.dlo.category"
 	OptionStringDLOPrimaryKey = "adbc.salesforce.dc.dlo.primary_key"
-	OptionsStringTargetDLO    = "adbc.salesforce.dc.dlo.target"
+	OptionsStringTargetDLO    = "adbc.salesforce.dc.dlo.target_dlo"
 
 	// Default values
 	DefaultLoginURL = "https://login.salesforce.com"
