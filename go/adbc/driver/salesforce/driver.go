@@ -46,9 +46,10 @@ const (
 	OptionStringInstanceURL = "adbc.salesforce.dc.instance_url"
 	OptionStringVersion     = "adbc.salesforce.dc.version"
 
-	// Query options
-	OptionStringQueryRowLimit = "adbc.salesforce.dc.query.row_limit"
-	OptionStringQueryTimeout  = "adbc.salesforce.dc.query.timeout"
+	// Stmt options
+	OptionStringDLOCategory   = "adbc.salesforce.dc.dlo.category"
+	OptionStringDLOPrimaryKey = "adbc.salesforce.dc.dlo.primary_key"
+	OptionsStringTargetDLO    = "adbc.salesforce.dc.dlo.target"
 
 	// Default values
 	DefaultLoginURL = "https://login.salesforce.com"
@@ -56,9 +57,6 @@ const (
 )
 
 // Driver implements the ADBC Driver interface for Salesforce Data Cloud
-type Driver struct {
-	allocator memory.Allocator
-}
 
 var (
 	infoVendorVersion string

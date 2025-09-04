@@ -111,10 +111,6 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 	case OptionStringInstanceURL:
 		return d.instanceURL, nil
 
-	case OptionStringQueryRowLimit:
-		return d.queryRowLimit, nil
-	case OptionStringQueryTimeout:
-		return d.queryTimeout, nil
 	default:
 		return d.DatabaseImplBase.GetOption(key)
 	}
@@ -163,10 +159,6 @@ func (d *databaseImpl) SetOption(key string, value string) error {
 	case OptionStringInstanceURL:
 		d.instanceURL = value
 
-	case OptionStringQueryRowLimit:
-		d.queryRowLimit = value
-	case OptionStringQueryTimeout:
-		d.queryTimeout = value
 	default:
 		return d.DatabaseImplBase.SetOption(key, value)
 	}

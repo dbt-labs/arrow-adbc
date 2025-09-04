@@ -37,6 +37,13 @@ type statement struct {
 	// Parameter binding
 	paramBinding  *arrow.Record
 	streamBinding array.RecordReader
+
+	// Create DLO options
+	dloCategory   string
+	dloPrimaryKey string
+
+	// Data Transform options
+	targetDLO string
 }
 
 // Close cleans up the statement
@@ -153,6 +160,14 @@ func (s *statement) Prepare(ctx context.Context) error {
 
 // Additional required interface methods
 func (s *statement) GetOption(key string) (string, error) {
+	switch key {
+	case OptionStringDLOCategory:
+		return s.dloCategory, nil
+	case OptionStringDLOPrimaryKey:
+		return s.dloPrimaryKey, nil
+	case OptionsStringTargetDLO:
+		return s.targetDLO, nil
+	}
 	return "", adbc.Error{
 		Code: adbc.StatusNotFound,
 		Msg:  fmt.Sprintf("unknown statement option: %s", key),
@@ -181,10 +196,20 @@ func (s *statement) GetOptionInt(key string) (int64, error) {
 }
 
 func (s *statement) SetOption(key, value string) error {
-	return adbc.Error{
-		Code: adbc.StatusNotImplemented,
-		Msg:  fmt.Sprintf("unknown statement option: %s", key),
+	switch key {
+	case OptionStringDLOCategory:
+		s.dloCategory = value
+	case OptionStringDLOPrimaryKey:
+		s.dloPrimaryKey = value
+	case OptionsStringTargetDLO:
+		s.targetDLO = value
+	default:
+		return adbc.Error{
+			Code: adbc.StatusNotImplemented,
+			Msg:  fmt.Sprintf("unknown statement string type option: %s", key),
+		}
 	}
+	return nil
 }
 
 func (s *statement) SetOptionBytes(key string, value []byte) error {
