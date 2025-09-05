@@ -20,7 +20,7 @@ const (
 
 // DeleteIfDloExists deletes a DLO if it exists
 func (client *Client) DeleteIfDloExists(ctx context.Context, name string) error {
-	// Delete all data transforms that are targeting the DLO
+	// Delete all data transforms that are targeting the DLO (see TODO on the client.GetDataTransformByDLO method)
 	dataTransforms, err := client.GetDataTransformByDLO(ctx, name)
 	if err != nil {
 		return fmt.Errorf("failed to get data transform by DLO: %w", err)

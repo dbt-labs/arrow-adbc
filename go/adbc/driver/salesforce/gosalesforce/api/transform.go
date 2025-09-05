@@ -46,8 +46,10 @@ func (c *Client) GetDataTransform(ctx context.Context, dataTransformNameOrId str
 
 // GetDataTransformByDLO returns all data transforms that are targeting a DLO of the input name
 //
-// TODO: confirm if the DLO name is enough to uniquely identity a DLO,
+// TODO: also include data transforms that are sourcing from this DLO (may not be feasible from the existing API)
 // or we also need to include the data space Name
+//
+// TODO: confirm if the DLO name is enough to uniquely identity a DLO,
 func (c *Client) GetDataTransformByDLO(ctx context.Context, dloName string) ([]DataTransform, error) {
 	// Validate required fields
 	if dloName == "" {
