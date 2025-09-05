@@ -84,6 +84,13 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 
 	// This is supposed to be equivalent to `CREATE OR REPLACE TABLE`
 	if s.dloCategory != "" && s.dloPrimaryKey != "" && s.targetDLO != "" {
+		if s.cnxn.dataSpace == "" {
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInvalidState,
+				Msg:  "data space must be set for the DLO to be created",
+			}
+		}
+
 		// Delete the existing DLO
 		err := s.cnxn.client.DeleteIfDloExists(ctx, s.targetDLO)
 		if err != nil {
@@ -94,7 +101,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		}
 
 		// Creates the DLO
-		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.targetDLO, s.cnxn.dataSpace, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
+		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.cnxn.dataSpace, s.targetDLO, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
 		if err != nil {
 			fmt.Printf("ERROR: Failed to create DLO from SQL response: %v\n", err)
 			return nil, 0, adbc.Error{

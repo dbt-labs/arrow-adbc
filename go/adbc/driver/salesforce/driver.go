@@ -22,6 +22,7 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
+	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 )
 
@@ -96,9 +97,10 @@ func (d *driverImpl) NewDatabase(opts map[string]string) (adbc.Database, error) 
 	db := &databaseImpl{
 		DatabaseImplBase: driverbase.NewDatabaseImplBase(&d.DriverImplBase),
 		// Defaults to the JWT Bearer Flow
-		authType: OptionValueAuthTypeJwtBearer,
-		loginURL: DefaultLoginURL,
-		version:  DefaultVersion,
+		authType:  OptionValueAuthTypeJwtBearer,
+		loginURL:  DefaultLoginURL,
+		version:   DefaultVersion,
+		dataSpace: api.DATASPACE_DEFAULT,
 	}
 	if err := db.SetOptions(opts); err != nil {
 		return nil, err
