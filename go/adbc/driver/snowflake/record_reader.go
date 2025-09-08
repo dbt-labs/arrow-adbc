@@ -42,6 +42,7 @@ import (
 )
 
 const MetadataKeySnowflakeType = "SNOWFLAKE_TYPE"
+const MetadataKeySnowflakeQueryID = "SNOWFLAKE_QUERY_ID"
 
 func identCol(_ context.Context, a arrow.Array) (arrow.Array, error) {
 	a.Retain()
@@ -315,7 +316,8 @@ func rowTypesToArrowSchema(_ context.Context, ld gosnowflake.ArrowStreamLoader, 
 			Name:     srcMeta.Name,
 			Nullable: srcMeta.Nullable,
 			Metadata: arrow.MetadataFrom(map[string]string{
-				MetadataKeySnowflakeType: srcMeta.Type,
+				MetadataKeySnowflakeType:    srcMeta.Type,
+				MetadataKeySnowflakeQueryID: ld.QueryID(),
 			}),
 		}
 		switch srcMeta.Type {
