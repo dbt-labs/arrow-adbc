@@ -177,7 +177,7 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 		// Creates a data transform
 		request := NewBatchDataTransformRequest(
 			targetDlo.Name,
-			fmt.Sprintf("Create the target DLO %s", targetDlo.Name),
+			targetDlo.Name,
 			map[string]DbtDataTransformNode{
 				"node": NewSimpleDbtDataTransformNode(
 					"node",
