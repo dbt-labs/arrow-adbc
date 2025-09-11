@@ -59,6 +59,7 @@ type statement struct {
 	streamBinding          array.RecordReader
 	resultRecordBufferSize int
 	prefetchConcurrency    int
+	fetch                  int
 
 	// Ingest related fields
 	ingestPath          string
@@ -184,6 +185,8 @@ func (st *statement) GetOptionInt(key string) (int64, error) {
 		return int64(st.resultRecordBufferSize), nil
 	case OptionIntQueryPrefetchConcurrency:
 		return int64(st.prefetchConcurrency), nil
+	case OptionIntQueryFetch:
+		return int64(st.fetch), nil
 	default:
 		val, err := st.cnxn.GetOptionInt(key)
 		if err == nil {
@@ -304,6 +307,8 @@ func (st *statement) SetOptionInt(key string, value int64) error {
 		st.queryConfig.MaxBytesBilled = value
 	case OptionIntQueryJobTimeout:
 		st.queryConfig.JobTimeout = time.Duration(value) * time.Millisecond
+	case OptionIntQueryFetch:
+		st.fetch = int(value)
 	case OptionIntQueryResultBufferSize:
 		st.resultRecordBufferSize = int(value)
 		return nil
@@ -352,6 +357,18 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 			Msg:  "cannot execute without a query",
 			Code: adbc.StatusInvalidState,
 		}
+	}
+
+	fetch, err := st.GetOptionInt(OptionIntQueryFetch)
+	if err != nil {
+		return nil, -1, err
+	}
+	if fetch == 0 {
+		affectedRows, err := st.ExecuteUpdate(ctx)
+		if err != nil {
+			return nil, -1, err
+		}
+		return &emptyRecordReader{}, affectedRows, nil
 	}
 
 	rdr, err := st.getBoundParameterReader()
@@ -1229,6 +1246,35 @@ func getFunctionName() string {
 		return "unknown"
 	}
 	return f.Name()
+}
+
+// emptyRecordReader implements array.RecordReader for DDL operations that don't return data
+type emptyRecordReader struct {
+	released bool
+}
+
+func (e *emptyRecordReader) Schema() *arrow.Schema {
+	return arrow.NewSchema([]arrow.Field{}, nil)
+}
+
+func (e *emptyRecordReader) Next() bool {
+	return false
+}
+
+func (e *emptyRecordReader) Record() arrow.Record {
+	return nil
+}
+
+func (e *emptyRecordReader) Err() error {
+	return nil
+}
+
+func (e *emptyRecordReader) Retain() {
+	// no-op
+}
+
+func (e *emptyRecordReader) Release() {
+	e.released = true
 }
 
 var _ adbc.GetSetOptions = (*statement)(nil)

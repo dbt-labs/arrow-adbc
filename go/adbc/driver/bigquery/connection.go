@@ -458,6 +458,7 @@ func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
 			DefaultProjectID: c.catalog,
 			DefaultDatasetID: c.dbSchema,
 		},
+		fetch: 1, // Default to fetching the query/statement results
 	}, nil
 }
 
