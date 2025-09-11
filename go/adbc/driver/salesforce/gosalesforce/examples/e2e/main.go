@@ -79,7 +79,7 @@ func runDataTransformsInParallel(ctx context.Context, client *api.Client, dataLa
 			defer wg.Done()
 
 			startTime := time.Now()
-			dataTransform, err := client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, query, true)
+			dataTransform, err := client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, query, true, api.MAX_ELAPSED_TIME)
 			endTime := time.Now()
 			duration := endTime.Sub(startTime)
 

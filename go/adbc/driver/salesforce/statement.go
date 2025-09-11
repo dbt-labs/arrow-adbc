@@ -20,6 +20,7 @@ package salesforce
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
@@ -43,7 +44,8 @@ type statement struct {
 	dloPrimaryKey string
 
 	// Data Transform options
-	targetDLO string
+	targetDLO            string
+	dataTransformTimeout time.Duration
 }
 
 // Close cleans up the statement
@@ -109,13 +111,15 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 				Msg:  fmt.Sprintf("failed to create DLO from SQL response: %v", err),
 			}
 		}
+		fmt.Printf("Created DLO: %v\n", dataLakeObject.Name)
 
 		// Inserts data
-		_, err = s.cnxn.client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, s.query, true)
+		fmt.Printf("Triggering DCSQL data transform: %v\n", dataLakeObject.Name)
+		_, err = s.cnxn.client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, s.query, true, s.dataTransformTimeout)
 		if err != nil {
 			return nil, 0, adbc.Error{
 				Code: adbc.StatusInternal,
-				Msg:  fmt.Sprintf("failed to create DCSQL data transform: %v", err),
+				Msg:  fmt.Sprintf("failed to trigger the DCSQL data transform: %v", err),
 			}
 		}
 
@@ -238,9 +242,13 @@ func (s *statement) GetOptionDouble(key string) (float64, error) {
 }
 
 func (s *statement) GetOptionInt(key string) (int64, error) {
+	switch key {
+	case OptionIntDataTransformRunTimeout:
+		return s.dataTransformTimeout.Milliseconds(), nil
+	}
 	return 0, adbc.Error{
 		Code: adbc.StatusNotFound,
-		Msg:  fmt.Sprintf("unknown statement option: %s", key),
+		Msg:  fmt.Sprintf("unknown int type statement option: %s", key),
 	}
 }
 
@@ -276,10 +284,16 @@ func (s *statement) SetOptionDouble(key string, value float64) error {
 }
 
 func (s *statement) SetOptionInt(key string, value int64) error {
-	return adbc.Error{
-		Code: adbc.StatusNotImplemented,
-		Msg:  fmt.Sprintf("unknown statement option: %s", key),
+	switch key {
+	case OptionIntDataTransformRunTimeout:
+		s.dataTransformTimeout = time.Duration(value) * time.Millisecond
+	default:
+		return adbc.Error{
+			Code: adbc.StatusNotImplemented,
+			Msg:  fmt.Sprintf("unknown int type statement option: %s", key),
+		}
 	}
+	return nil
 }
 
 func (s *statement) SetSubstraitPlan(plan []byte) error {

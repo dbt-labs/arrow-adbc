@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // PostDataLakeObject creates a new Data Lake Object (DLO) in Data Cloud
@@ -173,6 +174,14 @@ func SqlMetadataToDataLakeFields(metadata []SqlQueryMetadata, primaryKeyFieldNam
 
 // NewDataLakeObjectFromSqlResponse creates a Data Lake Object request from SQL query response metadata
 func NewDataLakeObjectFromSqlResponse(name, label string, category DataLakeObjectCategory, sqlResponse *SqlQueryResponse, primaryKeyFieldName string) *CreateDataLakeObjectRequest {
-	fields := SqlMetadataToDataLakeFields(sqlResponse.Metadata, primaryKeyFieldName)
+	filteredMetadata := make([]SqlQueryMetadata, 0, len(sqlResponse.Metadata))
+	for _, meta := range sqlResponse.Metadata {
+		if strings.HasPrefix(meta.Name, "cdp_sys_") || strings.HasPrefix(meta.Name, "KQ_") {
+			continue
+		} else {
+			filteredMetadata = append(filteredMetadata, meta)
+		}
+	}
+	fields := SqlMetadataToDataLakeFields(filteredMetadata, primaryKeyFieldName)
 	return NewDataLakeObjectRequest(name, label, category, fields)
 }
