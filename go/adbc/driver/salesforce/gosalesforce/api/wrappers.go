@@ -209,7 +209,7 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 			return nil, err
 		}
 		if !refreshStatusResponse.Success {
-			return nil, fmt.Errorf("DCSQL transform status refresh failed: %v", refreshStatusResponse.Errors)
+			return nil, fmt.Errorf("data transform status refresh failed with errors %v", refreshStatusResponse.Errors)
 		}
 
 		dataTransform, err := client.GetDataTransform(ctx, dataTransform.Name)
@@ -220,9 +220,9 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 		if dataTransform.IsActive() {
 			return nil, nil
 		} else if dataTransform.IsError() {
-			return nil, fmt.Errorf("failed to create the data transform: %v", dataTransform.Status)
+			return nil, fmt.Errorf("failed to create the data transform, settled status [%v]", dataTransform.Status)
 		} else {
-			return nil, fmt.Errorf("data transform %s is not active yet: %v", dataTransform.Name, dataTransform.Status)
+			return nil, fmt.Errorf("waiting for data transform %s to be active times out, it is still in status [%v]", dataTransform.Name, dataTransform.Status)
 		}
 	}
 
@@ -248,7 +248,7 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 	waitForRunOp := func() (interface{}, error) {
 		refreshStatusResponse, err := client.RefreshDataTransformStatus(ctx, dataTransform.Name)
 		if !refreshStatusResponse.Success {
-			return nil, fmt.Errorf("failed to refresh the data transform status: %v", refreshStatusResponse.Errors)
+			return nil, fmt.Errorf("failed to refresh the data transform status [%v]", refreshStatusResponse.Errors)
 		}
 		if err != nil {
 			return nil, err
@@ -262,9 +262,9 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 		if dataTransform.IsLastRunSuccess() {
 			return nil, nil
 		} else if dataTransform.IsLastRunFailure() || dataTransform.IsLastRunCanceled() {
-			return nil, fmt.Errorf("failed to complete the data transform: %v", refreshStatusResponse.Errors)
+			return nil, fmt.Errorf("failed to complete the data transform with errors %v", refreshStatusResponse.Errors)
 		} else {
-			return nil, fmt.Errorf("data transform run is in unexpected status: %v", dataTransform.LastRunStatus)
+			return nil, fmt.Errorf("data transform run times out, it is still in status [%v]", dataTransform.LastRunStatus)
 		}
 	}
 
@@ -273,7 +273,7 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 		backoff.WithBackOff(exponentialBackOff),
 		backoff.WithMaxElapsedTime(runTimeout),
 		backoff.WithNotify(func(err error, duration time.Duration) {
-			log.Printf("🕒 DCSQL transform run in progress, retrying in %v...\n", duration)
+			log.Printf("🕒 data transform run in progress, retrying in %v...\n", duration)
 		}))
 	if err != nil {
 		return nil, err

@@ -52,7 +52,7 @@ const (
 	OptionStringDLOCategory          = "adbc.salesforce.dc.dlo.category"
 	OptionStringDLOPrimaryKey        = "adbc.salesforce.dc.dlo.primary_key"
 	OptionsStringTargetDLO           = "adbc.salesforce.dc.dlo.target_dlo"
-	OptionIntDataTransformRunTimeout = "adbc.salesforce.dc.dlo.data_transform_run_timeout"
+	OptionIntDataTransformRunTimeout = "adbc.salesforce.dc.data_transform_run_timeout"
 
 	// Default values
 	DefaultLoginURL = "https://login.salesforce.com"

@@ -111,10 +111,8 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 				Msg:  fmt.Sprintf("failed to create DLO from SQL response: %v", err),
 			}
 		}
-		fmt.Printf("Created DLO: %v\n", dataLakeObject.Name)
 
 		// Inserts data
-		fmt.Printf("Triggering DCSQL data transform: %v\n", dataLakeObject.Name)
 		_, err = s.cnxn.client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, s.query, true, s.dataTransformTimeout)
 		if err != nil {
 			return nil, 0, adbc.Error{
