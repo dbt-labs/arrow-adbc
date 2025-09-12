@@ -23,10 +23,9 @@ func main() {
 	ctx := context.Background()
 
 	// setups
-	targetDLOs := []string{"customers_child__dll", "customers_child_2__dll"}
+	targetDLOs := []string{"customers_select_all_child__dll"}
 	queries := []string{
-		"SELECT \"CustomerId__c\" as \"CustomerId_child__c\" FROM \"customers_raw__dll\"",
-		"SELECT \"CustomerId__c\" as \"CustomerId_child_2__c\" FROM \"customers_raw__dll\"",
+		"select * from \"customers_raw__dll\"",
 	}
 
 	// Create DLOs sequentially first
@@ -40,7 +39,7 @@ func main() {
 			return
 		}
 
-		primaryKeyField := fmt.Sprintf("CustomerId_child%s__c", map[int]string{0: "", 1: "_2"}[i])
+		primaryKeyField := "CustomerId__c"
 		dataLakeObject, err := client.CreateDataLakeObjectWithInferredSchema(ctx, queries[i], "default", targetDLO, primaryKeyField, api.DataLakeObjectCategoryProfile)
 		if err != nil {
 			fmt.Printf("ERROR: Failed to create DLO %s: %v\n", targetDLO, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -175,8 +176,12 @@ func SqlMetadataToDataLakeFields(metadata []SqlQueryMetadata, primaryKeyFieldNam
 // NewDataLakeObjectFromSqlResponse creates a Data Lake Object request from SQL query response metadata
 func NewDataLakeObjectFromSqlResponse(name, label string, category DataLakeObjectCategory, sqlResponse *SqlQueryResponse, primaryKeyFieldName string) *CreateDataLakeObjectRequest {
 	filteredMetadata := make([]SqlQueryMetadata, 0, len(sqlResponse.Metadata))
+
+	// The filtered out fields are pseudo columns automatically filled by the Data Cloud
+	// The postDataLakeObject request will fail if any of these fields are included in the request
+	excludedFields := []string{"DataSourceObject__c", "InternalOrganization__c", "DataSource__c"}
 	for _, meta := range sqlResponse.Metadata {
-		if strings.HasPrefix(meta.Name, "cdp_sys_") || strings.HasPrefix(meta.Name, "KQ_") {
+		if strings.HasPrefix(meta.Name, "cdp_sys_") || strings.HasPrefix(meta.Name, "KQ_") || slices.Contains(excludedFields, meta.Name) {
 			continue
 		} else {
 			filteredMetadata = append(filteredMetadata, meta)
