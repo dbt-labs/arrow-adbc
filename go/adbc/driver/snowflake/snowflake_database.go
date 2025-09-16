@@ -176,6 +176,7 @@ func (d *databaseImpl) SetOptions(cnOptions map[string]string) error {
 	// set default application name to track
 	// unless user overrides it
 	d.cfg.Application = d.defaultAppName
+	d.cfg.ValidateDefaultParameters = gosnowflake.ConfigBoolFalse
 
 	for k, v := range cnOptions {
 		v := v // copy into loop scope
