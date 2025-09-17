@@ -98,17 +98,16 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		if err != nil {
 			return nil, 0, adbc.Error{
 				Code: adbc.StatusInternal,
-				Msg:  fmt.Sprintf("failed to delete DLO: %v", err),
+				Msg:  err.Error(),
 			}
 		}
 
 		// Creates the DLO
 		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.cnxn.dataSpace, s.targetDLO, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
 		if err != nil {
-			fmt.Printf("ERROR: Failed to create DLO from SQL response: %v\n", err)
 			return nil, 0, adbc.Error{
 				Code: adbc.StatusInternal,
-				Msg:  fmt.Sprintf("failed to create DLO from SQL response: %v", err),
+				Msg:  err.Error(),
 			}
 		}
 
@@ -117,7 +116,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		if err != nil {
 			return nil, 0, adbc.Error{
 				Code: adbc.StatusInternal,
-				Msg:  fmt.Sprintf("failed to trigger the DCSQL data transform: %v", err),
+				Msg:  err.Error(),
 			}
 		}
 
@@ -125,9 +124,10 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
 		reader, err := array.NewRecordReader(emptySchema, []arrow.Record{})
 		if err != nil {
+			err = fmt.Errorf("failed to create empty record reader: %w", err)
 			return nil, 0, adbc.Error{
 				Code: adbc.StatusInternal,
-				Msg:  fmt.Sprintf("failed to create empty record reader: %v", err),
+				Msg:  err.Error(),
 			}
 		}
 		return reader, 0, nil
@@ -142,18 +142,20 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 
 	response, err := api.ExecuteSqlQuery(ctx, s.cnxn.client, queryRequest)
 	if err != nil {
+		err = fmt.Errorf("SQL query execution failed: %w", err)
 		return nil, 0, adbc.Error{
 			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("SQL query execution failed: %v", err),
+			Msg:  err.Error(),
 		}
 	}
 
 	// Convert the response to Arrow format
 	reader, rowCount, err := s.convertSqlQueryResponseToArrow(response)
 	if err != nil {
+		err = fmt.Errorf("failed to convert query response to Arrow: %w", err)
 		return nil, 0, adbc.Error{
 			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to convert query response to Arrow: %v", err),
+			Msg:  err.Error(),
 		}
 	}
 

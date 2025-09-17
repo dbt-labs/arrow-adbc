@@ -55,24 +55,16 @@ func DefaultAuthConfig() *AuthConfig {
 	}
 }
 
-// AuthError represents an authentication-related error
-type AuthError struct {
+// SfdcError represents an authentication-related error
+type SfdcError struct {
 	Code    int
 	Message string
 	Type    string
 }
 
-func (e *AuthError) Error() string {
+func (e *SfdcError) Error() string {
 	return e.Message
 }
-
-// Common authentication errors
-var (
-	ErrInvalidCredentials = &AuthError{Code: 400, Message: "Invalid credentials", Type: "invalid_credentials"}
-	ErrTokenExpired       = &AuthError{Code: 401, Message: "Token expired", Type: "token_expired"}
-	ErrInvalidGrant       = &AuthError{Code: 400, Message: "Invalid grant", Type: "invalid_grant"}
-	ErrInsufficientScope  = &AuthError{Code: 403, Message: "Insufficient scope", Type: "insufficient_scope"}
-)
 
 // SqlQueryRequest represents a SQL query request to Data Cloud
 type SqlQueryRequest struct {

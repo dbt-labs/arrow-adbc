@@ -51,7 +51,7 @@ func (client *Client) DeleteIfDloExists(ctx context.Context, name string) error 
 		if !deletionTriggered {
 			deleteErr := client.DeleteDataLakeObjectByName(ctx, name)
 			if deleteErr != nil {
-				return nil, backoff.Permanent(fmt.Errorf("failed to delete existing DLO: %w", deleteErr))
+				return nil, backoff.Permanent(fmt.Errorf("failed to delete the existing DLO %s: %w", name, deleteErr))
 			}
 			deletionTriggered = true
 		}

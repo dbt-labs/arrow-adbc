@@ -10,7 +10,7 @@ import (
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-data-streams.html
 func (c *Client) GetDataStream(ctx context.Context, recordIdOrDeveloperName string, includeMappings *bool) (*DataStream, error) {
 	if recordIdOrDeveloperName == "" {
-		return nil, &AuthError{
+		return nil, &SfdcError{
 			Code:    400,
 			Message: "Record ID or developer name cannot be empty",
 			Type:    "invalid_request",

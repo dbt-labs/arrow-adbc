@@ -12,7 +12,7 @@ import (
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-data-lake-objects.html
 func (c *Client) PostDataLakeObject(ctx context.Context, request *CreateDataLakeObjectRequest) (*DataLakeObject, error) {
 	if request == nil {
-		return nil, &AuthError{
+		return nil, &SfdcError{
 			Code:    400,
 			Message: "Data Lake Object request cannot be nil",
 			Type:    "invalid_request",
@@ -20,7 +20,7 @@ func (c *Client) PostDataLakeObject(ctx context.Context, request *CreateDataLake
 	}
 
 	if request.Name == "" {
-		return nil, &AuthError{
+		return nil, &SfdcError{
 			Code:    400,
 			Message: "Data Lake Object name cannot be empty",
 			Type:    "invalid_request",
@@ -28,7 +28,7 @@ func (c *Client) PostDataLakeObject(ctx context.Context, request *CreateDataLake
 	}
 
 	if request.Label == "" {
-		return nil, &AuthError{
+		return nil, &SfdcError{
 			Code:    400,
 			Message: "Data Lake Object label cannot be empty",
 			Type:    "invalid_request",
@@ -42,7 +42,7 @@ func (c *Client) PostDataLakeObject(ctx context.Context, request *CreateDataLake
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-data-lake-objects.html
 func (c *Client) GetDataLakeObject(ctx context.Context, recordIdOrDeveloperName string, limit, offset *int, orderBy string) (*DataLakeObject, error) {
 	if recordIdOrDeveloperName == "" {
-		return nil, &AuthError{
+		return nil, &SfdcError{
 			Code:    400,
 			Message: "Record ID or developer name cannot be empty",
 			Type:    "invalid_request",
@@ -66,7 +66,7 @@ func (c *Client) GetDataLakeObject(ctx context.Context, recordIdOrDeveloperName 
 // reference: https://developer.salesforce.com/docs/data/data-cloud-ref/guide/c360a-api-data-lake-objects.html
 func (c *Client) DeleteDataLakeObject(ctx context.Context, recordIdOrDeveloperName string) error {
 	if recordIdOrDeveloperName == "" {
-		return &AuthError{
+		return &SfdcError{
 			Code:    400,
 			Message: "Record ID or developer name cannot be empty",
 			Type:    "invalid_request",
