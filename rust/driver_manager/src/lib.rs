@@ -1528,7 +1528,11 @@ impl Statement for ManagedStatement {
             ));
         }
         let driver = self.ffi_driver();
-        let mut statement = self.inner.statement.lock().unwrap();
+        let mut statement = unsafe {
+            let mutex_ptr = &self.inner.statement as *const Mutex<ffi::FFI_AdbcStatement>
+                as *mut Mutex<ffi::FFI_AdbcStatement>;
+            (*mutex_ptr).get_mut().unwrap_unchecked()
+        };
         let mut error = ffi::FFI_AdbcError::with_driver(driver);
         let method = driver_method!(driver, StatementCancel);
         let status = unsafe { method(statement.deref_mut(), &mut error) };
