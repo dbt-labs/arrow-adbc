@@ -275,6 +275,13 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 	// Runs the data transform
 	_, err = client.RunDataTransform(ctx, dataTransform.Name)
 	if err != nil {
+		// Use background context for cancellation to ensure it completes even if original ctx is cancelled
+		cancelCtx, cancelFunc := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelFunc()
+		_, cancelErr := client.CancelDataTransform(cancelCtx, dataTransform.Name)
+		if cancelErr != nil {
+			log.Printf("⚠️ Failed to cancel data transform after run failure: %v", cancelErr)
+		}
 		return nil, err
 	}
 
@@ -309,8 +316,14 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			log.Printf("🕒 data transform run in progress, retrying in %v...\n", duration)
 		}))
+
 	if err != nil {
-		_, err = client.CancelDataTransform(ctx, dataTransform.Name)
+		log.Printf("⚠️ data transform run failed, cancelling data transform %s\n", dataTransform.Name)
+		// Use background context for cancellation to ensure it completes even if parent ctx is cancelled
+		_, cancelErr := client.CancelDataTransform(context.Background(), dataTransform.Name)
+		if cancelErr != nil {
+			log.Printf("⚠️ data transform cancellation failed: %v", cancelErr)
+		}
 		return nil, err
 	}
 

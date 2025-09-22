@@ -324,10 +324,12 @@ const (
 // DataTransformLastRunStatus represents the status of the last run
 type DataTransformLastRunStatus string
 
+// TODO: revisit these values, the actual returns are different from the documentation
+// see LastRunStatus from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=getDataTransform
 const (
 	DataTransformLastRunStatusCanceled          DataTransformLastRunStatus = "Canceled"
 	DataTransformLastRunStatusFailure           DataTransformLastRunStatus = "Failure"
-	DataTransformLastRunStatusInProgress        DataTransformLastRunStatus = "InProgress"
+	DataTransformLastRunStatusInProgress        DataTransformLastRunStatus = "In_Progress"
 	DataTransformLastRunStatusNone              DataTransformLastRunStatus = "None"
 	DataTransformLastRunStatusPartialFailure    DataTransformLastRunStatus = "PartialFailure"
 	DataTransformLastRunStatusPartiallyCanceled DataTransformLastRunStatus = "PartiallyCanceled"
