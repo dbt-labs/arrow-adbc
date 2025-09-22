@@ -531,6 +531,10 @@ type DataLakeFieldInputRepresentation struct {
 	IsPrimaryKey string                `json:"isPrimaryKey"` // "true" or "false" as string
 }
 
+type DataLakeObjects struct {
+	DataLakeObjects []DataLakeObject `json:"dataLakeObjects"`
+}
+
 // DataLakeObject represents the response from creating a Data Lake Object
 type DataLakeObject struct {
 	Capabilities                    map[string]interface{} `json:"capabilities"`
@@ -551,6 +555,14 @@ type DataLakeObject struct {
 	LastModifiedBy                  DataTransformUser      `json:"lastModifiedBy,omitempty"`
 	LastModifiedDate                string                 `json:"lastModifiedDate,omitempty"`
 	URL                             string                 `json:"url,omitempty"`
+}
+
+func (d *DataLakeObject) IsActive() bool {
+	return strings.EqualFold(string(d.Status), string(DataLakeObjectStatusActive))
+}
+
+func (d *DataLakeObject) IsError() bool {
+	return strings.EqualFold(string(d.Status), string(DataLakeObjectStatusError))
 }
 
 // DataLakeFieldOutput represents a field in the DLO output
