@@ -1528,6 +1528,21 @@ impl Statement for ManagedStatement {
             ));
         }
         let driver = self.ffi_driver();
+        // Workaround before [1] is fixed.
+        // 
+        // Drivers are supposed to handle thread-safety internally.
+        // It's an overkill for the Rust code to always take a lock
+        // to make calls, but it's true that not all drivers handle
+        // thread-safety well. Nevertheless, for cancellation of
+        // long-running statements (a call to `execute` that holds a
+        // lock while running), we have not choice but to make a call
+        // while a lock is held. This happens as a response to user-
+        // -triggered Ctrl+C and in those situation we are more
+        // concerned about actually cancelling statements than shutting
+        // down cleanly (without cancellation errors and even segfaults).
+        // Join the discussion in [1] to improve this situation.
+        //
+        // [1] https://github.com/apache/arrow-adbc/issues/3454
         let mut statement = unsafe {
             let mutex_ptr = &self.inner.statement as *const Mutex<ffi::FFI_AdbcStatement>
                 as *mut Mutex<ffi::FFI_AdbcStatement>;
