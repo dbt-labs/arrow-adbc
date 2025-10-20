@@ -1059,11 +1059,11 @@ func (st *statement) initIngest(ctx context.Context) error {
 	// 3.  Configure and run the load job with explicit schema
 	//---------------------------------------------------------------------------
 	loadSource := bigquery.NewReaderSource(file)
-	job := st.queryConfig.Dst.LoaderFrom(loadSource)
-	job.WriteDisposition = st.queryConfig.WriteDisposition
+	loader := st.queryConfig.Dst.LoaderFrom(loadSource)
+	loader.WriteDisposition = st.queryConfig.WriteDisposition
 
 	// Set file config
-	fileCfg := &job.Src.(*bigquery.ReaderSource).FileConfig
+	fileCfg := &loader.Src.(*bigquery.ReaderSource).FileConfig
 	fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other files
 	fileCfg.SkipLeadingRows = 1
 	fileCfg.FieldDelimiter = st.ingestFileDelimiter
@@ -1075,12 +1075,12 @@ func (st *statement) initIngest(ctx context.Context) error {
 		fileCfg.AutoDetect = true
 	}
 
-	handle, err := job.Run(ctx)
+	job, err := loader.Run(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start query job: %w", err)
 	}
 
-	status, err := handle.Wait(ctx)
+	status, err := job.Wait(ctx)
 	if err != nil {
 		return fmt.Errorf("job wait failed: %w", err)
 	}
