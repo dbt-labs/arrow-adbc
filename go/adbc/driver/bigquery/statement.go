@@ -21,7 +21,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"slices"
@@ -35,6 +39,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"google.golang.org/api/googleapi"
 )
 
 // todos for bigqueryConfig
@@ -1082,11 +1087,7 @@ func (st *statement) initIngest(ctx context.Context) error {
 			break
 		}
 
-		errMsg := strings.ToLower(err.Error())
-		isRateLimitError := (strings.Contains(errMsg, "rate") ||
-			strings.Contains(errMsg, "quota")) && strings.Contains(errMsg, "exceeded")
-
-		if !isRateLimitError {
+		if !retryableError(err, defaultRetryReasons) {
 			return fmt.Errorf("failed to start load job: %w", err)
 		}
 
@@ -1274,3 +1275,64 @@ func getFunctionName() string {
 }
 
 var _ adbc.GetSetOptions = (*statement)(nil)
+
+var (
+	defaultRetryReasons = []string{"backendError", "rateLimitExceeded"}
+
+	retry5xxCodes = []int{
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	}
+)
+
+// copied from https://github.com/googleapis/google-cloud-go/blob/1d8990dbf2563a5fbc96769ac9c6ea4ed06b239e/bigquery/bigquery.go#L256
+func retryableError(err error, allowedReasons []string) bool {
+	if err == nil {
+		return false
+	}
+	if err == io.ErrUnexpectedEOF {
+		return true
+	}
+	// Special case due to http2: https://github.com/googleapis/google-cloud-go/issues/1793
+	// Due to Go's default being higher for streams-per-connection than is accepted by the
+	// BQ backend, it's possible to get streams refused immediately after a connection is
+	// started but before we receive SETTINGS frame from the backend.  This generally only
+	// happens when we try to enqueue > 100 requests onto a newly initiated connection.
+	if err.Error() == "http2: stream closed" {
+		return true
+	}
+
+	switch e := err.(type) {
+	case *googleapi.Error:
+		// We received a structured error from backend.
+		var reason string
+		if len(e.Errors) > 0 {
+			reason = e.Errors[0].Reason
+			for _, r := range allowedReasons {
+				if reason == r {
+					return true
+				}
+			}
+		}
+		for _, code := range retry5xxCodes {
+			if e.Code == code {
+				return true
+			}
+		}
+	case *url.Error:
+		retryable := []string{"connection refused", "connection reset"}
+		for _, s := range retryable {
+			if strings.Contains(e.Error(), s) {
+				return true
+			}
+		}
+	case interface{ Temporary() bool }:
+		if e.Temporary() {
+			return true
+		}
+	}
+	// Check wrapped error.
+	return retryableError(errors.Unwrap(err), allowedReasons)
+}
