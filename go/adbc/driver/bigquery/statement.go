@@ -22,12 +22,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -1013,14 +1012,7 @@ func (st *statement) ExecutePartitions(ctx context.Context) (*arrow.Schema, adbc
 	}
 }
 
-// initIngest uploads a local CSV file to BigQuery.
-//
-// The function
-//  1. opens the file and reads *only* the header line plus the first data row;
-//  2. infers an Arrow schema from that sample (promoting obvious INT64 / FLOAT64 /
-//     BOOL / DATE / TIMESTAMP columns, leaving everything else STRING);
-//  3. converts the Arrow schema to a BigQuery Schema object;
-//  4. rewinds the file handle and executes a load job with the explicit schema.
+// initIngest uploads a local CSV file to BigQuery with retry on rate limits.
 //
 // The caller (executeIngest) ignores the job's result set because an ingest
 // operation never returns rows.
@@ -1032,52 +1024,82 @@ func (st *statement) initIngest(ctx context.Context) error {
 		}
 	}
 
-	//---------------------------------------------------------------------------
-	// 1.  Open the file and read header + first data row
-	//---------------------------------------------------------------------------
-	file, err := os.Open(st.ingestPath)
-	if err != nil {
-		return fmt.Errorf("open %q: %w", st.ingestPath, err)
-	}
-	defer file.Close()
-
-	// rewind reader for the load job
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("rewind: %w", err)
-	}
-
-	//---------------------------------------------------------------------------
-	// 2.  Sanity-check destination identifiers
-	//---------------------------------------------------------------------------
 	if st.queryConfig.Dst == nil {
-		log.Fatal("queryConfig.Dst is nil — project_id, dataset_id, table_id likely not set")
+		return adbc.Error{
+			Code: adbc.StatusInvalidState,
+			Msg:  "queryConfig.Dst is nil — project_id, dataset_id, table_id not set",
+		}
 	}
 	if st.queryConfig.Dst.ProjectID == "" {
-		log.Fatal("ProjectID is empty on queryConfig.Dst")
-	}
-	//---------------------------------------------------------------------------
-	// 3.  Configure and run the load job with explicit schema
-	//---------------------------------------------------------------------------
-	loadSource := bigquery.NewReaderSource(file)
-	loader := st.queryConfig.Dst.LoaderFrom(loadSource)
-	loader.WriteDisposition = st.queryConfig.WriteDisposition
-
-	// Set file config
-	fileCfg := &loader.Src.(*bigquery.ReaderSource).FileConfig
-	fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other files
-	fileCfg.SkipLeadingRows = 1
-	fileCfg.FieldDelimiter = st.ingestFileDelimiter
-
-	if st.explicitSchema != nil {
-		fileCfg.Schema = st.explicitSchema
-		fileCfg.AutoDetect = false
-	} else {
-		fileCfg.AutoDetect = true
+		return adbc.Error{
+			Code: adbc.StatusInvalidState,
+			Msg:  "ProjectID is empty on queryConfig.Dst",
+		}
 	}
 
-	job, err := loader.Run(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to start query job: %w", err)
+	// Usually retry is handled by the google cloud sdk,
+	// but when the Job involves uploading a file, retry is unsupported
+	// https://github.com/googleapis/google-cloud-go/blob/1d8990dbf2563a5fbc96769ac9c6ea4ed06b239e/bigquery/bigquery.go#L168
+
+	// Retry with exponential backoff on rate limit errors
+	// Use the same backoff parameters as BigQuery SDK
+	// https://github.com/googleapis/google-cloud-go/blob/1d8990dbf2563a5fbc96769ac9c6ea4ed06b239e/bigquery/bigquery.go#L225
+	const (
+		initialDelay = 1 * time.Second
+		maxDelay     = 32 * time.Second
+		multiplier   = 2.0
+	)
+
+	var job *bigquery.Job
+	delay := initialDelay
+
+	for {
+		file, err := os.Open(st.ingestPath)
+		if err != nil {
+			return fmt.Errorf("open file %q: %w", st.ingestPath, err)
+		}
+
+		loadSource := bigquery.NewReaderSource(file)
+		loader := st.queryConfig.Dst.LoaderFrom(loadSource)
+		loader.WriteDisposition = st.queryConfig.WriteDisposition
+
+		fileCfg := &loader.Src.(*bigquery.ReaderSource).FileConfig
+		fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other formats
+		fileCfg.SkipLeadingRows = 1
+		fileCfg.FieldDelimiter = st.ingestFileDelimiter
+
+		if st.explicitSchema != nil {
+			fileCfg.Schema = st.explicitSchema
+			fileCfg.AutoDetect = false
+		} else {
+			fileCfg.AutoDetect = true
+		}
+
+		job, err = loader.Run(ctx)
+		file.Close()
+
+		if err == nil {
+			break
+		}
+
+		errMsg := strings.ToLower(err.Error())
+		isRateLimitError := (strings.Contains(errMsg, "rate") ||
+			strings.Contains(errMsg, "quota")) && strings.Contains(errMsg, "exceeded")
+
+		if !isRateLimitError {
+			return fmt.Errorf("failed to start load job: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+		case <-time.After(delay):
+		}
+
+		delay = time.Duration(float64(delay) * multiplier)
+		if delay > maxDelay {
+			delay = maxDelay
+		}
 	}
 
 	status, err := job.Wait(ctx)
