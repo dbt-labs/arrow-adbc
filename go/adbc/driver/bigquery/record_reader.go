@@ -66,6 +66,9 @@ func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool, li
 		return nil, 0, nil
 	}
 
+	// The project id, location, and job id are all URL-safe:
+	// Project id and job id can only contain URL safe characters: https://cloud.google.com/bigquery/docs/reference/rest/v2/JobReference
+	// Locations are also URL-safe, listed here: https://cloud.google.com/bigquery/docs/locations
 	jobLink := fmt.Sprintf("https://console.cloud.google.com/bigquery?project=%s&j=bq:%s:%s&page=queryresults", job.ProjectID(), job.Location(), job.ID())
 	iter, err := job.Read(ctx)
 	if err != nil {
