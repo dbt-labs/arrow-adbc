@@ -40,11 +40,6 @@ type connectionImpl struct {
 	dbSchema   string
 }
 
-// connection wraps the internal implementation
-type connection struct {
-	driverbase.Connection
-}
-
 // openSession opens the connection by creating a Livy session
 func (c *connectionImpl) openSession(ctx context.Context) error {
 	// Build session configuration
@@ -58,7 +53,7 @@ func (c *connectionImpl) openSession(ctx context.Context) error {
 	}
 
 	// Add optional parameters
-	if heartbeat, ok := sessionOpts["heartbeatTimeoutInSecond"].(int64); ok {
+	if heartbeat, ok := sessionOpts["heartbeatTimeoutInSecond"].(int); ok {
 		req.HeartbeatTimeoutSec = int(heartbeat)
 	}
 	if ttl, ok := sessionOpts["ttl"].(string); ok {

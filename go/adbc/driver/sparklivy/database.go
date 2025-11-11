@@ -350,8 +350,8 @@ func (db *databaseImpl) getSessionOptions() map[string]any {
 
 	// Add heartbeat timeout if specified
 	if heartbeat := db.options[OptionHeartbeatTimeout]; heartbeat != "" {
-		if val, err := strconv.ParseInt(heartbeat, 10, 64); err == nil {
-			opts["heartbeatTimeoutInSecond"] = val
+		if val, err := strconv.ParseInt(heartbeat, 10, 32); err == nil {
+			opts["heartbeatTimeoutInSecond"] = int(val)
 		}
 	}
 
