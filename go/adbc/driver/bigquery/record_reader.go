@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	MetadataKeyBigqueryQueryID = "BIGQUERY_QUERY_ID"
+	MetadataKeyBigqueryQueryID = "BIGQUERY:query_id"
 )
 
 type reader struct {
