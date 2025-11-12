@@ -37,13 +37,13 @@ package main
 // typedef const uint32_t cuint32_t;
 // typedef const struct AdbcError ConstAdbcError;
 //
-// int SalesforceArrayStreamGetSchema(struct ArrowArrayStream*, struct ArrowSchema*);
-// int SalesforceArrayStreamGetNext(struct ArrowArrayStream*, struct ArrowArray*);
-// const char* SalesforceArrayStreamGetLastError(struct ArrowArrayStream*);
-// void SalesforceArrayStreamRelease(struct ArrowArrayStream*);
+// int SparkLivyArrayStreamGetSchema(struct ArrowArrayStream*, struct ArrowSchema*);
+// int SparkLivyArrayStreamGetNext(struct ArrowArrayStream*, struct ArrowArray*);
+// const char* SparkLivyArrayStreamGetLastError(struct ArrowArrayStream*);
+// void SparkLivyArrayStreamRelease(struct ArrowArrayStream*);
 //
-// int SalesforceArrayStreamGetSchemaTrampoline(struct ArrowArrayStream*, struct ArrowSchema*);
-// int SalesforceArrayStreamGetNextTrampoline(struct ArrowArrayStream*, struct ArrowArray*);
+// int SparkLivyArrayStreamGetSchemaTrampoline(struct ArrowArrayStream*, struct ArrowSchema*);
+// int SparkLivyArrayStreamGetNextTrampoline(struct ArrowArrayStream*, struct ArrowArray*);
 //
 // void releasePartitions(struct AdbcPartitions* partitions);
 //
@@ -61,7 +61,7 @@ import (
 	"unsafe"
 
 	"github.com/apache/arrow-adbc/go/adbc"
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce"
+	"github.com/apache/arrow-adbc/go/adbc/driver/sparklivy"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/cdata"
 	"github.com/apache/arrow-go/v18/arrow/memory"
@@ -69,14 +69,14 @@ import (
 )
 
 // Must use malloc() to respect CGO rules
-var drv = salesforce.NewDriver(mallocator.NewMallocator())
+var drv = sparklivy.NewDriver(mallocator.NewMallocator())
 
 // Flag set if any method panic()ed - afterwards all calls to driver will fail
 // since internal state of driver is unknown
 var globalPoison atomic.Bool
 
-const errPrefix = "[Salesforce] "
-const logLevelEnvVar = "ADBC_DRIVER_SALESFORCE_LOG_LEVEL"
+const errPrefix = "[SparkLivy] "
+const logLevelEnvVar = "ADBC_DRIVER_SPARKLIVY_LOG_LEVEL"
 
 func setErr(err *C.struct_AdbcError, format string, vals ...interface{}) {
 	if err == nil {
@@ -84,7 +84,7 @@ func setErr(err *C.struct_AdbcError, format string, vals ...interface{}) {
 	}
 
 	if err.release != nil {
-		C.SalesforceerrRelease(err)
+		C.SparkLivyerrRelease(err)
 	}
 
 	var msg string
@@ -97,7 +97,7 @@ func setErr(err *C.struct_AdbcError, format string, vals ...interface{}) {
 		msg = errPrefix + fmt.Sprintf(format, vals...)
 	}
 	err.message = C.CString(msg)
-	err.release = (*[0]byte)(C.Salesforce_release_error)
+	err.release = (*[0]byte)(C.SparkLivy_release_error)
 }
 
 func setErrWithDetails(err *C.struct_AdbcError, adbcError adbc.Error) {
@@ -130,11 +130,11 @@ func setErrWithDetails(err *C.struct_AdbcError, adbcError adbc.Error) {
 		return
 	}
 
-	cErrPtr := C.calloc(C.sizeof_struct_SalesforceError, C.size_t(1))
-	cErr := (*C.struct_SalesforceError)(cErrPtr)
+	cErrPtr := C.calloc(C.sizeof_struct_SparkLivyError, C.size_t(1))
+	cErr := (*C.struct_SparkLivyError)(cErrPtr)
 	cErr.message = C.CString(adbcError.Msg)
 	err.message = cErr.message
-	err.release = (*[0]byte)(C.SalesforceReleaseErrWithDetails)
+	err.release = (*[0]byte)(C.SparkLivyReleaseErrWithDetails)
 	err.private_data = cErrPtr
 
 	if numDetails > 0 {
@@ -189,9 +189,9 @@ func poison(err *C.struct_AdbcError, fname string, e interface{}) C.AdbcStatusCo
 		// Only print stack traces on the first occurrence
 		buf := make([]byte, 1<<20)
 		length := runtime.Stack(buf, true)
-		fmt.Fprintf(os.Stderr, "Salesforce driver panicked, stack traces:\n%s", buf[:length])
+		fmt.Fprintf(os.Stderr, "SparkLivy driver panicked, stack traces:\n%s", buf[:length])
 	}
-	setErr(err, "%s: Go panic in Salesforce driver (see stderr): %#v", fname, e)
+	setErr(err, "%s: Go panic in SparkLivy driver (see stderr): %#v", fname, e)
 	return C.ADBC_STATUS_INTERNAL
 }
 
@@ -223,14 +223,14 @@ func initLoggingFromEnv(db adbc.Database) {
 
 	ext, ok := db.(adbc.DatabaseLogging)
 	if !ok {
-		logger.Error("Salesforce does not support logging")
+		logger.Error("SparkLivy does not support logging")
 		return
 	}
 	ext.SetLogger(logger)
 }
 
 func printLoggingHelp() {
-	fmt.Fprintf(os.Stderr, "Salesforce: to enable logging, set %s to 'debug', 'info', 'warn', or 'error'", logLevelEnvVar)
+	fmt.Fprintf(os.Stderr, "SparkLivy: to enable logging, set %s to 'debug', 'info', 'warn', or 'error'", logLevelEnvVar)
 }
 
 // Allocate a new cgo.Handle and store its address in a heap-allocated
@@ -332,7 +332,7 @@ func (cStream *cArrayStream) maybeError() C.int {
 	err := cStream.rdr.Err()
 	if err != nil {
 		if cStream.adbcErr != nil {
-			C.SalesforceerrRelease(cStream.adbcErr)
+			C.SparkLivyerrRelease(cStream.adbcErr)
 		} else {
 			cStream.adbcErr = (*C.struct_AdbcError)(C.calloc(1, C.ADBC_ERROR_1_1_0_SIZE))
 		}
@@ -374,9 +374,9 @@ func (cStream *cArrayStream) maybeError() C.int {
 	return 0
 }
 
-//export SalesforceArrayStreamGetLastError
-func SalesforceArrayStreamGetLastError(stream *C.struct_ArrowArrayStream) *C.cchar_t {
-	if stream == nil || stream.release != (*[0]byte)(C.SalesforceArrayStreamRelease) || stream.private_data == nil {
+//export SparkLivyArrayStreamGetLastError
+func SparkLivyArrayStreamGetLastError(stream *C.struct_ArrowArrayStream) *C.cchar_t {
+	if stream == nil || stream.release != (*[0]byte)(C.SparkLivyArrayStreamRelease) || stream.private_data == nil {
 		return nil
 	}
 	cStream := getFromHandle[cArrayStream](stream.private_data)
@@ -386,9 +386,9 @@ func SalesforceArrayStreamGetLastError(stream *C.struct_ArrowArrayStream) *C.cch
 	return nil
 }
 
-//export SalesforceArrayStreamGetNext
-func SalesforceArrayStreamGetNext(stream *C.struct_ArrowArrayStream, array *C.struct_ArrowArray) C.int {
-	if stream == nil || stream.release != (*[0]byte)(C.SalesforceArrayStreamRelease) || stream.private_data == nil {
+//export SparkLivyArrayStreamGetNext
+func SparkLivyArrayStreamGetNext(stream *C.struct_ArrowArrayStream, array *C.struct_ArrowArray) C.int {
+	if stream == nil || stream.release != (*[0]byte)(C.SparkLivyArrayStreamRelease) || stream.private_data == nil {
 		return C.EINVAL
 	}
 	cStream := getFromHandle[cArrayStream](stream.private_data)
@@ -401,9 +401,9 @@ func SalesforceArrayStreamGetNext(stream *C.struct_ArrowArrayStream, array *C.st
 	return cStream.maybeError()
 }
 
-//export SalesforceArrayStreamGetSchema
-func SalesforceArrayStreamGetSchema(stream *C.struct_ArrowArrayStream, schema *C.struct_ArrowSchema) C.int {
-	if stream == nil || stream.release != (*[0]byte)(C.SalesforceArrayStreamRelease) || stream.private_data == nil {
+//export SparkLivyArrayStreamGetSchema
+func SparkLivyArrayStreamGetSchema(stream *C.struct_ArrowArrayStream, schema *C.struct_ArrowSchema) C.int {
+	if stream == nil || stream.release != (*[0]byte)(C.SparkLivyArrayStreamRelease) || stream.private_data == nil {
 		return C.EINVAL
 	}
 	cStream := getFromHandle[cArrayStream](stream.private_data)
@@ -415,9 +415,9 @@ func SalesforceArrayStreamGetSchema(stream *C.struct_ArrowArrayStream, schema *C
 	return 0
 }
 
-//export SalesforceArrayStreamRelease
-func SalesforceArrayStreamRelease(stream *C.struct_ArrowArrayStream) {
-	if stream == nil || stream.release != (*[0]byte)(C.SalesforceArrayStreamRelease) || stream.private_data == nil {
+//export SparkLivyArrayStreamRelease
+func SparkLivyArrayStreamRelease(stream *C.struct_ArrowArrayStream) {
+	if stream == nil || stream.release != (*[0]byte)(C.SparkLivyArrayStreamRelease) || stream.private_data == nil {
 		return
 	}
 	h := (*(*cgo.Handle)(stream.private_data))
@@ -425,7 +425,7 @@ func SalesforceArrayStreamRelease(stream *C.struct_ArrowArrayStream) {
 	cStream := h.Value().(*cArrayStream)
 	cStream.rdr.Release()
 	if cStream.adbcErr != nil {
-		C.SalesforceerrRelease(cStream.adbcErr)
+		C.SparkLivyerrRelease(cStream.adbcErr)
 		C.free(unsafe.Pointer(cStream.adbcErr))
 	}
 	C.free(unsafe.Pointer(stream.private_data))
@@ -434,9 +434,9 @@ func SalesforceArrayStreamRelease(stream *C.struct_ArrowArrayStream) {
 	runtime.GC()
 }
 
-//export SalesforceErrorFromArrayStream
-func SalesforceErrorFromArrayStream(stream *C.struct_ArrowArrayStream, status *C.AdbcStatusCode) *C.struct_AdbcError {
-	if stream == nil || stream.release != (*[0]byte)(C.SalesforceArrayStreamRelease) || stream.private_data == nil {
+//export SparkLivyErrorFromArrayStream
+func SparkLivyErrorFromArrayStream(stream *C.struct_ArrowArrayStream, status *C.AdbcStatusCode) *C.struct_AdbcError {
+	if stream == nil || stream.release != (*[0]byte)(C.SparkLivyArrayStreamRelease) || stream.private_data == nil {
 		return nil
 	}
 	cStream := getFromHandle[cArrayStream](stream.private_data)
@@ -448,10 +448,10 @@ func SalesforceErrorFromArrayStream(stream *C.struct_ArrowArrayStream, status *C
 
 func exportRecordReader(rdr array.RecordReader, stream *C.struct_ArrowArrayStream) {
 	cStream := &cArrayStream{rdr: rdr, status: C.ADBC_STATUS_OK}
-	stream.get_last_error = (*[0]byte)(C.SalesforceArrayStreamGetLastError)
-	stream.get_next = (*[0]byte)(C.SalesforceArrayStreamGetNextTrampoline)
-	stream.get_schema = (*[0]byte)(C.SalesforceArrayStreamGetSchemaTrampoline)
-	stream.release = (*[0]byte)(C.SalesforceArrayStreamRelease)
+	stream.get_last_error = (*[0]byte)(C.SparkLivyArrayStreamGetLastError)
+	stream.get_next = (*[0]byte)(C.SparkLivyArrayStreamGetNextTrampoline)
+	stream.get_schema = (*[0]byte)(C.SparkLivyArrayStreamGetSchemaTrampoline)
+	stream.release = (*[0]byte)(C.SparkLivyArrayStreamRelease)
 	hndl := cgo.NewHandle(cStream)
 	stream.private_data = createHandle(hndl)
 	rdr.Retain()
@@ -462,8 +462,8 @@ type cDatabase struct {
 	db   adbc.Database
 }
 
-//export SalesforceDatabaseGetOption
-func SalesforceDatabaseGetOption(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.char, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseGetOption
+func SparkLivyDatabaseGetOption(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.char, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseGetOption", e)
@@ -487,8 +487,8 @@ func SalesforceDatabaseGetOption(db *C.struct_AdbcDatabase, key *C.cchar_t, valu
 	return exportStringOption(val, value, length)
 }
 
-//export SalesforceDatabaseGetOptionBytes
-func SalesforceDatabaseGetOptionBytes(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.uint8_t, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseGetOptionBytes
+func SparkLivyDatabaseGetOptionBytes(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.uint8_t, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseGetOptionBytes", e)
@@ -512,8 +512,8 @@ func SalesforceDatabaseGetOptionBytes(db *C.struct_AdbcDatabase, key *C.cchar_t,
 	return exportBytesOption(val, value, length)
 }
 
-//export SalesforceDatabaseGetOptionDouble
-func SalesforceDatabaseGetOptionDouble(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseGetOptionDouble
+func SparkLivyDatabaseGetOptionDouble(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseGetOptionDouble", e)
@@ -535,8 +535,8 @@ func SalesforceDatabaseGetOptionDouble(db *C.struct_AdbcDatabase, key *C.cchar_t
 	return C.AdbcStatusCode(errToAdbcErr(err, e))
 }
 
-//export SalesforceDatabaseGetOptionInt
-func SalesforceDatabaseGetOptionInt(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseGetOptionInt
+func SparkLivyDatabaseGetOptionInt(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseGetOptionInt", e)
@@ -558,8 +558,8 @@ func SalesforceDatabaseGetOptionInt(db *C.struct_AdbcDatabase, key *C.cchar_t, v
 	return C.AdbcStatusCode(errToAdbcErr(err, e))
 }
 
-//export SalesforceDatabaseInit
-func SalesforceDatabaseInit(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseInit
+func SparkLivyDatabaseInit(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseInit", e)
@@ -586,8 +586,8 @@ func SalesforceDatabaseInit(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) 
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceDatabaseNew
-func SalesforceDatabaseNew(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseNew
+func SparkLivyDatabaseNew(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseNew", e)
@@ -607,8 +607,8 @@ func SalesforceDatabaseNew(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceDatabaseRelease
-func SalesforceDatabaseRelease(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseRelease
+func SparkLivyDatabaseRelease(db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseInit", e)
@@ -640,8 +640,8 @@ func SalesforceDatabaseRelease(db *C.struct_AdbcDatabase, err *C.struct_AdbcErro
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceDatabaseSetOption
-func SalesforceDatabaseSetOption(db *C.struct_AdbcDatabase, key, value *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseSetOption
+func SparkLivyDatabaseSetOption(db *C.struct_AdbcDatabase, key, value *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseSetOption", e)
@@ -667,8 +667,8 @@ func SalesforceDatabaseSetOption(db *C.struct_AdbcDatabase, key, value *C.cchar_
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceDatabaseSetOptionBytes
-func SalesforceDatabaseSetOptionBytes(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseSetOptionBytes
+func SparkLivyDatabaseSetOptionBytes(db *C.struct_AdbcDatabase, key *C.cchar_t, value *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseSetOptionBytes", e)
@@ -688,8 +688,8 @@ func SalesforceDatabaseSetOptionBytes(db *C.struct_AdbcDatabase, key *C.cchar_t,
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOptionBytes(C.GoString(key), fromCArr[byte](value, int(length)))))
 }
 
-//export SalesforceDatabaseSetOptionDouble
-func SalesforceDatabaseSetOptionDouble(db *C.struct_AdbcDatabase, key *C.cchar_t, value C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseSetOptionDouble
+func SparkLivyDatabaseSetOptionDouble(db *C.struct_AdbcDatabase, key *C.cchar_t, value C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseSetOptionDouble", e)
@@ -709,8 +709,8 @@ func SalesforceDatabaseSetOptionDouble(db *C.struct_AdbcDatabase, key *C.cchar_t
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOptionDouble(C.GoString(key), float64(value))))
 }
 
-//export SalesforceDatabaseSetOptionInt
-func SalesforceDatabaseSetOptionInt(db *C.struct_AdbcDatabase, key *C.cchar_t, value C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyDatabaseSetOptionInt
+func SparkLivyDatabaseSetOptionInt(db *C.struct_AdbcDatabase, key *C.cchar_t, value C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcDatabaseSetOptionInt", e)
@@ -766,8 +766,8 @@ func checkConnInit(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError, fname
 	return conn
 }
 
-//export SalesforceConnectionGetOption
-func SalesforceConnectionGetOption(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.char, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetOption
+func SparkLivyConnectionGetOption(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.char, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetOption", e)
@@ -791,8 +791,8 @@ func SalesforceConnectionGetOption(db *C.struct_AdbcConnection, key *C.cchar_t, 
 	return exportStringOption(val, value, length)
 }
 
-//export SalesforceConnectionGetOptionBytes
-func SalesforceConnectionGetOptionBytes(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.uint8_t, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetOptionBytes
+func SparkLivyConnectionGetOptionBytes(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.uint8_t, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetOptionBytes", e)
@@ -816,8 +816,8 @@ func SalesforceConnectionGetOptionBytes(db *C.struct_AdbcConnection, key *C.ccha
 	return exportBytesOption(val, value, length)
 }
 
-//export SalesforceConnectionGetOptionDouble
-func SalesforceConnectionGetOptionDouble(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetOptionDouble
+func SparkLivyConnectionGetOptionDouble(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetOptionDouble", e)
@@ -839,8 +839,8 @@ func SalesforceConnectionGetOptionDouble(db *C.struct_AdbcConnection, key *C.cch
 	return C.AdbcStatusCode(errToAdbcErr(err, e))
 }
 
-//export SalesforceConnectionGetOptionInt
-func SalesforceConnectionGetOptionInt(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetOptionInt
+func SparkLivyConnectionGetOptionInt(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetOptionInt", e)
@@ -862,8 +862,8 @@ func SalesforceConnectionGetOptionInt(db *C.struct_AdbcConnection, key *C.cchar_
 	return C.AdbcStatusCode(errToAdbcErr(err, e))
 }
 
-//export SalesforceConnectionNew
-func SalesforceConnectionNew(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionNew
+func SparkLivyConnectionNew(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionNew", e)
@@ -883,8 +883,8 @@ func SalesforceConnectionNew(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcEr
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionSetOption
-func SalesforceConnectionSetOption(cnxn *C.struct_AdbcConnection, key, val *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionSetOption
+func SparkLivyConnectionSetOption(cnxn *C.struct_AdbcConnection, key, val *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionSetOption", e)
@@ -913,8 +913,8 @@ func SalesforceConnectionSetOption(cnxn *C.struct_AdbcConnection, key, val *C.cc
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOption(C.GoString(key), C.GoString(val))))
 }
 
-//export SalesforceConnectionSetOptionBytes
-func SalesforceConnectionSetOptionBytes(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionSetOptionBytes
+func SparkLivyConnectionSetOptionBytes(db *C.struct_AdbcConnection, key *C.cchar_t, value *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionSetOptionBytes", e)
@@ -934,8 +934,8 @@ func SalesforceConnectionSetOptionBytes(db *C.struct_AdbcConnection, key *C.ccha
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOptionBytes(C.GoString(key), fromCArr[byte](value, int(length)))))
 }
 
-//export SalesforceConnectionSetOptionDouble
-func SalesforceConnectionSetOptionDouble(db *C.struct_AdbcConnection, key *C.cchar_t, value C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionSetOptionDouble
+func SparkLivyConnectionSetOptionDouble(db *C.struct_AdbcConnection, key *C.cchar_t, value C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionSetOptionDouble", e)
@@ -955,8 +955,8 @@ func SalesforceConnectionSetOptionDouble(db *C.struct_AdbcConnection, key *C.cch
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOptionDouble(C.GoString(key), float64(value))))
 }
 
-//export SalesforceConnectionSetOptionInt
-func SalesforceConnectionSetOptionInt(db *C.struct_AdbcConnection, key *C.cchar_t, value C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionSetOptionInt
+func SparkLivyConnectionSetOptionInt(db *C.struct_AdbcConnection, key *C.cchar_t, value C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionSetOptionInt", e)
@@ -976,8 +976,8 @@ func SalesforceConnectionSetOptionInt(db *C.struct_AdbcConnection, key *C.cchar_
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOptionInt(C.GoString(key), int64(value))))
 }
 
-//export SalesforceConnectionInit
-func SalesforceConnectionInit(cnxn *C.struct_AdbcConnection, db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionInit
+func SparkLivyConnectionInit(cnxn *C.struct_AdbcConnection, db *C.struct_AdbcDatabase, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionInit", e)
@@ -1022,8 +1022,8 @@ func SalesforceConnectionInit(cnxn *C.struct_AdbcConnection, db *C.struct_AdbcDa
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionRelease
-func SalesforceConnectionRelease(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionRelease
+func SparkLivyConnectionRelease(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionRelease", e)
@@ -1075,8 +1075,8 @@ func toCdataArray(ptr *C.struct_ArrowArray) *cdata.CArrowArray {
 	return (*cdata.CArrowArray)(unsafe.Pointer(ptr))
 }
 
-//export SalesforceConnectionCancel
-func SalesforceConnectionCancel(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionCancel
+func SparkLivyConnectionCancel(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionCancel", e)
@@ -1115,8 +1115,8 @@ func toStrSlice(in **C.cchar_t) []string {
 	return out
 }
 
-//export SalesforceConnectionGetInfo
-func SalesforceConnectionGetInfo(cnxn *C.struct_AdbcConnection, codes *C.cuint32_t, len C.size_t, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetInfo
+func SparkLivyConnectionGetInfo(cnxn *C.struct_AdbcConnection, codes *C.cuint32_t, len C.size_t, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetInfo", e)
@@ -1138,8 +1138,8 @@ func SalesforceConnectionGetInfo(cnxn *C.struct_AdbcConnection, codes *C.cuint32
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionGetObjects
-func SalesforceConnectionGetObjects(cnxn *C.struct_AdbcConnection, depth C.int, catalog, dbSchema, tableName *C.cchar_t, tableType **C.cchar_t, columnName *C.cchar_t,
+//export SparkLivyConnectionGetObjects
+func SparkLivyConnectionGetObjects(cnxn *C.struct_AdbcConnection, depth C.int, catalog, dbSchema, tableName *C.cchar_t, tableType **C.cchar_t, columnName *C.cchar_t,
 	out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
@@ -1160,8 +1160,8 @@ func SalesforceConnectionGetObjects(cnxn *C.struct_AdbcConnection, depth C.int, 
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionGetStatistics
-func SalesforceConnectionGetStatistics(cnxn *C.struct_AdbcConnection, catalog, dbSchema, tableName *C.cchar_t, approximate C.char, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetStatistics
+func SparkLivyConnectionGetStatistics(cnxn *C.struct_AdbcConnection, catalog, dbSchema, tableName *C.cchar_t, approximate C.char, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetStatistics", e)
@@ -1188,8 +1188,8 @@ func SalesforceConnectionGetStatistics(cnxn *C.struct_AdbcConnection, catalog, d
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionGetStatisticNames
-func SalesforceConnectionGetStatisticNames(cnxn *C.struct_AdbcConnection, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetStatisticNames
+func SparkLivyConnectionGetStatisticNames(cnxn *C.struct_AdbcConnection, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetStatistics", e)
@@ -1215,8 +1215,8 @@ func SalesforceConnectionGetStatisticNames(cnxn *C.struct_AdbcConnection, out *C
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionGetTableSchema
-func SalesforceConnectionGetTableSchema(cnxn *C.struct_AdbcConnection, catalog, dbSchema, tableName *C.cchar_t, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetTableSchema
+func SparkLivyConnectionGetTableSchema(cnxn *C.struct_AdbcConnection, catalog, dbSchema, tableName *C.cchar_t, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetTableSchema", e)
@@ -1235,8 +1235,8 @@ func SalesforceConnectionGetTableSchema(cnxn *C.struct_AdbcConnection, catalog, 
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionGetTableTypes
-func SalesforceConnectionGetTableTypes(cnxn *C.struct_AdbcConnection, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionGetTableTypes
+func SparkLivyConnectionGetTableTypes(cnxn *C.struct_AdbcConnection, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionGetTableTypes", e)
@@ -1256,8 +1256,8 @@ func SalesforceConnectionGetTableTypes(cnxn *C.struct_AdbcConnection, out *C.str
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionReadPartition
-func SalesforceConnectionReadPartition(cnxn *C.struct_AdbcConnection, serialized *C.cuint8_t, serializedLen C.size_t, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionReadPartition
+func SparkLivyConnectionReadPartition(cnxn *C.struct_AdbcConnection, serialized *C.cuint8_t, serializedLen C.size_t, out *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionReadPartition", e)
@@ -1277,8 +1277,8 @@ func SalesforceConnectionReadPartition(cnxn *C.struct_AdbcConnection, serialized
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceConnectionCommit
-func SalesforceConnectionCommit(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionCommit
+func SparkLivyConnectionCommit(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionCommit", e)
@@ -1292,8 +1292,8 @@ func SalesforceConnectionCommit(cnxn *C.struct_AdbcConnection, err *C.struct_Adb
 	return C.AdbcStatusCode(errToAdbcErr(err, conn.cnxn.Commit(conn.newContext())))
 }
 
-//export SalesforceConnectionRollback
-func SalesforceConnectionRollback(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyConnectionRollback
+func SparkLivyConnectionRollback(cnxn *C.struct_AdbcConnection, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcConnectionRollback", e)
@@ -1341,8 +1341,8 @@ func checkStmtInit(stmt *C.struct_AdbcStatement, err *C.struct_AdbcError, fname 
 	return cStmt
 }
 
-//export SalesforceStatementGetOption
-func SalesforceStatementGetOption(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.char, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementGetOption
+func SparkLivyStatementGetOption(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.char, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementGetOption", e)
@@ -1366,8 +1366,8 @@ func SalesforceStatementGetOption(db *C.struct_AdbcStatement, key *C.cchar_t, va
 	return exportStringOption(val, value, length)
 }
 
-//export SalesforceStatementGetOptionBytes
-func SalesforceStatementGetOptionBytes(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.uint8_t, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementGetOptionBytes
+func SparkLivyStatementGetOptionBytes(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.uint8_t, length *C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementGetOptionBytes", e)
@@ -1391,8 +1391,8 @@ func SalesforceStatementGetOptionBytes(db *C.struct_AdbcStatement, key *C.cchar_
 	return exportBytesOption(val, value, length)
 }
 
-//export SalesforceStatementGetOptionDouble
-func SalesforceStatementGetOptionDouble(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementGetOptionDouble
+func SparkLivyStatementGetOptionDouble(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementGetOptionDouble", e)
@@ -1414,8 +1414,8 @@ func SalesforceStatementGetOptionDouble(db *C.struct_AdbcStatement, key *C.cchar
 	return C.AdbcStatusCode(errToAdbcErr(err, e))
 }
 
-//export SalesforceStatementGetOptionInt
-func SalesforceStatementGetOptionInt(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementGetOptionInt
+func SparkLivyStatementGetOptionInt(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementGetOptionInt", e)
@@ -1437,8 +1437,8 @@ func SalesforceStatementGetOptionInt(db *C.struct_AdbcStatement, key *C.cchar_t,
 	return C.AdbcStatusCode(errToAdbcErr(err, e))
 }
 
-//export SalesforceStatementNew
-func SalesforceStatementNew(cnxn *C.struct_AdbcConnection, stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementNew
+func SparkLivyStatementNew(cnxn *C.struct_AdbcConnection, stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementNew", e)
@@ -1468,8 +1468,8 @@ func SalesforceStatementNew(cnxn *C.struct_AdbcConnection, stmt *C.struct_AdbcSt
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceStatementRelease
-func SalesforceStatementRelease(stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementRelease
+func SparkLivyStatementRelease(stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementRelease", e)
@@ -1505,8 +1505,8 @@ func SalesforceStatementRelease(stmt *C.struct_AdbcStatement, err *C.struct_Adbc
 	return C.AdbcStatusCode(errToAdbcErr(err, st.stmt.Close()))
 }
 
-//export SalesforceStatementCancel
-func SalesforceStatementCancel(stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementCancel
+func SparkLivyStatementCancel(stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementCancel", e)
@@ -1521,8 +1521,8 @@ func SalesforceStatementCancel(stmt *C.struct_AdbcStatement, err *C.struct_AdbcE
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceStatementPrepare
-func SalesforceStatementPrepare(stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementPrepare
+func SparkLivyStatementPrepare(stmt *C.struct_AdbcStatement, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementPrepare", e)
@@ -1536,8 +1536,8 @@ func SalesforceStatementPrepare(stmt *C.struct_AdbcStatement, err *C.struct_Adbc
 	return C.AdbcStatusCode(errToAdbcErr(err, st.stmt.Prepare(st.newContext())))
 }
 
-//export SalesforceStatementExecuteQuery
-func SalesforceStatementExecuteQuery(stmt *C.struct_AdbcStatement, out *C.struct_ArrowArrayStream, affected *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementExecuteQuery
+func SparkLivyStatementExecuteQuery(stmt *C.struct_AdbcStatement, out *C.struct_ArrowArrayStream, affected *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementExecuteQuery", e)
@@ -1573,8 +1573,8 @@ func SalesforceStatementExecuteQuery(stmt *C.struct_AdbcStatement, out *C.struct
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceStatementExecuteSchema
-func SalesforceStatementExecuteSchema(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementExecuteSchema
+func SparkLivyStatementExecuteSchema(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementExecuteQuery", e)
@@ -1600,8 +1600,8 @@ func SalesforceStatementExecuteSchema(stmt *C.struct_AdbcStatement, schema *C.st
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceStatementSetSqlQuery
-func SalesforceStatementSetSqlQuery(stmt *C.struct_AdbcStatement, query *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementSetSqlQuery
+func SparkLivyStatementSetSqlQuery(stmt *C.struct_AdbcStatement, query *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementSetSqlQuery", e)
@@ -1615,8 +1615,8 @@ func SalesforceStatementSetSqlQuery(stmt *C.struct_AdbcStatement, query *C.cchar
 	return C.AdbcStatusCode(errToAdbcErr(err, st.stmt.SetSqlQuery(C.GoString(query))))
 }
 
-//export SalesforceStatementSetSubstraitPlan
-func SalesforceStatementSetSubstraitPlan(stmt *C.struct_AdbcStatement, plan *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementSetSubstraitPlan
+func SparkLivyStatementSetSubstraitPlan(stmt *C.struct_AdbcStatement, plan *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementSetSubstraitPlan", e)
@@ -1630,8 +1630,8 @@ func SalesforceStatementSetSubstraitPlan(stmt *C.struct_AdbcStatement, plan *C.c
 	return C.AdbcStatusCode(errToAdbcErr(err, st.stmt.SetSubstraitPlan(fromCArr[byte](plan, int(length)))))
 }
 
-//export SalesforceStatementBind
-func SalesforceStatementBind(stmt *C.struct_AdbcStatement, values *C.struct_ArrowArray, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementBind
+func SparkLivyStatementBind(stmt *C.struct_AdbcStatement, values *C.struct_ArrowArray, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementBind", e)
@@ -1653,8 +1653,8 @@ func SalesforceStatementBind(stmt *C.struct_AdbcStatement, values *C.struct_Arro
 	return C.AdbcStatusCode(errToAdbcErr(err, st.stmt.Bind(st.newContext(), rec)))
 }
 
-//export SalesforceStatementBindStream
-func SalesforceStatementBindStream(stmt *C.struct_AdbcStatement, stream *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementBindStream
+func SparkLivyStatementBindStream(stmt *C.struct_AdbcStatement, stream *C.struct_ArrowArrayStream, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementBindStream", e)
@@ -1672,8 +1672,8 @@ func SalesforceStatementBindStream(stmt *C.struct_AdbcStatement, stream *C.struc
 	return C.AdbcStatusCode(errToAdbcErr(err, st.stmt.BindStream(st.newContext(), rdr.(array.RecordReader))))
 }
 
-//export SalesforceStatementGetParameterSchema
-func SalesforceStatementGetParameterSchema(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementGetParameterSchema
+func SparkLivyStatementGetParameterSchema(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementGetParameterSchema", e)
@@ -1693,8 +1693,8 @@ func SalesforceStatementGetParameterSchema(stmt *C.struct_AdbcStatement, schema 
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceStatementSetOption
-func SalesforceStatementSetOption(stmt *C.struct_AdbcStatement, key, value *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementSetOption
+func SparkLivyStatementSetOption(stmt *C.struct_AdbcStatement, key, value *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementSetOption", e)
@@ -1708,8 +1708,8 @@ func SalesforceStatementSetOption(stmt *C.struct_AdbcStatement, key, value *C.cc
 	return C.AdbcStatusCode(errToAdbcErr(err, st.stmt.SetOption(C.GoString(key), C.GoString(value))))
 }
 
-//export SalesforceStatementSetOptionBytes
-func SalesforceStatementSetOptionBytes(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementSetOptionBytes
+func SparkLivyStatementSetOptionBytes(db *C.struct_AdbcStatement, key *C.cchar_t, value *C.cuint8_t, length C.size_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementSetOptionBytes", e)
@@ -1729,8 +1729,8 @@ func SalesforceStatementSetOptionBytes(db *C.struct_AdbcStatement, key *C.cchar_
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOptionBytes(C.GoString(key), fromCArr[byte](value, int(length)))))
 }
 
-//export SalesforceStatementSetOptionDouble
-func SalesforceStatementSetOptionDouble(db *C.struct_AdbcStatement, key *C.cchar_t, value C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementSetOptionDouble
+func SparkLivyStatementSetOptionDouble(db *C.struct_AdbcStatement, key *C.cchar_t, value C.double, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementSetOptionDouble", e)
@@ -1750,8 +1750,8 @@ func SalesforceStatementSetOptionDouble(db *C.struct_AdbcStatement, key *C.cchar
 	return C.AdbcStatusCode(errToAdbcErr(err, opts.SetOptionDouble(C.GoString(key), float64(value))))
 }
 
-//export SalesforceStatementSetOptionInt
-func SalesforceStatementSetOptionInt(db *C.struct_AdbcStatement, key *C.cchar_t, value C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementSetOptionInt
+func SparkLivyStatementSetOptionInt(db *C.struct_AdbcStatement, key *C.cchar_t, value C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementSetOptionInt", e)
@@ -1785,8 +1785,8 @@ func releasePartitions(partitions *C.struct_AdbcPartitions) {
 	partitions.private_data = nil
 }
 
-//export SalesforceStatementExecutePartitions
-func SalesforceStatementExecutePartitions(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, partitions *C.struct_AdbcPartitions, affected *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+//export SparkLivyStatementExecutePartitions
+func SparkLivyStatementExecutePartitions(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, partitions *C.struct_AdbcPartitions, affected *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
 		if e := recover(); e != nil {
 			code = poison(err, "AdbcStatementExecutePartitions", e)
@@ -1840,8 +1840,8 @@ func SalesforceStatementExecutePartitions(stmt *C.struct_AdbcStatement, schema *
 	return C.ADBC_STATUS_OK
 }
 
-//export SalesforceDriverInit
-func SalesforceDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcError) C.AdbcStatusCode {
+//export SparkLivyDriverInit
+func SparkLivyDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcError) C.AdbcStatusCode {
 	driver := (*C.struct_AdbcDriver)(unsafe.Pointer(rawDriver))
 
 	switch version {
@@ -1856,68 +1856,68 @@ func SalesforceDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcEr
 		return C.ADBC_STATUS_NOT_IMPLEMENTED
 	}
 
-	driver.DatabaseInit = (*[0]byte)(C.SalesforceDatabaseInit)
-	driver.DatabaseNew = (*[0]byte)(C.SalesforceDatabaseNew)
-	driver.DatabaseRelease = (*[0]byte)(C.SalesforceDatabaseRelease)
-	driver.DatabaseSetOption = (*[0]byte)(C.SalesforceDatabaseSetOption)
+	driver.DatabaseInit = (*[0]byte)(C.SparkLivyDatabaseInit)
+	driver.DatabaseNew = (*[0]byte)(C.SparkLivyDatabaseNew)
+	driver.DatabaseRelease = (*[0]byte)(C.SparkLivyDatabaseRelease)
+	driver.DatabaseSetOption = (*[0]byte)(C.SparkLivyDatabaseSetOption)
 
-	driver.ConnectionNew = (*[0]byte)(C.SalesforceConnectionNew)
-	driver.ConnectionInit = (*[0]byte)(C.SalesforceConnectionInit)
-	driver.ConnectionRelease = (*[0]byte)(C.SalesforceConnectionRelease)
-	driver.ConnectionSetOption = (*[0]byte)(C.SalesforceConnectionSetOption)
-	driver.ConnectionGetInfo = (*[0]byte)(C.SalesforceConnectionGetInfo)
-	driver.ConnectionGetObjects = (*[0]byte)(C.SalesforceConnectionGetObjects)
-	driver.ConnectionGetTableSchema = (*[0]byte)(C.SalesforceConnectionGetTableSchema)
-	driver.ConnectionGetTableTypes = (*[0]byte)(C.SalesforceConnectionGetTableTypes)
-	driver.ConnectionReadPartition = (*[0]byte)(C.SalesforceConnectionReadPartition)
-	driver.ConnectionCommit = (*[0]byte)(C.SalesforceConnectionCommit)
-	driver.ConnectionRollback = (*[0]byte)(C.SalesforceConnectionRollback)
+	driver.ConnectionNew = (*[0]byte)(C.SparkLivyConnectionNew)
+	driver.ConnectionInit = (*[0]byte)(C.SparkLivyConnectionInit)
+	driver.ConnectionRelease = (*[0]byte)(C.SparkLivyConnectionRelease)
+	driver.ConnectionSetOption = (*[0]byte)(C.SparkLivyConnectionSetOption)
+	driver.ConnectionGetInfo = (*[0]byte)(C.SparkLivyConnectionGetInfo)
+	driver.ConnectionGetObjects = (*[0]byte)(C.SparkLivyConnectionGetObjects)
+	driver.ConnectionGetTableSchema = (*[0]byte)(C.SparkLivyConnectionGetTableSchema)
+	driver.ConnectionGetTableTypes = (*[0]byte)(C.SparkLivyConnectionGetTableTypes)
+	driver.ConnectionReadPartition = (*[0]byte)(C.SparkLivyConnectionReadPartition)
+	driver.ConnectionCommit = (*[0]byte)(C.SparkLivyConnectionCommit)
+	driver.ConnectionRollback = (*[0]byte)(C.SparkLivyConnectionRollback)
 
-	driver.StatementNew = (*[0]byte)(C.SalesforceStatementNew)
-	driver.StatementRelease = (*[0]byte)(C.SalesforceStatementRelease)
-	driver.StatementSetOption = (*[0]byte)(C.SalesforceStatementSetOption)
-	driver.StatementSetSqlQuery = (*[0]byte)(C.SalesforceStatementSetSqlQuery)
-	driver.StatementSetSubstraitPlan = (*[0]byte)(C.SalesforceStatementSetSubstraitPlan)
-	driver.StatementBind = (*[0]byte)(C.SalesforceStatementBind)
-	driver.StatementBindStream = (*[0]byte)(C.SalesforceStatementBindStream)
-	driver.StatementExecuteQuery = (*[0]byte)(C.SalesforceStatementExecuteQuery)
-	driver.StatementExecutePartitions = (*[0]byte)(C.SalesforceStatementExecutePartitions)
-	driver.StatementGetParameterSchema = (*[0]byte)(C.SalesforceStatementGetParameterSchema)
-	driver.StatementPrepare = (*[0]byte)(C.SalesforceStatementPrepare)
+	driver.StatementNew = (*[0]byte)(C.SparkLivyStatementNew)
+	driver.StatementRelease = (*[0]byte)(C.SparkLivyStatementRelease)
+	driver.StatementSetOption = (*[0]byte)(C.SparkLivyStatementSetOption)
+	driver.StatementSetSqlQuery = (*[0]byte)(C.SparkLivyStatementSetSqlQuery)
+	driver.StatementSetSubstraitPlan = (*[0]byte)(C.SparkLivyStatementSetSubstraitPlan)
+	driver.StatementBind = (*[0]byte)(C.SparkLivyStatementBind)
+	driver.StatementBindStream = (*[0]byte)(C.SparkLivyStatementBindStream)
+	driver.StatementExecuteQuery = (*[0]byte)(C.SparkLivyStatementExecuteQuery)
+	driver.StatementExecutePartitions = (*[0]byte)(C.SparkLivyStatementExecutePartitions)
+	driver.StatementGetParameterSchema = (*[0]byte)(C.SparkLivyStatementGetParameterSchema)
+	driver.StatementPrepare = (*[0]byte)(C.SparkLivyStatementPrepare)
 
 	if version == C.ADBC_VERSION_1_1_0 {
-		driver.ErrorGetDetailCount = (*[0]byte)(C.SalesforceErrorGetDetailCount)
-		driver.ErrorGetDetail = (*[0]byte)(C.SalesforceErrorGetDetail)
-		driver.ErrorFromArrayStream = (*[0]byte)(C.SalesforceErrorFromArrayStream)
+		driver.ErrorGetDetailCount = (*[0]byte)(C.SparkLivyErrorGetDetailCount)
+		driver.ErrorGetDetail = (*[0]byte)(C.SparkLivyErrorGetDetail)
+		driver.ErrorFromArrayStream = (*[0]byte)(C.SparkLivyErrorFromArrayStream)
 
-		driver.DatabaseGetOption = (*[0]byte)(C.SalesforceDatabaseGetOption)
-		driver.DatabaseGetOptionBytes = (*[0]byte)(C.SalesforceDatabaseGetOptionBytes)
-		driver.DatabaseGetOptionDouble = (*[0]byte)(C.SalesforceDatabaseGetOptionDouble)
-		driver.DatabaseGetOptionInt = (*[0]byte)(C.SalesforceDatabaseGetOptionInt)
-		driver.DatabaseSetOptionBytes = (*[0]byte)(C.SalesforceDatabaseSetOptionBytes)
-		driver.DatabaseSetOptionDouble = (*[0]byte)(C.SalesforceDatabaseSetOptionDouble)
-		driver.DatabaseSetOptionInt = (*[0]byte)(C.SalesforceDatabaseSetOptionInt)
+		driver.DatabaseGetOption = (*[0]byte)(C.SparkLivyDatabaseGetOption)
+		driver.DatabaseGetOptionBytes = (*[0]byte)(C.SparkLivyDatabaseGetOptionBytes)
+		driver.DatabaseGetOptionDouble = (*[0]byte)(C.SparkLivyDatabaseGetOptionDouble)
+		driver.DatabaseGetOptionInt = (*[0]byte)(C.SparkLivyDatabaseGetOptionInt)
+		driver.DatabaseSetOptionBytes = (*[0]byte)(C.SparkLivyDatabaseSetOptionBytes)
+		driver.DatabaseSetOptionDouble = (*[0]byte)(C.SparkLivyDatabaseSetOptionDouble)
+		driver.DatabaseSetOptionInt = (*[0]byte)(C.SparkLivyDatabaseSetOptionInt)
 
-		driver.ConnectionCancel = (*[0]byte)(C.SalesforceConnectionCancel)
-		driver.ConnectionGetOption = (*[0]byte)(C.SalesforceConnectionGetOption)
-		driver.ConnectionGetOptionBytes = (*[0]byte)(C.SalesforceConnectionGetOptionBytes)
-		driver.ConnectionGetOptionDouble = (*[0]byte)(C.SalesforceConnectionGetOptionDouble)
-		driver.ConnectionGetOptionInt = (*[0]byte)(C.SalesforceConnectionGetOptionInt)
-		driver.ConnectionGetStatistics = (*[0]byte)(C.SalesforceConnectionGetStatistics)
-		driver.ConnectionGetStatisticNames = (*[0]byte)(C.SalesforceConnectionGetStatisticNames)
-		driver.ConnectionSetOptionBytes = (*[0]byte)(C.SalesforceConnectionSetOptionBytes)
-		driver.ConnectionSetOptionDouble = (*[0]byte)(C.SalesforceConnectionSetOptionDouble)
-		driver.ConnectionSetOptionInt = (*[0]byte)(C.SalesforceConnectionSetOptionInt)
+		driver.ConnectionCancel = (*[0]byte)(C.SparkLivyConnectionCancel)
+		driver.ConnectionGetOption = (*[0]byte)(C.SparkLivyConnectionGetOption)
+		driver.ConnectionGetOptionBytes = (*[0]byte)(C.SparkLivyConnectionGetOptionBytes)
+		driver.ConnectionGetOptionDouble = (*[0]byte)(C.SparkLivyConnectionGetOptionDouble)
+		driver.ConnectionGetOptionInt = (*[0]byte)(C.SparkLivyConnectionGetOptionInt)
+		driver.ConnectionGetStatistics = (*[0]byte)(C.SparkLivyConnectionGetStatistics)
+		driver.ConnectionGetStatisticNames = (*[0]byte)(C.SparkLivyConnectionGetStatisticNames)
+		driver.ConnectionSetOptionBytes = (*[0]byte)(C.SparkLivyConnectionSetOptionBytes)
+		driver.ConnectionSetOptionDouble = (*[0]byte)(C.SparkLivyConnectionSetOptionDouble)
+		driver.ConnectionSetOptionInt = (*[0]byte)(C.SparkLivyConnectionSetOptionInt)
 
-		driver.StatementCancel = (*[0]byte)(C.SalesforceStatementCancel)
-		driver.StatementExecuteSchema = (*[0]byte)(C.SalesforceStatementExecuteSchema)
-		driver.StatementGetOption = (*[0]byte)(C.SalesforceStatementGetOption)
-		driver.StatementGetOptionBytes = (*[0]byte)(C.SalesforceStatementGetOptionBytes)
-		driver.StatementGetOptionDouble = (*[0]byte)(C.SalesforceStatementGetOptionDouble)
-		driver.StatementGetOptionInt = (*[0]byte)(C.SalesforceStatementGetOptionInt)
-		driver.StatementSetOptionBytes = (*[0]byte)(C.SalesforceStatementSetOptionBytes)
-		driver.StatementSetOptionDouble = (*[0]byte)(C.SalesforceStatementSetOptionDouble)
-		driver.StatementSetOptionInt = (*[0]byte)(C.SalesforceStatementSetOptionInt)
+		driver.StatementCancel = (*[0]byte)(C.SparkLivyStatementCancel)
+		driver.StatementExecuteSchema = (*[0]byte)(C.SparkLivyStatementExecuteSchema)
+		driver.StatementGetOption = (*[0]byte)(C.SparkLivyStatementGetOption)
+		driver.StatementGetOptionBytes = (*[0]byte)(C.SparkLivyStatementGetOptionBytes)
+		driver.StatementGetOptionDouble = (*[0]byte)(C.SparkLivyStatementGetOptionDouble)
+		driver.StatementGetOptionInt = (*[0]byte)(C.SparkLivyStatementGetOptionInt)
+		driver.StatementSetOptionBytes = (*[0]byte)(C.SparkLivyStatementSetOptionBytes)
+		driver.StatementSetOptionDouble = (*[0]byte)(C.SparkLivyStatementSetOptionDouble)
+		driver.StatementSetOptionInt = (*[0]byte)(C.SparkLivyStatementSetOptionInt)
 	}
 
 	return C.ADBC_STATUS_OK

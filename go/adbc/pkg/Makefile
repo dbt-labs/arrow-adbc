@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-MANAGERS = bigquery flightsql panicdummy snowflake salesforce
+MANAGERS = bigquery flightsql panicdummy snowflake salesforce sparklivy
 
 GO_BUILD := go build
 RM := rm -f
@@ -52,6 +52,7 @@ regenerate:
 	go run gen/main.go -prefix PanicDummy -o ./panicdummy/ -driver ../driver/panicdummy
 	go run gen/main.go -prefix Snowflake -o ./snowflake/ -driver ../driver/snowflake
 	go run gen/main.go -prefix Salesforce -o ./salesforce/ -driver ../driver/salesforce
+	go run gen/main.go -prefix SparkLivy -o ./sparklivy/ -driver ../driver/sparklivy
 
 clean:
 	$(RM) $(DRIVERS)
