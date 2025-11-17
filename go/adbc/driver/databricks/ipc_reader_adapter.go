@@ -20,6 +20,7 @@ package databricks
 import (
 	"bytes"
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -38,6 +39,7 @@ type rowsWithIPCStream interface {
 
 // ipcReaderAdapter uses the new IPC stream interface for Arrow access
 type ipcReaderAdapter struct {
+	rows          dbsqlrows.Rows
 	ipcIterator   dbsqlrows.ArrowIPCStreamIterator
 	currentReader *ipc.Reader
 	currentRecord arrow.RecordBatch
@@ -87,6 +89,7 @@ func newIPCReaderAdapter(ctx context.Context, rows dbsqlrows.Rows) (array.Record
 
 	adapter := &ipcReaderAdapter{
 		refCount:    1,
+		rows:        rows,
 		ipcIterator: ipcIterator,
 		schema:      schema,
 	}
@@ -202,6 +205,11 @@ func (r *ipcReaderAdapter) Release() {
 		}
 
 		r.ipcIterator.Close()
+
+		if r.rows != nil {
+			r.rows.(driver.Rows).Close()
+			r.rows = nil
+		}
 	}
 }
 
