@@ -39,13 +39,13 @@ type rowsWithIPCStream interface {
 
 // ipcReaderAdapter uses the new IPC stream interface for Arrow access
 type ipcReaderAdapter struct {
-	rows          dbsqlrows.Rows
-	ipcIterator   dbsqlrows.ArrowIPCStreamIterator
-	currentReader *ipc.Reader
-	currentRecord arrow.RecordBatch
-	schema        *arrow.Schema
-	closed        bool
-	refCount      int64
+	dbsqlRowsHandle dbsqlrows.Rows // Row from which we obtain the iterator - their lifetimes are tied together
+	ipcIterator     dbsqlrows.ArrowIPCStreamIterator
+	currentReader   *ipc.Reader
+	currentRecord   arrow.RecordBatch
+	schema          *arrow.Schema
+	closed          bool
+	refCount        int64
 }
 
 // newIPCReaderAdapter creates a RecordReader using direct IPC stream access
@@ -88,10 +88,10 @@ func newIPCReaderAdapter(ctx context.Context, rows dbsqlrows.Rows) (array.Record
 	}
 
 	adapter := &ipcReaderAdapter{
-		refCount:    1,
-		rows:        rows,
-		ipcIterator: ipcIterator,
-		schema:      schema,
+		refCount:        1,
+		dbsqlRowsHandle: rows,
+		ipcIterator:     ipcIterator,
+		schema:          schema,
 	}
 
 	// Initialize the first reader
@@ -206,9 +206,9 @@ func (r *ipcReaderAdapter) Release() {
 
 		r.ipcIterator.Close()
 
-		if r.rows != nil {
-			r.rows.(driver.Rows).Close()
-			r.rows = nil
+		if r.dbsqlRowsHandle != nil {
+			r.dbsqlRowsHandle.(driver.Rows).Close()
+			r.dbsqlRowsHandle = nil
 		}
 	}
 }
