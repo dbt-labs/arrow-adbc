@@ -38,12 +38,14 @@ type rowsWithIPCStream interface {
 
 // ipcReaderAdapter uses the new IPC stream interface for Arrow access
 type ipcReaderAdapter struct {
-	ipcIterator   dbsqlrows.ArrowIPCStreamIterator
-	currentReader *ipc.Reader
-	currentRecord arrow.RecordBatch
-	schema        *arrow.Schema
-	closed        bool
-	refCount      int64
+	ipcIterator     dbsqlrows.ArrowIPCStreamIterator
+	bufferedStreams []bytes.Buffer // Pre-buffered IPC streams
+	streamIndex     int            // Current stream index
+	currentReader   *ipc.Reader
+	currentRecord   arrow.RecordBatch
+	schema          *arrow.Schema
+	closed          bool
+	refCount        int64
 }
 
 // newIPCReaderAdapter creates a RecordReader using direct IPC stream access
@@ -85,10 +87,42 @@ func newIPCReaderAdapter(ctx context.Context, rows dbsqlrows.Rows) (array.Record
 		}
 	}
 
+	// WORKAROUND: Pre-buffer ALL IPC streams
+	// There is a bug in databricks-sql-go where if we attempt
+	// to read from ArrowIPCStreamIterator instances before fully
+	// consuming all streams, we are unable to read more streams
+	//
+	// FIXME: This workaround has additional memory overhead as it preloads all streams
+	// 		  get rid of this workaround once upstream is fixed
+	var bufferedStreams []bytes.Buffer
+	streamCount := 0
+	for ipcIterator.HasNext() {
+		ipcStream, err := ipcIterator.Next()
+		if err != nil {
+			return nil, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("failed to get IPC stream %d: %v", streamCount, err),
+			}
+		}
+
+		var buf bytes.Buffer
+		_, err = buf.ReadFrom(ipcStream)
+		if err != nil {
+			return nil, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("failed to buffer IPC stream %d: %v", streamCount, err),
+			}
+		}
+		bufferedStreams = append(bufferedStreams, buf)
+		streamCount++
+	}
+
 	adapter := &ipcReaderAdapter{
-		refCount:    1,
-		ipcIterator: ipcIterator,
-		schema:      schema,
+		refCount:        1,
+		ipcIterator:     ipcIterator,
+		bufferedStreams: bufferedStreams,
+		streamIndex:     0,
+		schema:          schema,
 	}
 
 	// Initialize the first reader
@@ -108,22 +142,19 @@ func (r *ipcReaderAdapter) loadNextReader() error {
 		r.currentReader = nil
 	}
 
-	// Get next IPC stream
-	if !r.ipcIterator.HasNext() {
+	if r.streamIndex >= len(r.bufferedStreams) {
 		return io.EOF
 	}
 
-	ipcStream, err := r.ipcIterator.Next()
-	if err != nil {
-		return err
-	}
+	buf := &r.bufferedStreams[r.streamIndex]
+	r.streamIndex++
 
-	// Create IPC reader from stream
-	reader, err := ipc.NewReader(ipcStream)
+	// Create IPC reader from the buffered data
+	reader, err := ipc.NewReader(buf)
 	if err != nil {
 		return adbc.Error{
 			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to create IPC reader: %v", err),
+			Msg:  fmt.Sprintf("failed to create IPC reader from buffered stream: %v", err),
 		}
 	}
 
