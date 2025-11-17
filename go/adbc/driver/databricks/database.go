@@ -107,7 +107,7 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 		if d.accessToken == "" {
 			return nil, adbc.Error{
 				Code: adbc.StatusInvalidArgument,
-				Msg:  fmt.Sprintf("access token is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypePAT, OptionValueAuthTypePAT),
+				Msg:  fmt.Sprintf("access token is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypePAT, OptionAccessToken),
 			}
 		}
 		opts = append(opts, dbsql.WithAccessToken(d.accessToken))
