@@ -69,14 +69,14 @@ type statement struct {
 	explicitSchema      []*bigquery.FieldSchema
 
 	// DataProc Fields
-	dataprocRegion  string
-	dataprocProject string
+	dataprocRegion         string
+	dataprocProject        string
 	dataprocPoolingTimeout int
 
 	// DataProc Create Batch fields
-	createBatchReqParent         string
-	createBatchReqBatchYML       string
-	createBatchReqBatchId        string
+	createBatchReqParent   string
+	createBatchReqBatchYML string
+	createBatchReqBatchId  string
 
 	// DataProc Submit Job fields
 	submitJobReqClusterName string
@@ -369,7 +369,7 @@ func (st *statement) SetOption(key string, v string) error {
 	case OptionJsonUpdateTableColumnsDescription:
 		st.updateTableColumnsDescription = v
 	case OptionIntDataprocReqPoolingTimeout:
-		val, err := strconv.ParseInt(v, 10, 64)
+		val, err := strconv.ParseInt(v, 10, strconv.IntSize)
 		if err == nil {
 			st.dataprocPoolingTimeout = int(val)
 		} else {
