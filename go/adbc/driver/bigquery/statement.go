@@ -1249,14 +1249,7 @@ func (st *statement) executeDataprocCreateBatch(ctx context.Context) (array.Reco
 		return nil, -1, fmt.Errorf("batch failed or timed out: %w", err)
 	}
 
-	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
-	emptyRecord := array.NewRecord(emptySchema, []arrow.Array{}, 0)
-	reader, err := array.NewRecordReader(emptySchema, []arrow.Record{emptyRecord})
-	if err != nil {
-		return nil, -1, err
-	}
-
-	return reader, 0, nil
+	return emptyResult()
 }
 
 func (st *statement) executeSubmitJobAsOperation(ctx context.Context) (array.RecordReader, int64, error) {
@@ -1298,14 +1291,7 @@ func (st *statement) executeSubmitJobAsOperation(ctx context.Context) (array.Rec
 		return nil, -1, fmt.Errorf("dataproc job error: %s", resp.GetStatus().GetDetails())
 	}
 
-	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
-	emptyRecord := array.NewRecord(emptySchema, []arrow.Array{}, 0)
-	reader, err := array.NewRecordReader(emptySchema, []arrow.Record{emptyRecord})
-	if err != nil {
-		return nil, -1, err
-	}
-
-	return reader, 0, nil
+	return emptyResult()
 }
 
 func (st *statement) writeToGCS(ctx context.Context) (array.RecordReader, int64, error) {
@@ -1331,14 +1317,7 @@ func (st *statement) writeToGCS(ctx context.Context) (array.RecordReader, int64,
 		return nil, -1, fmt.Errorf("failed to close GCS writer: %w", err)
 	}
 
-	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
-	emptyRecord := array.NewRecord(emptySchema, []arrow.Array{}, 0)
-	reader, err := array.NewRecordReader(emptySchema, []arrow.Record{emptyRecord})
-	if err != nil {
-		return nil, -1, err
-	}
-
-	return reader, 0, nil
+	return emptyResult()
 }
 
 // executeUpdateTableColumnsDescription updates the table columns descriptions
