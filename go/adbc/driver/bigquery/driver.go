@@ -80,6 +80,11 @@ const (
 	OptionIntQueryResultBufferSize    = "adbc.bigquery.sql.query.result_buffer_size"
 	OptionIntQueryPrefetchConcurrency = "adbc.bigquery.sql.query.prefetch_concurrency"
 
+	// OptionBoolUseStorageApiDisabledClient instructs the driver to use the legacy RowIterator API
+	// instead of the Storage Read API. This is required for queries that reference
+	// pseudo-columns like _PARTITIONDATE and _PARTITIONTIME.
+	OptionBoolUseStorageApiDisabledClient = "adbc.bigquery.sql.query.use_storage_api_disabled_client"
+
 	defaultQueryResultBufferSize    = 200
 	defaultQueryPrefetchConcurrency = 10
 

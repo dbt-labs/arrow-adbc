@@ -45,6 +45,10 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
+const (
+	ContextKeyUseStorageApiDisabledClient = "USE_STORAGE_API_DISABLED_CLIENT"
+)
+
 // todos for bigqueryConfig
 // - TableDefinitions
 // - Parameters
@@ -60,12 +64,13 @@ type statement struct {
 	alloc memory.Allocator
 	cnxn  *connectionImpl
 
-	queryConfig            bigquery.QueryConfig
-	parameterMode          string
-	paramBinding           arrow.RecordBatch
-	streamBinding          array.RecordReader
-	resultRecordBufferSize int
-	prefetchConcurrency    int
+	queryConfig                 bigquery.QueryConfig
+	parameterMode               string
+	paramBinding                arrow.RecordBatch
+	streamBinding               array.RecordReader
+	resultRecordBufferSize      int
+	prefetchConcurrency         int
+	useStorageApiDisabledClient bool
 
 	// Ingest related fields
 	ingestPath          string
@@ -269,6 +274,11 @@ func (st *statement) GetOptionInt(key string) (int64, error) {
 		return int64(st.prefetchConcurrency), nil
 	case OptionIntDataprocReqPoolingTimeout:
 		return int64(st.dataprocPoolingTimeout), nil
+	case OptionBoolQueryUseLegacyAPI:
+		if st.useStorageApiDisabledClient {
+			return 1, nil
+		}
+		return 0, nil
 	default:
 		val, err := st.cnxn.GetOptionInt(key)
 		if err == nil {
@@ -457,6 +467,9 @@ func (st *statement) SetOptionInt(key string, value int64) error {
 	case OptionIntDataprocReqPoolingTimeout:
 		st.dataprocPoolingTimeout = int(value)
 		return nil
+	case OptionBoolQueryUseLegacyAPI:
+		st.useStorageApiDisabledClient = value == 1
+		return nil
 	default:
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
@@ -522,6 +535,7 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 		return nil, -1, err
 	}
 
+	ctx = context.WithValue(ctx, ContextKeyUseStorageApiDisabledClient, st.useStorageApiDisabledClient)
 	return newRecordReader(ctx, st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob)
 }
 
@@ -534,7 +548,7 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 	}
 
 	if boundParameters == nil {
-		_, totalRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob)
+		_, totalRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
 		if err != nil {
 			return -1, err
 		}
@@ -552,7 +566,7 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 					st.queryConfig.Parameters = parameters
 				}
 
-				_, currentRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob)
+				_, currentRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
 				if err != nil {
 					return -1, err
 				}
@@ -601,7 +615,12 @@ func (st *statement) SetSubstraitPlan(plan []byte) error {
 }
 
 func (st *statement) query() *bigquery.Query {
-	query := st.cnxn.client.Query("")
+	var query *bigquery.Query
+	if st.useStorageApiDisabledClient && st.cnxn.clientStorageApiDisabled != nil {
+		query = st.cnxn.clientStorageApiDisabled.Query("")
+	} else {
+		query = st.cnxn.client.Query("")
+	}
 	query.QueryConfig = st.queryConfig
 	return query
 }
