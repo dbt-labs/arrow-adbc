@@ -157,6 +157,10 @@ const (
 	// OptionBoolQueryLinkFailedJob instructs the driver to construct a link to the
 	// query job if it fails to run.
 	OptionBoolQueryLinkFailedJob = "adbc.bigquery.sql.query.link_failed_job"
+
+	OptionStringCopyTableSource           = "adbc.bigquery.copy_table.source"
+	OptionStringCopyTableDestination      = "adbc.bigquery.copy_table.destination"
+	OptionStringCopyTableWriteDisposition = "adbc.bigquery.copy_table.write_disposition"
 )
 
 var (

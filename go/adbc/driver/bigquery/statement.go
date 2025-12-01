@@ -112,6 +112,11 @@ type statement struct {
 	// Field that contains the JSON string to authorize a view to source datasets
 	authorizeViewToDatasets string
 
+	// Copy table fields
+	copyTableSource           string
+	copyTableDestination      string
+	copyTableWriteDisposition string
+
 	// Wrap errors with a link to failed job
 	linkFailedJob bool
 }
@@ -206,6 +211,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return strconv.FormatBool(st.queryConfig.CreateSession), nil
 	case OptionBoolQueryLinkFailedJob:
 		return strconv.FormatBool(st.linkFailedJob), nil
+	case OptionBoolUseStorageApiDisabledClient:
+		return strconv.FormatBool(st.useStorageApiDisabledClient), nil
 	case OptionStringIngestFileDelimiter:
 		return st.ingestFileDelimiter, nil
 	case OptionStringIngestPath:
@@ -250,7 +257,12 @@ func (st *statement) GetOption(key string) (string, error) {
 		return st.createNotebookExecuteJobProject, nil
 	case OptionStringNotebookExecuteJobRegion:
 		return st.createNotebookExecuteJobRegion, nil
-
+	case OptionStringCopyTableSource:
+		return st.copyTableSource, nil
+	case OptionStringCopyTableDestination:
+		return st.copyTableDestination, nil
+	case OptionStringCopyTableWriteDisposition:
+		return st.copyTableWriteDisposition, nil
 	default:
 		val, err := st.cnxn.GetOption(key)
 		if err == nil {
@@ -274,7 +286,7 @@ func (st *statement) GetOptionInt(key string) (int64, error) {
 		return int64(st.prefetchConcurrency), nil
 	case OptionIntDataprocReqPoolingTimeout:
 		return int64(st.dataprocPoolingTimeout), nil
-	case OptionBoolQueryUseLegacyAPI:
+	case OptionBoolUseStorageApiDisabledClient:
 		if st.useStorageApiDisabledClient {
 			return 1, nil
 		}
@@ -406,6 +418,12 @@ func (st *statement) SetOption(key string, v string) error {
 		st.writeGCSObjectName = v
 	case OptionStringWriteGCSContent:
 		st.writeGCSContent = v
+	case OptionStringCopyTableSource:
+		st.copyTableSource = v
+	case OptionStringCopyTableDestination:
+		st.copyTableDestination = v
+	case OptionStringCopyTableWriteDisposition:
+		st.copyTableWriteDisposition = v
 	case OptionJsonUpdateTableColumnsDescription:
 		st.updateTableColumnsDescription = v
 	case OptionIntDataprocReqPoolingTimeout:
@@ -441,6 +459,14 @@ func (st *statement) SetOption(key string, v string) error {
 		st.createNotebookExecuteJobProject = v
 	case OptionStringNotebookExecuteJobRegion:
 		st.createNotebookExecuteJobRegion = v
+	case OptionBoolUseStorageApiDisabledClient:
+		val, err := strconv.ParseBool(v)
+		if err == nil {
+			st.useStorageApiDisabledClient = val
+		} else {
+			return err
+		}
+		return nil
 	default:
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
@@ -466,9 +492,6 @@ func (st *statement) SetOptionInt(key string, value int64) error {
 		return nil
 	case OptionIntDataprocReqPoolingTimeout:
 		st.dataprocPoolingTimeout = int(value)
-		return nil
-	case OptionBoolQueryUseLegacyAPI:
-		st.useStorageApiDisabledClient = value == 1
 		return nil
 	default:
 		return adbc.Error{
@@ -513,6 +536,10 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 
 	if st.writeGCSBucket != "" {
 		return st.writeToGCS(ctx)
+	}
+
+	if st.copyTableSource != "" {
+		return st.executeCopyTable(ctx)
 	}
 
 	if st.updateTableColumnsDescription != "" {
@@ -1276,6 +1303,48 @@ func (st *statement) executeIngest(ctx context.Context) (array.RecordReader, int
 	}
 
 	return reader, 0, nil
+}
+
+func (st *statement) executeCopyTable(ctx context.Context) (array.RecordReader, int64, error) {
+	thisFunction := getFunctionName()
+
+	if st.copyTableSource == "" || st.copyTableDestination == "" {
+		return nil, -1, adbcError(adbc.StatusInvalidState, thisFunction, "copy_table requires both source and destination to be set")
+	}
+
+	source, err := stringToTable(st, st.copyTableSource)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("invalid source table: %v", err))
+	}
+	dest, err := stringToTable(st, st.copyTableDestination)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("invalid destination table: %v", err))
+	}
+
+	copier := st.cnxn.client.DatasetInProject(dest.ProjectID, dest.DatasetID).Table(dest.TableID).CopierFrom(source)
+	if st.copyTableWriteDisposition != "" {
+		writeDisposition, err := stringToTableWriteDisposition(st.copyTableWriteDisposition)
+		if err != nil {
+			return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("invalid write disposition: %v", err))
+		}
+		copier.WriteDisposition = writeDisposition
+	}
+
+	job, err := copier.Run(ctx)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to start copy job: %v", err))
+	}
+
+	status, err := job.Wait(ctx)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("copy job failed or timed out: %v", err))
+	}
+
+	if status.Err() != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("copy job execution failed: %v", status.Err()))
+	}
+
+	return emptyResult()
 }
 
 func (st *statement) executeDataprocCreateBatch(ctx context.Context) (array.RecordReader, int64, error) {
