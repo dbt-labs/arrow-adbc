@@ -409,7 +409,6 @@ func (l *RowBasedArrowIterator) Next() (*bigquery.ArrowRecordBatch, error) {
 		return nil, iterator.Done
 	}
 
-	// Convert rows to Arrow RecordBatch
 	batch, err := rowsToArrowRecordBatch(l.schema, rows, l.alloc)
 	if err != nil {
 		return nil, err
@@ -446,16 +445,12 @@ func (l *RowBasedArrowIterator) SerializedArrowSchema() []byte {
 
 	arrowSchema := arrow.NewSchema(fields, nil)
 
-	// Serialize ONLY the schema message without EOS marker
-	// The BigQuery reader will prepend this to the data from Next()
 	var buf bytes.Buffer
 	_ = ipc.NewWriter(&buf, ipc.WithSchema(arrowSchema))
-	// Don't close! Closing would write the EOS marker
 
 	return buf.Bytes()
 }
 
-// rowsToArrowRecordBatch converts BigQuery rows to an Arrow RecordBatch
 func rowsToArrowRecordBatch(schema bigquery.Schema, rows [][]bigquery.Value, alloc memory.Allocator) (arrow.Record, error) {
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("no rows to convert")
@@ -495,13 +490,10 @@ func rowsToArrowRecordBatch(schema bigquery.Schema, rows [][]bigquery.Value, all
 			case *array.Date32Builder:
 				// BigQuery returns civil.Date for DATE columns
 				if d, ok := val.(civil.Date); ok {
-					// Convert civil.Date to days since epoch
 					t := time.Date(d.Year, time.Month(d.Month), d.Day, 0, 0, 0, 0, time.UTC)
-					days := int32(t.Unix() / 86400)
-					builder.Append(arrow.Date32(days))
+					builder.Append(arrow.Date32FromTime(t))
 				} else if t, ok := val.(time.Time); ok {
-					days := int32(t.Unix() / 86400)
-					builder.Append(arrow.Date32(days))
+					builder.Append(arrow.Date32FromTime(t))
 				} else {
 					builder.AppendNull()
 				}

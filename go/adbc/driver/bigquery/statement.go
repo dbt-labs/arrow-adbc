@@ -1295,14 +1295,7 @@ func (st *statement) executeIngest(ctx context.Context) (array.RecordReader, int
 	}
 
 	// For ingest operations, we return an empty record reader since there's no result set
-	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
-	emptyRecord := array.NewRecord(emptySchema, []arrow.Array{}, 0)
-	reader, err := array.NewRecordReader(emptySchema, []arrow.Record{emptyRecord})
-	if err != nil {
-		return nil, -1, err
-	}
-
-	return reader, 0, nil
+	return emptyResult()
 }
 
 func (st *statement) executeCopyTable(ctx context.Context) (array.RecordReader, int64, error) {
@@ -1753,8 +1746,7 @@ func tableEqual(self *bigquery.Table, other *bigquery.Table) bool {
 // emptyResult returns an empty record reader when the caller doesn't return any data
 func emptyResult() (array.RecordReader, int64, error) {
 	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
-	emptyRecord := array.NewRecord(emptySchema, []arrow.Array{}, 0)
-	reader, err := array.NewRecordReader(emptySchema, []arrow.Record{emptyRecord})
+	reader, err := array.NewRecordReader(emptySchema, []arrow.RecordBatch{})
 	if err != nil {
 		return nil, -1, err
 	}
