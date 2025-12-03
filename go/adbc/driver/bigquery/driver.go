@@ -105,6 +105,21 @@ const (
 	OptionStringWriteGCSObjectName = "adbc.bigquery.write_gcs.object_name"
 	OptionStringWriteGCSContent    = "adbc.bigquery.write_gcs.content"
 
+	OptionStringListRuntimeTemplatesParent = "adbc.bigquery.list_runtime_templates.parent"
+	OptionStringListRuntimeTemplatesFilter = "adbc.bigquery.list_runtime_templates.filter"
+
+	OptionStringCreateRuntimeTemplateParent = "adbc.bigquery.create_runtime_template.parent"
+	OptionStringCreateRuntimeTemplateYML    = "adbc.bigquery.create_runtime_template.req_yml"
+
+	OptionStringNotebookExecuteJobGscPath       = "adbc.bigquery.notebook_execute_job.gsc_path"
+	OptionStringNotebookExecuteJobModelFileName = "adbc.bigquery.notebook_execute_job.model_file_name"
+	OptionStringNotebookExecuteJobModelName     = "adbc.bigquery.notebook_execute_job.model_name"
+	OptionStringNotebookExecuteJobGscBucket     = "adbc.bigquery.notebook_execute_job.gsc_bucket"
+	OptionStringNotebookExecuteJobTemplateId    = "adbc.bigquery.notebook_execute_job.template_id"
+	OptionStringNotebookExecuteJobParent        = "adbc.bigquery.notebook_execute_job.parent"
+	OptionStringNotebookExecuteJobProject       = "adbc.bigquery.notebook_execute_job.project"
+	OptionStringNotebookExecuteJobRegion        = "adbc.bigquery.notebook_execute_job.region"
+
 	OptionJsonUpdateTableColumnsDescription = "adbc.bigquery.table.update_columns_description"
 	OptionJsonAuthorizeViewToDatasets       = "adbc.bigquery.dataset.authorize_view_to_datasets"
 
