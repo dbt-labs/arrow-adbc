@@ -47,6 +47,8 @@ require (
 	modernc.org/sqlite v1.42.2
 )
 
+replace github.com/databricks/databricks-sql-go => github.com/dbt-labs/databricks-sql-go v1.19.0
+
 require (
 	cloud.google.com/go v0.121.6 // indirect
 	cloud.google.com/go/auth v0.17.0 // indirect
