@@ -1371,7 +1371,7 @@ func (st *statement) writeToGCS(ctx context.Context) (array.RecordReader, int64,
 }
 
 func (st *statement) getNotebookTemplateName(ctx context.Context) (string, error) {
-	client, err := st.cnxn.newNotebookClient(ctx, st.dataprocRegion)
+	client, err := st.cnxn.newNotebookClient(ctx, st.createNotebookExecuteJobRegion)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Dataproc client: %w", err)
 	}
