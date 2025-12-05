@@ -105,12 +105,6 @@ const (
 	OptionStringWriteGCSObjectName = "adbc.bigquery.write_gcs.object_name"
 	OptionStringWriteGCSContent    = "adbc.bigquery.write_gcs.content"
 
-	OptionStringListRuntimeTemplatesParent = "adbc.bigquery.list_runtime_templates.parent"
-	OptionStringListRuntimeTemplatesFilter = "adbc.bigquery.list_runtime_templates.filter"
-
-	OptionStringCreateRuntimeTemplateParent = "adbc.bigquery.create_runtime_template.parent"
-	OptionStringCreateRuntimeTemplateYML    = "adbc.bigquery.create_runtime_template.req_yml"
-
 	OptionStringNotebookExecuteJobGscPath       = "adbc.bigquery.notebook_execute_job.gsc_path"
 	OptionStringNotebookExecuteJobModelFileName = "adbc.bigquery.notebook_execute_job.model_file_name"
 	OptionStringNotebookExecuteJobModelName     = "adbc.bigquery.notebook_execute_job.model_name"

@@ -91,14 +91,6 @@ type statement struct {
 	writeGCSObjectName string
 	writeGCSContent    string
 
-	// Notebook List Runtime Templates
-	listRuntimeTemplatesParent string
-	listRuntimeTemplatesFilter string
-
-	// Notebook Create Runtime Template
-	createRuntimeTemplateParent     string
-	createRuntimeTemplateRequestYML string
-
 	//Notebook Execute Job
 	createNotebookExecuteJobGscPath       string
 	createNotebookExecuteJobModelFileName string
@@ -237,14 +229,6 @@ func (st *statement) GetOption(key string) (string, error) {
 		return st.writeGCSObjectName, nil
 	case OptionStringWriteGCSContent:
 		return st.writeGCSContent, nil
-	case OptionStringListRuntimeTemplatesParent:
-		return st.listRuntimeTemplatesParent, nil
-	case OptionStringListRuntimeTemplatesFilter:
-		return st.listRuntimeTemplatesFilter, nil
-	case OptionStringCreateRuntimeTemplateParent:
-		return st.createRuntimeTemplateParent, nil
-	case OptionStringCreateRuntimeTemplateYML:
-		return st.createRuntimeTemplateRequestYML, nil
 	case OptionStringNotebookExecuteJobGscPath:
 		return st.createNotebookExecuteJobGscPath, nil
 	case OptionStringNotebookExecuteJobModelFileName:
@@ -422,14 +406,6 @@ func (st *statement) SetOption(key string, v string) error {
 			return err
 		}
 		return nil
-	case OptionStringListRuntimeTemplatesParent:
-		st.listRuntimeTemplatesParent = v
-	case OptionStringListRuntimeTemplatesFilter:
-		st.listRuntimeTemplatesFilter = v
-	case OptionStringCreateRuntimeTemplateParent:
-		st.createRuntimeTemplateParent = v
-	case OptionStringCreateRuntimeTemplateYML:
-		st.createRuntimeTemplateRequestYML = v
 	case OptionJsonAuthorizeViewToDatasets:
 		st.authorizeViewToDatasets = v
 	case OptionBoolQueryLinkFailedJob:
@@ -516,14 +492,6 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 
 	if st.submitJobReqClusterName != "" {
 		return st.executeSubmitJobAsOperation(ctx)
-	}
-
-	if st.listRuntimeTemplatesParent != "" {
-		return st.executeListRuntimeTemplates(ctx)
-	}
-
-	if st.createRuntimeTemplateParent != "" {
-		return st.executeCreateRuntimeTemplate(ctx)
 	}
 
 	if st.createNotebookExecuteJobParent != "" {
@@ -1402,122 +1370,63 @@ func (st *statement) writeToGCS(ctx context.Context) (array.RecordReader, int64,
 	return emptyResult()
 }
 
-func (st *statement) executeListRuntimeTemplates(ctx context.Context) (array.RecordReader, int64, error) {
+func (st *statement) getNotebookTemplateName(ctx context.Context) (string, error) {
 	client, err := st.cnxn.newNotebookClient(ctx, st.dataprocRegion)
 	if err != nil {
-		return nil, -1, fmt.Errorf("failed to create notebook service: %w", err)
+		return "", fmt.Errorf("failed to create Dataproc client: %w", err)
 	}
 	defer client.Close()
 
 	req := &aiplatformpb.ListNotebookRuntimeTemplatesRequest{
-		Parent: st.listRuntimeTemplatesParent,
-		Filter: st.listRuntimeTemplatesFilter,
+		Parent: st.createNotebookExecuteJobParent,
+		Filter: "notebookRuntimeType = ONE_CLICK",
 	}
 
 	it := client.ListNotebookRuntimeTemplates(ctx, req)
+	tmpl, err := it.Next()
+	if err == iterator.Done {
+		fmt.Println(`No default template found, a new one will be created but with
+			disabled internet access. If your models do require internet access,
+			please go to the GCP console and do either:
+				1. Recreate the default template yourself with enabled internet access. OR
+				2. Specify your own template ID which has enabled internet access.`)
 
-	pool := memory.NewGoAllocator()
-	fields := []arrow.Field{
-		{Name: "name", Type: arrow.BinaryTypes.String, Nullable: false},
-		{Name: "display_name", Type: arrow.BinaryTypes.String, Nullable: true},
-		{Name: "create_time", Type: arrow.FixedWidthTypes.Timestamp_ms, Nullable: true},
-	}
-	schema := arrow.NewSchema(fields, nil)
+		template := &aiplatformpb.NotebookRuntimeTemplate{
+			DisplayName:         "default-one-click-notebook",
+			NotebookRuntimeType: aiplatformpb.NotebookRuntimeType_ONE_CLICK,
+			MachineSpec: &aiplatformpb.MachineSpec{
+				MachineType: "e2-standard-4",
+			},
+			NetworkSpec: &aiplatformpb.NetworkSpec{
+				EnableInternetAccess: false,
+				Network:              fmt.Sprintf("projects/%s/global/networks/default", st.createNotebookExecuteJobProject),
+				Subnetwork:           fmt.Sprintf("projects/%s/regions/%s/subnetworks/default", st.createNotebookExecuteJobProject, st.createNotebookExecuteJobRegion),
+			},
+		}
 
-	bldr := array.NewRecordBuilder(pool, schema)
-	defer bldr.Release()
+		createTemplateReq := &aiplatformpb.CreateNotebookRuntimeTemplateRequest{
+			Parent:                  st.createNotebookExecuteJobParent,
+			NotebookRuntimeTemplate: template,
+		}
 
-	rowCount := int64(0)
-	for {
-		template, err := it.Next()
+		op, err := client.CreateNotebookRuntimeTemplate(ctx, createTemplateReq)
 		if err != nil {
-			if err == iterator.Done {
-				break
-			}
-			return nil, -1, fmt.Errorf("failed to list runtime templates: %w", err)
+			return "", fmt.Errorf("failed to create notebook runtime template: %w", err)
 		}
 
-		bldr.Field(0).(*array.StringBuilder).Append(template.GetName())
-		bldr.Field(1).(*array.StringBuilder).Append(template.GetDisplayName())
-		if template.GetCreateTime() != nil {
-			ts := template.GetCreateTime().AsTime().UnixNano() / 1_000_000 // ms
-			bldr.Field(2).(*array.TimestampBuilder).Append(arrow.Timestamp(ts))
-		} else {
-			bldr.Field(2).(*array.TimestampBuilder).AppendNull()
+		resp, err := op.Wait(ctx)
+		if err != nil {
+			return "", fmt.Errorf("operation failed: %w", err)
 		}
 
-		rowCount++
+		return resp.GetName(), nil
+
 	}
 
-	rec := bldr.NewRecordBatch()
-	defer rec.Release()
-
-	rdr, err := array.NewRecordReader(schema, []arrow.RecordBatch{rec})
 	if err != nil {
-		return nil, -1, fmt.Errorf("failed to create record reader: %w", err)
+		return "", fmt.Errorf("failed to list runtime templates: %w", err)
 	}
-
-	return rdr, rowCount, nil
-}
-
-func (st *statement) executeCreateRuntimeTemplate(ctx context.Context) (array.RecordReader, int64, error) {
-	var intermediate map[string]any
-	if err := yaml.Unmarshal([]byte(st.createRuntimeTemplateRequestYML), &intermediate); err != nil {
-		return nil, -1, fmt.Errorf("failed to parse template YAML: %w", err)
-	}
-
-	jsonBytes, err := json.Marshal(intermediate)
-	if err != nil {
-		return nil, -1, fmt.Errorf("failed to parse template YAML: %w", err)
-	}
-
-	template := &aiplatformpb.NotebookRuntimeTemplate{}
-	if err := protojson.Unmarshal(jsonBytes, template); err != nil {
-		return nil, -1, fmt.Errorf("failed to unmarshal JSON to template proto: %w", err)
-	}
-
-	client, err := st.cnxn.newNotebookClient(ctx, st.dataprocRegion)
-	if err != nil {
-		return nil, -1, fmt.Errorf("failed to create Dataproc client: %w", err)
-	}
-	defer client.Close()
-
-	req := &aiplatformpb.CreateNotebookRuntimeTemplateRequest{
-		Parent:                  st.createRuntimeTemplateParent,
-		NotebookRuntimeTemplate: template,
-	}
-
-	op, err := client.CreateNotebookRuntimeTemplate(ctx, req)
-	if err != nil {
-		return nil, -1, fmt.Errorf("failed to create notebook runtime template: %w", err)
-	}
-
-	resp, err := op.Wait(ctx)
-	if err != nil {
-		return nil, -1, fmt.Errorf("operation failed: %w", err)
-	}
-
-	fields := []arrow.Field{
-		{Name: "name", Type: arrow.BinaryTypes.String},
-		{Name: "display_name", Type: arrow.BinaryTypes.String},
-	}
-	schema := arrow.NewSchema(fields, nil)
-	mem := memory.DefaultAllocator
-	bldr := array.NewRecordBuilder(mem, schema)
-	defer bldr.Release()
-
-	bldr.Field(0).(*array.StringBuilder).Append(resp.GetName())
-	bldr.Field(1).(*array.StringBuilder).Append(resp.GetDisplayName())
-
-	rec := bldr.NewRecordBatch()
-	defer rec.Release()
-
-	rr, err := array.NewRecordReader(rec.Schema(), []arrow.Record{rec})
-	if err != nil {
-		return nil, -1, fmt.Errorf("failed to create record reader: %w", err)
-	}
-	return rr, 1, nil
-
+	return tmpl.GetName(), nil
 }
 
 func (st *statement) executeCreateNotebookExecutionJob(ctx context.Context) (array.RecordReader, int64, error) {
@@ -1526,6 +1435,19 @@ func (st *statement) executeCreateNotebookExecutionJob(ctx context.Context) (arr
 		return nil, -1, fmt.Errorf("failed to create notebook client: %w", err)
 	}
 	defer client.Close()
+
+	templateName := ""
+	if st.createNotebookExecuteJobTemplateId != "" {
+		templateName = fmt.Sprintf(
+			"projects/%s/locations/%s/notebookRuntimeTemplates/%s",
+			st.createNotebookExecuteJobProject, st.createNotebookExecuteJobRegion, st.createNotebookExecuteJobTemplateId,
+		)
+	} else {
+		templateName, err = st.getNotebookTemplateName(ctx)
+		if err != nil {
+			return nil, -1, err
+		}
+	}
 
 	job := &aiplatformpb.NotebookExecutionJob{
 		NotebookSource: &aiplatformpb.NotebookExecutionJob_GcsNotebookSource_{
@@ -1541,10 +1463,7 @@ func (st *statement) executeCreateNotebookExecutionJob(ctx context.Context) (arr
 		},
 		DisplayName: st.createBatchReqBatchId,
 		EnvironmentSpec: &aiplatformpb.NotebookExecutionJob_NotebookRuntimeTemplateResourceName{
-			NotebookRuntimeTemplateResourceName: fmt.Sprintf(
-				"projects/%s/locations/%s/notebookRuntimeTemplates/%s",
-				st.createNotebookExecuteJobProject, st.createNotebookExecuteJobRegion, st.createNotebookExecuteJobTemplateId,
-			),
+			NotebookRuntimeTemplateResourceName: templateName,
 		},
 	}
 
