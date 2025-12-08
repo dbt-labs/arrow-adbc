@@ -411,6 +411,7 @@ func (l *RowBasedArrowIterator) Next() (*bigquery.ArrowRecordBatch, error) {
 
 	batch, err := rowsToArrowRecordBatch(l.schema, rows, l.alloc)
 	if err != nil {
+		log.Fatalf("Error converting rows to arrow record batch: %v", err)
 		return nil, err
 	}
 	defer batch.Release()
@@ -505,11 +506,7 @@ func rowsToArrowRecordBatch(schema bigquery.Schema, rows [][]bigquery.Value, all
 				}
 			// TODO: Add support for other types as needed
 			default:
-				if sb, ok := builder.(*array.StringBuilder); ok {
-					sb.Append(fmt.Sprintf("%v", val))
-				} else {
-					builder.AppendNull()
-				}
+				return nil, fmt.Errorf("USE_STORAGE_API_DISABLED_CLIENT is enabled, unsupported type conversion for column type %s of value %v", builder.Type().String(), val)
 			}
 		}
 	}
