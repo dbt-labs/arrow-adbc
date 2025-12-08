@@ -135,7 +135,7 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 	case OptionAuthOktaUrl:
 		return d.cfg.OktaURL.String(), nil
 	case OptionKeepSessionAlive:
-		if d.cfg.KeepSessionAlive {
+		if v, ok := d.cfg.Params["client_session_keep_alive"]; ok && v != nil && strings.ToLower(*v) == "true" {
 			return adbc.OptionValueEnabled, nil
 		}
 		return adbc.OptionValueDisabled, nil
@@ -362,12 +362,12 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 	case OptionKeepSessionAlive:
 		switch v {
 		case adbc.OptionValueEnabled:
-			d.cfg.KeepSessionAlive = true
+			*d.cfg.Params["client_session_keep_alive"] = "true"
 		case adbc.OptionValueDisabled:
-			d.cfg.KeepSessionAlive = false
+			*d.cfg.Params["client_session_keep_alive"] = "false"
 		default:
 			return adbc.Error{
-				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s'", OptionSSLSkipVerify, v),
+				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s'", OptionKeepSessionAlive, v),
 				Code: adbc.StatusInvalidArgument,
 			}
 		}
