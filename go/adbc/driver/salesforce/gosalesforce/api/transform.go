@@ -89,7 +89,7 @@ func (c *Client) RefreshDataTransformStatus(ctx context.Context, dataTransformNa
 	}
 
 	path := fmt.Sprintf("data-transforms/%s/actions/refresh-status", dataTransformNameOrId)
-	return PostJSON[interface{}, DataCloudActionResponse](c, ctx, path, nil)
+	return PostJSON[any, DataCloudActionResponse](c, ctx, path, nil)
 }
 
 // RunDataTransform runs a data transform
@@ -105,7 +105,7 @@ func (c *Client) RunDataTransform(ctx context.Context, dataTransformNameOrId str
 	}
 
 	path := fmt.Sprintf("data-transforms/%s/actions/run", dataTransformNameOrId)
-	return PostJSON[interface{}, DataCloudActionResponse](c, ctx, path, nil)
+	return PostJSON[any, DataCloudActionResponse](c, ctx, path, nil)
 }
 
 // CancelDataTransform cancels a data transform
@@ -121,7 +121,7 @@ func (c *Client) CancelDataTransform(ctx context.Context, dataTransformNameOrId 
 	}
 
 	path := fmt.Sprintf("data-transforms/%s/actions/cancel", dataTransformNameOrId)
-	return PostJSON[interface{}, DataCloudActionResponse](c, ctx, path, nil)
+	return PostJSON[any, DataCloudActionResponse](c, ctx, path, nil)
 }
 
 // DeleteDataTransform deletes a data transform
@@ -157,7 +157,7 @@ func NewBatchDataTransformRequest(name, label string, nodes map[string]DbtDataTr
 }
 
 // NewDbtDataTransformNode creates a new dbt-style data transform node
-func NewDbtDataTransformNode(name, relationName, compiledCode string, materialized string, dependsOn map[string]interface{}) DbtDataTransformNode {
+func NewDbtDataTransformNode(name, relationName, compiledCode string, materialized string, dependsOn map[string]any) DbtDataTransformNode {
 	return DbtDataTransformNode{
 		Name:         name,
 		RelationName: relationName,
@@ -180,6 +180,6 @@ func NewSimpleDbtDataTransformNode(name, relationName, sql string) DbtDataTransf
 			Materialized: "table",
 		},
 		CompiledCode: sql,
-		DependsOn:    make(map[string]interface{}),
+		DependsOn:    make(map[string]any),
 	}
 }
