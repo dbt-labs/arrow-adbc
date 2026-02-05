@@ -92,7 +92,7 @@ func (c *Client) executeHTTPRequest(ctx context.Context, req *http.Request) (*ht
 
 // handleErrorResponse handles common error response patterns
 func handleErrorResponse(statusCode int, body []byte, errorType string) error {
-	var errorResp map[string]interface{}
+	var errorResp map[string]any
 	if json.Unmarshal(body, &errorResp) == nil {
 		if errorMsg, ok := errorResp["message"].(string); ok {
 			return &SfdcError{
@@ -527,7 +527,7 @@ func (c *Client) requestAccessToken(ctx context.Context, tokenURL string, data u
 
 	if resp.StatusCode != http.StatusOK {
 		// Handle special case for token endpoint error format
-		var errorResp map[string]interface{}
+		var errorResp map[string]any
 		if json.Unmarshal(body, &errorResp) == nil {
 			if errorMsg, ok := errorResp["error_description"].(string); ok {
 				return nil, &SfdcError{

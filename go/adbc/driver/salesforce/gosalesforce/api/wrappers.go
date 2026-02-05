@@ -41,7 +41,7 @@ func (client *Client) DeleteIfDloExists(ctx context.Context, name string) error 
 	exponentialBackOff.InitialInterval = INITIAL_INTERVAL
 	exponentialBackOff.MaxInterval = MAX_INTERVAL
 
-	operation := func() (interface{}, error) {
+	operation := func() (any, error) {
 		_, err := client.GetDataLakeObjectByName(ctx, name)
 		if err != nil {
 			return nil, nil
@@ -84,7 +84,7 @@ func (client *Client) DeleteDataTransformIfExists(ctx context.Context, name stri
 	exponentialBackOff.InitialInterval = INITIAL_INTERVAL
 	exponentialBackOff.MaxInterval = MAX_INTERVAL
 
-	operation := func() (interface{}, error) {
+	operation := func() (any, error) {
 		_, err := client.GetDataTransform(ctx, name)
 		if err != nil {
 			// Data Transform doesn't exist, deletion complete or not needed
@@ -166,7 +166,7 @@ func (client *Client) CreateDataLakeObjectWithInferredSchema(ctx context.Context
 	exponentialBackOff.InitialInterval = INITIAL_INTERVAL
 	exponentialBackOff.MaxInterval = MAX_INTERVAL
 
-	waitForActiveOp := func() (interface{}, error) {
+	waitForActiveOp := func() (any, error) {
 		currentDLO, err := client.GetDataLakeObject(ctx, dataLakeObject.Name, nil, nil, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get DLO status: %w", err)
@@ -236,7 +236,7 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 	exponentialBackOff := backoff.NewExponentialBackOff()
 
 	// Waits for the data transform to be active
-	waitForActiveOp := func() (interface{}, error) {
+	waitForActiveOp := func() (any, error) {
 		// Eagerly refreshes status, otherwise `client.GetDataTransform` may respond with a stale status
 		refreshStatusResponse, err := client.RefreshDataTransformStatus(ctx, dataTransform.Name)
 		if err != nil {
@@ -279,7 +279,7 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 	}
 
 	// Waits for the data transform run to be success
-	waitForRunOp := func() (interface{}, error) {
+	waitForRunOp := func() (any, error) {
 		refreshStatusResponse, err := client.RefreshDataTransformStatus(ctx, dataTransform.Name)
 		if !refreshStatusResponse.Success {
 			return nil, fmt.Errorf("failed to refresh the data transform status [%v]", refreshStatusResponse.Errors)

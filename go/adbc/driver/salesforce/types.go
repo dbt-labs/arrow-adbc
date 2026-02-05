@@ -27,7 +27,7 @@ func (s *statement) buildArrowSchema(metadata []api.SqlQueryMetadata) *arrow.Sch
 }
 
 // buildArrowRecords converts the raw data to Arrow records
-func (s *statement) buildArrowRecords(schema *arrow.Schema, data [][]interface{}) ([]arrow.Record, error) {
+func (s *statement) buildArrowRecords(schema *arrow.Schema, data [][]any) ([]arrow.Record, error) {
 	if len(data) == 0 {
 		return []arrow.Record{}, nil
 	}
@@ -77,7 +77,7 @@ func (s *statement) buildArrowRecords(schema *arrow.Schema, data [][]interface{}
 }
 
 // appendValueToBuilder appends a value to the appropriate builder type using the dataType
-func appendValueToBuilder(builder array.Builder, value interface{}, dataType arrow.DataType) {
+func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataType) {
 	// Convert value based on the target Arrow data type
 	switch dataType.ID() {
 	case arrow.STRING:
@@ -156,7 +156,7 @@ func appendValueToBuilder(builder array.Builder, value interface{}, dataType arr
 	}
 }
 
-func convertToTimestamp(value interface{}) (arrow.Timestamp, bool) {
+func convertToTimestamp(value any) (arrow.Timestamp, bool) {
 	switch v := value.(type) {
 	case string:
 		timestamp, err := arrow.TimestampFromString(v, arrow.Microsecond)
@@ -168,7 +168,7 @@ func convertToTimestamp(value interface{}) (arrow.Timestamp, bool) {
 }
 
 // Helper functions for type conversion
-func convertToInt64(value interface{}) (int64, bool) {
+func convertToInt64(value any) (int64, bool) {
 	switch v := value.(type) {
 	case int64:
 		return v, true
@@ -184,7 +184,7 @@ func convertToInt64(value interface{}) (int64, bool) {
 	return 0, false
 }
 
-func convertToInt32(value interface{}) (int32, bool) {
+func convertToInt32(value any) (int32, bool) {
 	switch v := value.(type) {
 	case int32:
 		return v, true
@@ -198,7 +198,7 @@ func convertToInt32(value interface{}) (int32, bool) {
 	return 0, false
 }
 
-func convertToInt16(value interface{}) (int16, bool) {
+func convertToInt16(value any) (int16, bool) {
 	switch v := value.(type) {
 	case int16:
 		return v, true
@@ -210,7 +210,7 @@ func convertToInt16(value interface{}) (int16, bool) {
 	return 0, false
 }
 
-func convertToFloat64(value interface{}) (float64, bool) {
+func convertToFloat64(value any) (float64, bool) {
 	switch v := value.(type) {
 	case float64:
 		return v, true
@@ -220,7 +220,7 @@ func convertToFloat64(value interface{}) (float64, bool) {
 	return 0, false
 }
 
-func convertToFloat32(value interface{}) (float32, bool) {
+func convertToFloat32(value any) (float32, bool) {
 	switch v := value.(type) {
 	case float32:
 		return v, true

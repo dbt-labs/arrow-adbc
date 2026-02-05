@@ -77,14 +77,14 @@ type SqlQueryRequest struct {
 
 // SqlParameter represents a parameter in a SQL query
 type SqlParameter struct {
-	Type  string      `json:"type"`
-	Name  string      `json:"name"`
-	Value interface{} `json:"value"`
+	Type  string `json:"type"`
+	Name  string `json:"name"`
+	Value any    `json:"value"`
 }
 
 // SqlQueryResponse represents the response from a SQL query
 type SqlQueryResponse struct {
-	Data         [][]interface{}    `json:"data"`
+	Data         [][]any            `json:"data"`
 	Metadata     []SqlQueryMetadata `json:"metadata"`
 	Status       SqlQueryStatus     `json:"status"`
 	ReturnedRows int64              `json:"returnedRows"`
@@ -162,7 +162,7 @@ type QueryV2Request struct {
 // QueryV2Response represents the response from the v2 query API
 // reference: https://developer.salesforce.com/docs/data/data-cloud-query-guide/references/data-cloud-query-api-reference/c360a-api-query-v2.html
 type QueryV2Response struct {
-	Data        [][]interface{}            `json:"data,omitempty"`
+	Data        [][]any                    `json:"data,omitempty"`
 	Metadata    map[string]QueryV2Metadata `json:"metadata,omitempty"`
 	Done        bool                       `json:"done"`
 	NextBatchId *string                    `json:"nextBatchId,omitempty"`
@@ -170,7 +170,7 @@ type QueryV2Response struct {
 	QueryId     string                     `json:"queryId,omitempty"`
 	StartTime   string                     `json:"startTime,omitempty"`
 	EndTime     string                     `json:"endTime,omitempty"`
-	ArrowStream interface{}                `json:"arrowStream,omitempty"`
+	ArrowStream any                        `json:"arrowStream,omitempty"`
 }
 
 // QueryV2Metadata represents metadata for a v2 query result column
@@ -191,7 +191,7 @@ type MetadataEntity struct {
 	DisplayName                       string                 `json:"displayName"`
 	Category                          string                 `json:"category,omitempty"`
 	Fields                            []MetadataField        `json:"fields,omitempty"`
-	Indexes                           []interface{}          `json:"indexes,omitempty"`
+	Indexes                           []any                  `json:"indexes,omitempty"`
 	Relationships                     []MetadataRelationship `json:"relationships,omitempty"`
 	PrimaryKeys                       []MetadataPrimaryKey   `json:"primaryKeys,omitempty"`
 	ReferenceModelEntityDeveloperName string                 `json:"referenceModelEntityDeveloperName,omitempty"`
@@ -356,7 +356,7 @@ type DataTransformDefinition struct {
 	Type    DataTransformDefinitionType `json:"type"`
 	Version string                      `json:"version"`
 	// This feature is not publicly available yet; be cautious of possible breaking changes in the future.
-	Manifest          DbtDataTransformDefinition      `json:"manifest,omitempty"`
+	Manifest          DbtDataTransformDefinition      `json:"manifest"`
 	OutputDataObjects []DataTransformOutputDataObject `json:"outputDataObjects,omitempty"`
 }
 
@@ -381,7 +381,7 @@ type DbtDataTransformNode struct {
 	RelationName string                     `json:"relation_name,omitempty"`
 	Config       DbtDataTransformNodeConfig `json:"config"`
 	CompiledCode string                     `json:"compiled_code"`
-	DependsOn    map[string]interface{}     `json:"depends_on,omitempty"`
+	DependsOn    map[string]any             `json:"depends_on,omitempty"`
 }
 
 type DbtDataTransformNodeConfig struct {
@@ -391,7 +391,7 @@ type DbtDataTransformNodeConfig struct {
 // DataTransform represents the response from creating a data transform
 // see Responses from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=createDataTransform
 type DataTransform struct {
-	ActionUrls       DataTransformActionUrls    `json:"actionUrls,omitempty"`
+	ActionUrls       DataTransformActionUrls    `json:"actionUrls"`
 	CreatedBy        DataTransformUser          `json:"createdBy"`
 	CreatedDate      string                     `json:"createdDate"`
 	CreationType     DataTransformCreationType  `json:"creationType,omitempty"`
@@ -539,7 +539,7 @@ type DataLakeObjects struct {
 
 // DataLakeObject represents the response from creating a Data Lake Object
 type DataLakeObject struct {
-	Capabilities                    map[string]interface{} `json:"capabilities"`
+	Capabilities                    map[string]any         `json:"capabilities"`
 	Category                        DataLakeObjectCategory `json:"category"`
 	DataLakeFieldInfoRepresentation []DataLakeFieldOutput  `json:"dataLakeFieldInfoRepresentation"`
 	DataSpaceInfo                   []DataSpaceObject      `json:"dataSpaceInfo"`
@@ -552,9 +552,9 @@ type DataLakeObject struct {
 	EventDateTimeFieldName          string                 `json:"eventDateTimeFieldName,omitempty"`
 	OrgUnitIdentifierFieldName      string                 `json:"orgUnitIdentifierFieldName,omitempty"`
 	RecordModifiedFieldName         string                 `json:"recordModifiedFieldName,omitempty"`
-	CreatedBy                       DataTransformUser      `json:"createdBy,omitempty"`
+	CreatedBy                       DataTransformUser      `json:"createdBy"`
 	CreatedDate                     string                 `json:"createdDate,omitempty"`
-	LastModifiedBy                  DataTransformUser      `json:"lastModifiedBy,omitempty"`
+	LastModifiedBy                  DataTransformUser      `json:"lastModifiedBy"`
 	LastModifiedDate                string                 `json:"lastModifiedDate,omitempty"`
 	URL                             string                 `json:"url,omitempty"`
 }
@@ -765,7 +765,7 @@ type DataStream struct {
 	URL       string            `json:"url,omitempty"`
 
 	// Data stream specific fields
-	AdvancedAttributes   map[string]interface{}   `json:"advancedAttributes,omitempty"`
+	AdvancedAttributes   map[string]any           `json:"advancedAttributes,omitempty"`
 	ConnectorInfo        DataStreamConnectorInfo  `json:"connectorInfo"`
 	DataAccessMode       *DataAccessMode          `json:"dataAccessMode,omitempty"`
 	DataLakeObjectInfo   DataLakeObject           `json:"dataLakeObjectInfo"`
