@@ -101,7 +101,7 @@
 // would prevent any parallelism between driver calls, which is not desirable.
 
 pub mod error;
-pub(crate) mod search;
+pub mod search;
 
 use std::collections::HashSet;
 use std::ffi::{CString, OsStr};
