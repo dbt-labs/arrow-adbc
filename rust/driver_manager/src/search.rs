@@ -181,7 +181,7 @@ impl DriverInfo {
     }
 }
 
-pub(crate) struct SearchHit {
+pub struct SearchHit {
     /// The path where `library` was loaded from.
     pub lib_path: PathBuf,
     /// The loaded library.
@@ -236,18 +236,18 @@ impl<'a> ops::Deref for DriverInitFunc<'a> {
     }
 }
 
-pub(crate) struct DriverLibrary<'a> {
+pub struct DriverLibrary<'a> {
     init: DriverInitFunc<'a>,
 }
 
 impl<'a> DriverLibrary<'a> {
-    pub(crate) fn from_static_init(init: &'a FFI_AdbcDriverInitFunc) -> Self {
+    pub fn from_static_init(init: &'a FFI_AdbcDriverInitFunc) -> Self {
         Self {
             init: DriverInitFunc::Static(init),
         }
     }
 
-    pub(crate) fn try_from_dynamic_library(
+    pub fn try_from_dynamic_library(
         library: &'a libloading::Library,
         entrypoint: &[u8],
     ) -> Result<Self> {
@@ -262,7 +262,7 @@ impl<'a> DriverLibrary<'a> {
     }
 
     /// Initialize the driver via the library's entrypoint.
-    pub(crate) fn init_driver(&self, version: AdbcVersion) -> Result<FFI_AdbcDriver> {
+    pub fn init_driver(&self, version: AdbcVersion) -> Result<FFI_AdbcDriver> {
         let mut error = FFI_AdbcError::default();
         let mut driver = FFI_AdbcDriver::default();
         let status = unsafe {
@@ -276,7 +276,7 @@ impl<'a> DriverLibrary<'a> {
         Ok(driver)
     }
 
-    pub(crate) fn load_library(filename: impl AsRef<OsStr>) -> Result<libloading::Library> {
+    pub fn load_library(filename: impl AsRef<OsStr>) -> Result<libloading::Library> {
         // By default, go builds the libraries with '-Wl -z nodelete' which does not
         // unload the go runtime. This isn't respected on mac ( https://github.com/golang/go/issues/11100#issuecomment-932638093 )
         // so we need to explicitly load the library with RTLD_NODELETE( which prevents unloading )
@@ -334,7 +334,7 @@ impl<'a> DriverLibrary<'a> {
         Ok(library)
     }
 
-    pub(crate) fn load_library_from_name(name: impl AsRef<str>) -> Result<libloading::Library> {
+    pub fn load_library_from_name(name: impl AsRef<str>) -> Result<libloading::Library> {
         let filename = libloading::library_filename(name.as_ref());
         Self::load_library(&filename)
     }
@@ -345,7 +345,7 @@ impl<'a> DriverLibrary<'a> {
         Ok(SearchHit::new(info.lib_path, library, info.entrypoint))
     }
 
-    pub(crate) fn derive_entrypoint<'b>(
+    pub fn derive_entrypoint<'b>(
         entrypoint: Option<&'b [u8]>,
         driver_path: impl AsRef<OsStr>,
     ) -> Cow<'b, [u8]> {
@@ -356,7 +356,7 @@ impl<'a> DriverLibrary<'a> {
         }
     }
 
-    pub(crate) fn derive_entrypoint_from_name<'b>(
+    pub fn derive_entrypoint_from_name<'b>(
         entrypoint: Option<&'b [u8]>,
         name: &str,
     ) -> Cow<'b, [u8]> {
@@ -367,7 +367,7 @@ impl<'a> DriverLibrary<'a> {
         }
     }
 
-    pub(crate) fn search(
+    pub fn search(
         name: impl AsRef<OsStr>,
         load_flags: LoadFlags,
         additional_search_paths: Option<Vec<PathBuf>>,
@@ -816,7 +816,7 @@ fn get_search_paths(lvls: LoadFlags) -> Vec<PathBuf> {
     result
 }
 
-pub(crate) fn parse_driver_uri(uri: &str) -> Result<(&str, &str)> {
+pub fn parse_driver_uri(uri: &str) -> Result<(&str, &str)> {
     let idx = uri.find(":").ok_or(Error::with_message_and_status(
         format!("Invalid URI: {uri}"),
         Status::InvalidArguments,

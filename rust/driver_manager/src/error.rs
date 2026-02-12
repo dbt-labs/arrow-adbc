@@ -17,7 +17,7 @@
 
 use adbc_core::error::Status;
 
-pub(crate) fn libloading_error_to_adbc_error(e: libloading::Error) -> adbc_core::error::Error {
+pub fn libloading_error_to_adbc_error(e: libloading::Error) -> adbc_core::error::Error {
     adbc_core::error::Error {
         message: format!("Error with dynamic library: {e}"),
         status: Status::Internal,
