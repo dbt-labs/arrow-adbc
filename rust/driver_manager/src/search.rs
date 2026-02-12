@@ -242,7 +242,7 @@ pub struct DriverLibrary<'a> {
 }
 
 impl<'a> DriverLibrary<'a> {
-    pub(crate) fn from_static_init(init: &'a FFI_AdbcDriverInitFunc) -> Self {
+    pub fn from_static_init(init: &'a FFI_AdbcDriverInitFunc) -> Self {
         Self {
             init: DriverInitFunc::Static(init),
         }
@@ -335,7 +335,7 @@ impl<'a> DriverLibrary<'a> {
         Ok(library)
     }
 
-    pub(crate) fn load_library_from_name(name: impl AsRef<str>) -> Result<libloading::Library> {
+    pub fn load_library_from_name(name: impl AsRef<str>) -> Result<libloading::Library> {
         let filename = libloading::library_filename(name.as_ref());
         Self::load_library(&filename)
     }
@@ -346,7 +346,7 @@ impl<'a> DriverLibrary<'a> {
         Ok(SearchHit::new(info.lib_path, library, info.entrypoint))
     }
 
-    pub(crate) fn derive_entrypoint(
+    pub fn derive_entrypoint(
         entrypoint: Option<&[u8]>,
         driver_path: impl AsRef<OsStr>,
     ) -> Cow<'_, [u8]> {
@@ -357,7 +357,7 @@ impl<'a> DriverLibrary<'a> {
         }
     }
 
-    pub(crate) fn derive_entrypoint_from_name<'b>(
+    pub fn derive_entrypoint_from_name<'b>(
         entrypoint: Option<&'b [u8]>,
         name: &str,
     ) -> Cow<'b, [u8]> {
@@ -959,7 +959,7 @@ fn get_profile_search_paths(additional_path_list: &Option<Vec<PathBuf>>) -> Vec<
 ///
 /// URIs can specify either a direct driver connection or a profile to load.
 #[derive(Debug)]
-pub(crate) enum DriverLocator<'a> {
+pub enum DriverLocator<'a> {
     /// Direct driver URI: (driver_name, connection_string)
     ///
     /// Example: `"sqlite:file::memory:"` → `Uri("sqlite", "file::memory:")`
@@ -997,7 +997,7 @@ pub(crate) enum DriverLocator<'a> {
 /// Returns `Status::InvalidArguments` if:
 /// - The URI has no colon separator
 /// - The URI format is invalid
-pub(crate) fn parse_driver_uri(uri: &'_ str) -> Result<DriverLocator<'_>> {
+pub fn parse_driver_uri(uri: &'_ str) -> Result<DriverLocator<'_>> {
     let idx = uri.find(":").ok_or(Error::with_message_and_status(
         format!("Invalid URI: {uri}"),
         Status::InvalidArguments,
