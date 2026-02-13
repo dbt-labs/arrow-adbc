@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -24,10 +25,16 @@ type Client struct {
 	accessToken *Token
 	cdpToken    *Token
 	version     string
+
+	logger *slog.Logger
+}
+
+func NewClient(config *AuthConfig, version string) *Client {
+	return NewClientWithLogger(config, version, nil)
 }
 
 // NewClient creates a new authentication client
-func NewClient(config *AuthConfig, version string) *Client {
+func NewClientWithLogger(config *AuthConfig, version string, logger *slog.Logger) *Client {
 	if config == nil {
 		config = DefaultAuthConfig()
 	}
@@ -36,10 +43,15 @@ func NewClient(config *AuthConfig, version string) *Client {
 		Timeout: config.Timeout,
 	}
 
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Client{
 		config:     config,
 		httpClient: httpClient,
 		version:    version,
+		logger:     logger,
 	}
 }
 

@@ -321,21 +321,49 @@ const (
 	DataTransformStatusProcessing DataTransformStatus = "Processing"
 )
 
-// DataTransformLastRunStatus represents the status of the last run
-type DataTransformLastRunStatus string
+// Though it's documented that the status value is Camel case
+// see `status` from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=getDataTransform
+// it's actually returned as all upper case
+
+// helper
+func (s DataTransformStatus) isEq(other DataTransformStatus) bool {
+	return strings.EqualFold(string(s), string(other))
+}
+
+func (s DataTransformStatus) IsActive() bool     { return s.isEq(DataTransformStatusActive) }
+func (s DataTransformStatus) IsError() bool      { return s.isEq(DataTransformStatusError) }
+func (s DataTransformStatus) IsProcessing() bool { return s.isEq(DataTransformStatusProcessing) }
+func (s DataTransformStatus) IsDeleting() bool   { return s.isEq(DataTransformStatusDeleting) }
+
+// DataTransformRunStatus represents the status of the last run
+type DataTransformRunStatus string
 
 // TODO: revisit these values, the actual returns are different from the documentation
 // see LastRunStatus from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=getDataTransform
 const (
-	DataTransformLastRunStatusCanceled          DataTransformLastRunStatus = "Canceled"
-	DataTransformLastRunStatusFailure           DataTransformLastRunStatus = "Failure"
-	DataTransformLastRunStatusInProgress        DataTransformLastRunStatus = "In_Progress"
-	DataTransformLastRunStatusNone              DataTransformLastRunStatus = "None"
-	DataTransformLastRunStatusPartialFailure    DataTransformLastRunStatus = "PartialFailure"
-	DataTransformLastRunStatusPartiallyCanceled DataTransformLastRunStatus = "PartiallyCanceled"
-	DataTransformLastRunStatusPending           DataTransformLastRunStatus = "Pending"
-	DataTransformLastRunStatusSuccess           DataTransformLastRunStatus = "Success"
+	RunStatusCanceled          DataTransformRunStatus = "Canceled"
+	RunStatusFailure           DataTransformRunStatus = "Failure"
+	RunStatusInProgress        DataTransformRunStatus = "In_Progress"
+	RunStatusNone              DataTransformRunStatus = "None"
+	RunStatusPartialFailure    DataTransformRunStatus = "PartialFailure"
+	RunStatusPartiallyCanceled DataTransformRunStatus = "PartiallyCanceled"
+	RunStatusPending           DataTransformRunStatus = "Pending"
+	RunStatusSuccess           DataTransformRunStatus = "Success"
 )
+
+// helper
+func (s DataTransformRunStatus) isEq(other DataTransformRunStatus) bool {
+	return strings.EqualFold(string(s), string(other))
+}
+
+func (s DataTransformRunStatus) IsCanceled() bool          { return s.isEq(RunStatusCanceled) }
+func (s DataTransformRunStatus) IsFailure() bool           { return s.isEq(RunStatusFailure) }
+func (s DataTransformRunStatus) IsInProgress() bool        { return s.isEq(RunStatusInProgress) }
+func (s DataTransformRunStatus) IsNone() bool              { return s.isEq(RunStatusNone) }
+func (s DataTransformRunStatus) IsPartialFailure() bool    { return s.isEq(RunStatusPartialFailure) }
+func (s DataTransformRunStatus) IsPartiallyCanceled() bool { return s.isEq(RunStatusPartiallyCanceled) }
+func (s DataTransformRunStatus) IsPending() bool           { return s.isEq(RunStatusPending) }
+func (s DataTransformRunStatus) IsSuccess() bool           { return s.isEq(RunStatusSuccess) }
 
 // CreateDataTransformRequest represents a request to create a data transform
 type CreateDataTransformRequest struct {
@@ -386,30 +414,31 @@ type DbtDataTransformNode struct {
 
 type DbtDataTransformNodeConfig struct {
 	Materialized string `json:"materialized"`
+	WriteMode    string `json:"writeMode"`
 }
 
 // DataTransform represents the response from creating a data transform
 // see Responses from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=createDataTransform
 type DataTransform struct {
-	ActionUrls       DataTransformActionUrls    `json:"actionUrls"`
-	CreatedBy        DataTransformUser          `json:"createdBy"`
-	CreatedDate      string                     `json:"createdDate"`
-	CreationType     DataTransformCreationType  `json:"creationType,omitempty"`
-	Definition       DataTransformDefinition    `json:"definition"`
-	ID               string                     `json:"id"`
-	Label            string                     `json:"label"`
-	LastModifiedBy   DataTransformUser          `json:"lastModifiedBy"`
-	LastModifiedDate string                     `json:"lastModifiedDate"`
-	LastRunStatus    DataTransformLastRunStatus `json:"lastRunStatus"`
-	Name             string                     `json:"name"`
-	Namespace        string                     `json:"namespace,omitempty"`
-	Status           DataTransformStatus        `json:"status"`
-	Type             DataTransformType          `json:"type"`
-	URL              string                     `json:"url"`
-	DataSpaceName    string                     `json:"dataSpaceName,omitempty"`
-	Description      string                     `json:"description,omitempty"`
-	LastRunDate      string                     `json:"lastRunDate,omitempty"`
-	Version          int64                      `json:"version,omitempty"`
+	ActionUrls       DataTransformActionUrls   `json:"actionUrls"`
+	CreatedBy        DataTransformUser         `json:"createdBy"`
+	CreatedDate      string                    `json:"createdDate"`
+	CreationType     DataTransformCreationType `json:"creationType,omitempty"`
+	Definition       DataTransformDefinition   `json:"definition"`
+	ID               string                    `json:"id"`
+	Label            string                    `json:"label"`
+	LastModifiedBy   DataTransformUser         `json:"lastModifiedBy"`
+	LastModifiedDate string                    `json:"lastModifiedDate"`
+	LastRunStatus    DataTransformRunStatus    `json:"lastRunStatus"`
+	Name             string                    `json:"name"`
+	Namespace        string                    `json:"namespace,omitempty"`
+	Status           DataTransformStatus       `json:"status"`
+	Type             DataTransformType         `json:"type"`
+	URL              string                    `json:"url"`
+	DataSpaceName    string                    `json:"dataSpaceName,omitempty"`
+	Description      string                    `json:"description,omitempty"`
+	LastRunDate      string                    `json:"lastRunDate,omitempty"`
+	Version          int64                     `json:"version,omitempty"`
 }
 
 type DataTransformList struct {
@@ -597,36 +626,34 @@ type DataCloudActionResponse struct {
 }
 
 func (s *DataTransform) IsActive() bool {
-	// Though it's documented that the status value is Camel case
-	// see `status` from https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=getDataTransform
-	// it's actually returned as all upper case
-	return strings.EqualFold(string(s.Status), string(DataTransformStatusActive))
+	return s.Status.IsActive()
+
 }
 
 func (s *DataTransform) IsError() bool {
-	return strings.EqualFold(string(s.Status), string(DataTransformStatusError))
+	return s.Status.IsError()
 }
 
 func (s *DataTransform) IsLastRunSuccess() bool {
-	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusSuccess))
+	return strings.EqualFold(string(s.LastRunStatus), string(RunStatusSuccess))
 }
 
 func (s *DataTransform) IsLastRunFailure() bool {
-	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusFailure)) ||
-		strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusPartialFailure))
+	return strings.EqualFold(string(s.LastRunStatus), string(RunStatusFailure)) ||
+		strings.EqualFold(string(s.LastRunStatus), string(RunStatusPartialFailure))
 }
 
 func (s *DataTransform) IsLastRunCanceled() bool {
-	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusCanceled)) ||
-		strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusPartiallyCanceled))
+	return strings.EqualFold(string(s.LastRunStatus), string(RunStatusCanceled)) ||
+		strings.EqualFold(string(s.LastRunStatus), string(RunStatusPartiallyCanceled))
 }
 
 func (s *DataTransform) IsLastRunInProgress() bool {
-	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusInProgress))
+	return strings.EqualFold(string(s.LastRunStatus), string(RunStatusInProgress))
 }
 
 func (s *DataTransform) IsLastRunPending() bool {
-	return strings.EqualFold(string(s.LastRunStatus), string(DataTransformLastRunStatusPending))
+	return strings.EqualFold(string(s.LastRunStatus), string(RunStatusPending))
 }
 
 // DataStreamType represents the type of data stream
