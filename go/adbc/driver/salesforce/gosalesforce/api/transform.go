@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -26,6 +27,30 @@ func (c *Client) CreateDataTransform(ctx context.Context, request *CreateDataTra
 	}
 
 	return PostJSON[CreateDataTransformRequest, DataTransform](c, ctx, "data-transforms", request)
+}
+
+// UpdateDataTransform creates a new data transform in Data Cloud
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=updateDataTransform
+func (c *Client) UpdateDataTransform(ctx context.Context, request *CreateDataTransformRequest) (*DataTransform, error) {
+	// Validate required fields
+	if request.Name == "" {
+		return nil, &SfdcError{
+			Code:    400,
+			Message: "Data transform name cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	if request.Label == "" {
+		return nil, &SfdcError{
+			Code:    400,
+			Message: "Data transform label cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	path := fmt.Sprintf("data-transforms/%s", request.Name)
+	return PutJSON[CreateDataTransformRequest, DataTransform](c, ctx, path, request)
 }
 
 // CreateDataTransform creates a new data transform in Data Cloud
@@ -92,6 +117,20 @@ func (c *Client) RefreshDataTransformStatus(ctx context.Context, dataTransformNa
 	return PostJSON[any, DataCloudActionResponse](c, ctx, path, nil)
 }
 
+func actionMustSucceed(resp *DataCloudActionResponse, err error) error {
+	if resp != nil && !resp.Success {
+		return errors.Join(
+			fmt.Errorf("action unsuccessful due to: %v", resp.Errors),
+			err,
+		)
+	}
+	return err
+}
+
+func (c *Client) MustRefreshDataTransformStatus(ctx context.Context, dataTransformNameOrId string) error {
+	return actionMustSucceed(c.RefreshDataTransformStatus(ctx, dataTransformNameOrId))
+}
+
 // RunDataTransform runs a data transform
 // reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=runDataTransform
 func (c *Client) RunDataTransform(ctx context.Context, dataTransformNameOrId string) (*DataCloudActionResponse, error) {
@@ -106,6 +145,9 @@ func (c *Client) RunDataTransform(ctx context.Context, dataTransformNameOrId str
 
 	path := fmt.Sprintf("data-transforms/%s/actions/run", dataTransformNameOrId)
 	return PostJSON[any, DataCloudActionResponse](c, ctx, path, nil)
+}
+func (c *Client) MustRunDataTransform(ctx context.Context, dataTransformNameOrId string) error {
+	return actionMustSucceed(c.RunDataTransform(ctx, dataTransformNameOrId))
 }
 
 // CancelDataTransform cancels a data transform
@@ -122,6 +164,9 @@ func (c *Client) CancelDataTransform(ctx context.Context, dataTransformNameOrId 
 
 	path := fmt.Sprintf("data-transforms/%s/actions/cancel", dataTransformNameOrId)
 	return PostJSON[any, DataCloudActionResponse](c, ctx, path, nil)
+}
+func (c *Client) MustCancelDataTransform(ctx context.Context, dataTransformNameOrId string) error {
+	return actionMustSucceed(c.CancelDataTransform(ctx, dataTransformNameOrId))
 }
 
 // DeleteDataTransform deletes a data transform
@@ -157,12 +202,13 @@ func NewBatchDataTransformRequest(name, label string, nodes map[string]DbtDataTr
 }
 
 // NewDbtDataTransformNode creates a new dbt-style data transform node
-func NewDbtDataTransformNode(name, relationName, compiledCode string, materialized string, dependsOn map[string]any) DbtDataTransformNode {
+func NewDbtDataTransformNode(name, relationName, compiledCode string, materialized, writeMode string, dependsOn map[string]any) DbtDataTransformNode {
 	return DbtDataTransformNode{
 		Name:         name,
 		RelationName: relationName,
 		Config: DbtDataTransformNodeConfig{
 			Materialized: materialized,
+			WriteMode:    writeMode,
 		},
 		CompiledCode: compiledCode,
 		DependsOn:    dependsOn,

@@ -323,6 +323,101 @@ func (client *Client) TriggerDbtBatchDataTransform(ctx context.Context, targetDl
 	return dataTransform, nil
 }
 
+// Polls the data transform status until it is no longer processing.
+// Returns the latest data transform received from the server.
+func (client *Client) WaitForDataTransform(ctx context.Context, dt *DataTransform) (*DataTransform, error) {
+	client.logger.DebugContext(ctx, "WaitForDataTransform")
+
+	op := func() (*DataTransform, error) {
+		err := client.MustRefreshDataTransformStatus(ctx, dt.Name)
+		if err != nil {
+			// return nil, backoff.Permanent(err)
+			return nil, err
+		}
+
+		ndt, err := client.GetDataTransform(ctx, dt.Name)
+		if err != nil {
+			return nil, backoff.Permanent(err)
+		}
+
+		if ndt.Status.IsProcessing() {
+			return ndt, fmt.Errorf("still processing")
+		}
+
+		return ndt, nil
+	}
+
+	policy := backoff.NewExponentialBackOff()
+	policy.InitialInterval = 1 * time.Second
+	policy.MaxInterval = 15 * time.Second
+
+	return backoff.Retry(
+		ctx,
+		op,
+		backoff.WithBackOff(policy),
+		backoff.WithMaxElapsedTime(MAX_ELAPSED_TIME),
+		backoff.WithNotify(func(err error, duration time.Duration) {
+			client.logger.DebugContext(ctx, "waiting", "err", err, "duration", duration)
+		}),
+	)
+}
+
+// Polls the data transform last run status until it is no longer pending or in-progress.
+// Returns the latest data transform received from the server.
+func (client *Client) WaitForDataTransformRun(ctx context.Context, dt *DataTransform, runTimeout time.Duration) (*DataTransform, error) {
+	client.logger.DebugContext(ctx, "WaitForDataTransformRun", "timeout", runTimeout)
+	op := func() (*DataTransform, error) {
+		err := client.MustRefreshDataTransformStatus(ctx, dt.Name)
+		if err != nil {
+			// return nil, backoff.Permanent(err)
+			return nil, err
+		}
+
+		ndt, err := client.GetDataTransform(ctx, dt.Name)
+		if err != nil {
+			return nil, backoff.Permanent(err)
+		}
+
+		switch {
+		case ndt.LastRunStatus.IsPending():
+			return ndt, fmt.Errorf("run pending")
+		case ndt.LastRunStatus.IsInProgress():
+			return ndt, fmt.Errorf("run in progress")
+		}
+
+		return ndt, nil
+	}
+
+	policy := backoff.NewExponentialBackOff()
+	policy.InitialInterval = 1 * time.Second
+	policy.MaxInterval = 15 * time.Second
+
+	return backoff.Retry(
+		ctx,
+		op,
+		backoff.WithBackOff(policy),
+		backoff.WithMaxElapsedTime(runTimeout),
+	)
+}
+
+func (client *Client) CreateOrUpdateDataTransform(ctx context.Context, req *CreateDataTransformRequest) (*DataTransform, error) {
+	l := client.logger.With("operation", "CreateOrUpdateDataTransform")
+
+	l.DebugContext(ctx, "checking DT exists")
+
+	// naively check if the data-transform already exists
+	// TODO: There there are errors that can occur if the data transform exists (i.e. rate limiting, transient server issue, etc)
+	if _, err := client.GetDataTransform(ctx, req.Name); err != nil {
+		// TODO: What if existing.Status == DELETING | PROGRESSING
+		l.DebugContext(ctx, "creating data transform", "name", req.Name)
+		return client.CreateDataTransform(ctx, req)
+	} else {
+		l.DebugContext(ctx, "updating data transform", "name", req.Name)
+		return client.UpdateDataTransform(ctx, req)
+	}
+
+}
+
 // NewClientWithJWT creates a new client using JWT authentication
 // It expects the private key to be stored in the home directory at `~/.salesforce/JWT/server.key`
 // It expects the login URL to be stored in the environment variable `SALESFORCE_LOGIN_URL`

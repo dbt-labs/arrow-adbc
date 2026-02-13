@@ -20,6 +20,7 @@ package salesforce
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -84,8 +85,12 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		}
 	}
 
+	logger := s.cnxn.Logger.With("operation", "executeSQLQuery")
+
 	// This is supposed to be equivalent to `CREATE OR REPLACE TABLE`
 	if s.dloCategory != "" && s.dloPrimaryKey != "" && s.targetDLO != "" {
+		logger := logger.With(slog.Group("opt", "dloCategory", s.dloCategory, "dloPrimaryKey", s.dloPrimaryKey, "targetDLO", s.targetDLO, "dataSpace", s.cnxn.dataSpace))
+
 		if s.cnxn.dataSpace == "" {
 			return nil, 0, adbc.Error{
 				Code: adbc.StatusInvalidState,
@@ -93,36 +98,64 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 			}
 		}
 
-		// Delete the existing DLO
-		err := s.cnxn.client.DeleteIfDloExists(ctx, s.targetDLO)
+		logger.InfoContext(ctx, "Writing sql to DT...")
+		// Creates a data transform
+		req := api.NewBatchDataTransformRequest(
+			s.targetDLO,
+			s.targetDLO,
+			map[string]api.DbtDataTransformNode{
+				"node": api.NewDbtDataTransformNode(
+					"node",
+					s.targetDLO,
+					s.query,
+					"TABLE",
+					"OVERWRITE", // s.writeMode
+					nil,
+				),
+			},
+		)
+
+		logger.InfoContext(ctx, "Creating batch DT", "req", req)
+
+		// valid, err := s.cnxn.client.ValidateDataTransform(ctx, req)
+
+		dt, err := s.cnxn.client.CreateOrUpdateDataTransform(ctx, req)
 		if err != nil {
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInternal,
-				Msg:  err.Error(),
-			}
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to create/update the data transform: %v", err)
 		}
 
-		// Creates the DLO
-		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.cnxn.dataSpace, s.targetDLO, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
+		logger.InfoContext(ctx, "Created batch DT. Waiting...", "dt", dt)
+
+		dt, err = s.cnxn.client.WaitForDataTransform(ctx, dt)
 		if err != nil {
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInternal,
-				Msg:  err.Error(),
-			}
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed while wating for data transform: %v", err)
+		}
+		if !dt.Status.IsActive() {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform is not active, current status: %v", dt.Status)
 		}
 
-		// Inserts data
-		_, err = s.cnxn.client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, s.query, true, s.dataTransformTimeout)
+		logger.InfoContext(ctx, "Running batch DT.", "dt", dt)
+
+		err = s.cnxn.client.MustRunDataTransform(ctx, dt.Name)
 		if err != nil {
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInternal,
-				Msg:  err.Error(),
-			}
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to run data transform: %v", err)
 		}
+
+		logger.InfoContext(ctx, "Run started. Waiting...", "dt", dt)
+
+		dt, err = s.cnxn.client.WaitForDataTransformRun(ctx, dt, s.dataTransformTimeout)
+		if err != nil {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed while wating for data transform run: %v", err)
+		}
+		if !dt.LastRunStatus.IsSuccess() {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform run was unsuccessful: last run status: %v", dt.LastRunStatus)
+		}
+
+		logger.InfoContext(ctx, "Run complete.")
 
 		// Returns empty
-		emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
-		reader, err := array.NewRecordReader(emptySchema, []arrow.Record{})
+		emptySchema := arrow.NewSchema([]arrow.Field{}, nil) // TODO
+		reader, err := array.NewRecordReader(emptySchema, []arrow.RecordBatch{})
 		if err != nil {
 			err = fmt.Errorf("failed to create empty record reader: %w", err)
 			return nil, 0, adbc.Error{
@@ -167,7 +200,7 @@ func (s *statement) convertSqlQueryResponseToArrow(response *api.SqlQueryRespons
 	if len(response.Data) == 0 {
 		// Return empty reader with schema if available
 		schema := s.buildArrowSchema(response.Metadata)
-		reader, err := array.NewRecordReader(schema, []arrow.Record{})
+		reader, err := array.NewRecordReader(schema, []arrow.RecordBatch{})
 		return reader, 0, err
 	}
 

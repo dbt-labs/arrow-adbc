@@ -144,7 +144,7 @@ func (c *connectionImpl) setupRequired(authType string) error {
 
 // Finalizes the connectionImpl fields for the authentication flow
 func (c *connectionImpl) finalize(ctx context.Context, config *api.AuthConfig) error {
-	c.client = api.NewClient(config, c.version)
+	c.client = api.NewClientWithLogger(config, c.version, c.Logger.WithGroup("client"))
 
 	// Authenticate and get token
 	err := c.client.Authenticate(ctx)
