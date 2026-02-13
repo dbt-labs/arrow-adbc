@@ -45,6 +45,7 @@ type statement struct {
 	// Create DLO options
 	dloCategory   string
 	dloPrimaryKey string
+	dloWriteMode  string
 
 	// Data Transform options
 	targetDLO            string
@@ -111,7 +112,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 					s.targetDLO,
 					s.query,
 					"TABLE",
-					"OVERWRITE", // s.writeMode
+					s.dloWriteMode,
 					nil,
 				),
 			},
@@ -136,6 +137,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		odo[0].Category = "Profile"                      // TODO
 		odo[0].Label = cmp.Or(odo[0].Label, odo[0].Name) // default label
 		req.Definition.OutputDataObjects = odo
+		req.DataSpaceName = s.cnxn.dataSpace // needs association
 
 		logger.InfoContext(ctx, "Creating batch DT", "req", req)
 		dt, err := s.cnxn.client.CreateOrUpdateDataTransform(ctx, req)
@@ -270,6 +272,10 @@ func (s *statement) GetOption(key string) (string, error) {
 		return s.dloCategory, nil
 	case OptionStringDLOPrimaryKey:
 		return s.dloPrimaryKey, nil
+	case OptionStringDLOWriteMode:
+		return s.dloWriteMode, nil
+	case OptionStringDLOMaterialized: // TODO
+		return "table", nil
 	case OptionsStringTargetDLO:
 		return s.targetDLO, nil
 	}
@@ -310,6 +316,10 @@ func (s *statement) SetOption(key, value string) error {
 		s.dloCategory = value
 	case OptionStringDLOPrimaryKey:
 		s.dloPrimaryKey = value
+	case OptionStringDLOWriteMode:
+		s.dloWriteMode = value // TODO validate
+	case OptionStringDLOMaterialized: // TODO
+		// TODO: noop for now
 	case OptionsStringTargetDLO:
 		s.targetDLO = value
 	default:

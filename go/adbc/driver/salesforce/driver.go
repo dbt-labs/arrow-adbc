@@ -52,6 +52,8 @@ const (
 	// Stmt options
 	OptionStringDLOCategory          = "adbc.salesforce.dc.dlo.category"
 	OptionStringDLOPrimaryKey        = "adbc.salesforce.dc.dlo.primary_key"
+	OptionStringDLOMaterialized      = "adbc.salesforce.dc.dlo.materialized"
+	OptionStringDLOWriteMode         = "adbc.salesforce.dc.dlo.write_mode"
 	OptionsStringTargetDLO           = "adbc.salesforce.dc.dlo.target_dlo"
 	OptionIntDataTransformRunTimeout = "adbc.salesforce.dc.data_transform_run_timeout"
 
