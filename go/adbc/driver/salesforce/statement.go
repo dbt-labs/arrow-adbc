@@ -18,9 +18,11 @@
 package salesforce
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -115,10 +117,27 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 			},
 		)
 
+		logger.InfoContext(ctx, "Validating batch DT", "req", req)
+
+		valid, err := s.cnxn.client.ValidateDataTransform(ctx, req)
+		if err != nil {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to validate the data transform for create/update: %v", err)
+		}
+		logger.DebugContext(ctx, "Validated", "issues", valid.Issues, "odo", valid.OutputDataObjects)
+
+		odo := slices.Clone(valid.OutputDataObjects[req.Name])
+
+		for i := range odo[0].Fields {
+			f := &odo[0].Fields[i]
+			f.IsPrimaryKey = f.Name == s.dloPrimaryKey
+			f.Label = cmp.Or(f.Label, f.Name) // default label
+		}
+
+		odo[0].Category = "Profile"                      // TODO
+		odo[0].Label = cmp.Or(odo[0].Label, odo[0].Name) // default label
+		req.Definition.OutputDataObjects = odo
+
 		logger.InfoContext(ctx, "Creating batch DT", "req", req)
-
-		// valid, err := s.cnxn.client.ValidateDataTransform(ctx, req)
-
 		dt, err := s.cnxn.client.CreateOrUpdateDataTransform(ctx, req)
 		if err != nil {
 			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to create/update the data transform: %v", err)

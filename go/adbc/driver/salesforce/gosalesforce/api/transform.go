@@ -29,6 +29,29 @@ func (c *Client) CreateDataTransform(ctx context.Context, request *CreateDataTra
 	return PostJSON[CreateDataTransformRequest, DataTransform](c, ctx, "data-transforms", request)
 }
 
+// ValidateDataTransform creates a new data transform in Data Cloud
+// reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=createDataTransform
+func (c *Client) ValidateDataTransform(ctx context.Context, request *CreateDataTransformRequest) (*DataTransformValidation, error) {
+	// Validate required fields
+	if request.Name == "" {
+		return nil, &SfdcError{
+			Code:    400,
+			Message: "Data transform name cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	if request.Label == "" {
+		return nil, &SfdcError{
+			Code:    400,
+			Message: "Data transform label cannot be empty",
+			Type:    "invalid_request",
+		}
+	}
+
+	return PostJSON[CreateDataTransformRequest, DataTransformValidation](c, ctx, "data-transforms-validation", request)
+}
+
 // UpdateDataTransform creates a new data transform in Data Cloud
 // reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=updateDataTransform
 func (c *Client) UpdateDataTransform(ctx context.Context, request *CreateDataTransformRequest) (*DataTransform, error) {
