@@ -378,6 +378,11 @@ type CreateDataTransformRequest struct {
 	Type            DataTransformType         `json:"type"`
 }
 
+type DataTransformValidation struct {
+	Issues            []DataCloudError                           `json:"issues,omitempty"`
+	OutputDataObjects map[string][]DataTransformOutputDataObject `json:"outputDataObjects,omitempty"`
+}
+
 // DataTransformDefinition represents the base definition of a data transform
 // This only supports BATCH data transform
 type DataTransformDefinition struct {
@@ -395,9 +400,22 @@ type DbtDataTransformDefinition struct {
 // Information about the objects into which the data transform writes the transformed data.
 // See `outputDataObjects` from reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=type:Batch+Data+Transform+Output
 type DataTransformOutputDataObject struct {
+	Type      string `json:"type"`
 	Name      string `json:"name"`
+	Label     string `json:"label,omitempty"`
+	Category  string `json:"category,omitempty"`
 	Namespace string `json:"namespace,omitempty"`
+
+	Fields []DataObjectField `json:"fields"`
 	// TODO: There are more fields known to be missing, add if necessary
+}
+
+type DataObjectField struct {
+	Name                  string `json:"name"`
+	KeyQualifierFieldName string `json:"keyQualifierFieldName,omitempty"`
+	Label                 string `json:"label"`
+	Type                  string `json:"type"`
+	IsPrimaryKey          bool   `json:"isPrimaryKey"`
 }
 
 // DataTransformNode represents a node in a data transform
@@ -614,8 +632,9 @@ type DataSpaceObject struct {
 // Error response.
 // reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=type:Data+Cloud+Error
 type DataCloudError struct {
-	ErrorCode    string `json:"errorCode"`
-	ErrorMessage string `json:"errorMessage"`
+	ErrorCode     string `json:"errorCode"`
+	ErrorMessage  string `json:"errorMessage"`
+	ErrorSeverity string `json:"errorSeverity"`
 }
 
 // Data Cloud action response base.
