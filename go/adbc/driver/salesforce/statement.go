@@ -101,7 +101,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 			}
 		}
 
-		logger.InfoContext(ctx, "Writing sql to DT...")
+		logger.DebugContext(ctx, "Writing sql to DT...")
 		// Creates a data transform
 		req := api.NewBatchDataTransformRequest(
 			s.targetDLO,
@@ -118,7 +118,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 			},
 		)
 
-		logger.InfoContext(ctx, "Validating batch DT", "req", req)
+		logger.DebugContext(ctx, "Validating batch DT", "req", req)
 
 		valid, err := s.cnxn.client.ValidateDataTransform(ctx, req)
 		if err != nil {
@@ -137,15 +137,14 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		odo[0].Category = "Profile"                      // TODO
 		odo[0].Label = cmp.Or(odo[0].Label, odo[0].Name) // default label
 		req.Definition.OutputDataObjects = odo
-		req.DataSpaceName = s.cnxn.dataSpace // needs association
 
-		logger.InfoContext(ctx, "Creating batch DT", "req", req)
+		logger.DebugContext(ctx, "Creating batch DT", "req", req)
 		dt, err := s.cnxn.client.CreateOrUpdateDataTransform(ctx, req)
 		if err != nil {
 			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to create/update the data transform: %v", err)
 		}
 
-		logger.InfoContext(ctx, "Created batch DT. Waiting...", "dt", dt)
+		logger.DebugContext(ctx, "Created batch DT. Waiting...", "dt", dt)
 
 		dt, err = s.cnxn.client.WaitForDataTransform(ctx, dt)
 		if err != nil {
@@ -155,14 +154,14 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform is not active, current status: %v", dt.Status)
 		}
 
-		logger.InfoContext(ctx, "Running batch DT.", "dt", dt)
+		logger.DebugContext(ctx, "Running batch DT.", "dt", dt)
 
 		err = s.cnxn.client.MustRunDataTransform(ctx, dt.Name)
 		if err != nil {
 			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to run data transform: %v", err)
 		}
 
-		logger.InfoContext(ctx, "Run started. Waiting...", "dt", dt)
+		logger.DebugContext(ctx, "Run started. Waiting...", "dt", dt)
 
 		dt, err = s.cnxn.client.WaitForDataTransformRun(ctx, dt, s.dataTransformTimeout)
 		if err != nil {
@@ -172,7 +171,12 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform run was unsuccessful: last run status: %v", dt.LastRunStatus)
 		}
 
-		logger.InfoContext(ctx, "Run complete.")
+		logger.DebugContext(ctx, "Run complete. Associating with dataspace.")
+
+		_, err = s.cnxn.client.UpsertDataSpaceMembers(ctx, s.cnxn.dataSpace, []api.DataSpaceMember{{Name: s.targetDLO}})
+		if err != nil {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to associate with dataspace: %v", err)
+		}
 
 		// Returns empty
 		emptySchema := arrow.NewSchema([]arrow.Field{}, nil) // TODO
