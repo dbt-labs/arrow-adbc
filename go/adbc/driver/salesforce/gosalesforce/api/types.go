@@ -432,7 +432,7 @@ type DbtDataTransformNode struct {
 
 type DbtDataTransformNodeConfig struct {
 	Materialized string `json:"materialized"`
-	WriteMode    string `json:"writeMode"`
+	WriteMode    string `json:"writeMode,omitzero"`
 }
 
 // DataTransform represents the response from creating a data transform

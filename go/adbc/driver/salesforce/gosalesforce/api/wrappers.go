@@ -418,6 +418,37 @@ func (client *Client) CreateOrUpdateDataTransform(ctx context.Context, req *Crea
 
 }
 
+type DataSpaceMember struct {
+	Name   string        `json:"memberName"`
+	Filter *FilterConfig `json:"filter,omitzero"`
+}
+
+func (client *Client) UpsertDataSpaceMembers(ctx context.Context, dataSpace string, members []DataSpaceMember) (*DataCloudActionResponse, error) {
+	type upsertDataspaceMemberBody struct {
+		Members struct {
+			Members []DataSpaceMember `json:"members"`
+		} `json:"members"`
+	}
+
+	type upsertDataspaceMemberResp struct {
+		*DataCloudActionResponse
+		Members struct {
+			Members []DataSpaceMember `json:"members"`
+		} `json:"dataSpaceMembers"`
+	}
+
+	var reqBody upsertDataspaceMemberBody
+	reqBody.Members.Members = members
+
+	path := fmt.Sprintf("data-spoaces/%s/members", dataSpace)
+	resp, err := PutJSON[upsertDataspaceMemberBody, upsertDataspaceMemberResp](client, ctx, path, &reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.DataCloudActionResponse, nil
+}
+
 // NewClientWithJWT creates a new client using JWT authentication
 // It expects the private key to be stored in the home directory at `~/.salesforce/JWT/server.key`
 // It expects the login URL to be stored in the environment variable `SALESFORCE_LOGIN_URL`
