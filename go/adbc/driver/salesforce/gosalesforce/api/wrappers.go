@@ -329,12 +329,6 @@ func (client *Client) WaitForDataTransform(ctx context.Context, dt *DataTransfor
 	client.logger.DebugContext(ctx, "WaitForDataTransform")
 
 	op := func() (*DataTransform, error) {
-		err := client.MustRefreshDataTransformStatus(ctx, dt.Name)
-		if err != nil {
-			// return nil, backoff.Permanent(err)
-			return nil, err
-		}
-
 		ndt, err := client.GetDataTransform(ctx, dt.Name)
 		if err != nil {
 			return nil, backoff.Permanent(err)
@@ -389,7 +383,7 @@ func (client *Client) WaitForDataTransformRun(ctx context.Context, dt *DataTrans
 	}
 
 	policy := backoff.NewExponentialBackOff()
-	policy.InitialInterval = 1 * time.Second
+	policy.InitialInterval = 30 * time.Second
 	policy.MaxInterval = 15 * time.Second
 
 	return backoff.Retry(
