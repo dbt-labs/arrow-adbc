@@ -29,15 +29,15 @@ interactions:
             Content-Type:
                 - application/json;charset=UTF-8
             Date:
-                - Wed, 11 Mar 2026 00:10:42 GMT
+                - Wed, 11 Mar 2026 12:47:47 GMT
             Server:
                 - sfdcedge
             Set-Cookie:
-                - CookieConsentPolicy=0:1; path=/; expires=Thu, 11-Mar-2027 00:10:41 GMT; Max-Age=31536000; secure
-                - LSKey-c$CookieConsentPolicy=0:1; path=/; expires=Thu, 11-Mar-2027 00:10:41 GMT; Max-Age=31536000; secure
-                - BrowserId=vbzyIhzeEfGMXXktXvfTpQ; domain=.salesforce.com; path=/; expires=Thu, 11-Mar-2027 00:10:41 GMT; Max-Age=31536000; secure; SameSite=None
+                - CookieConsentPolicy=0:1; path=/; expires=Thu, 11-Mar-2027 12:47:47 GMT; Max-Age=31536000; secure
+                - LSKey-c$CookieConsentPolicy=0:1; path=/; expires=Thu, 11-Mar-2027 12:47:47 GMT; Max-Age=31536000; secure
+                - BrowserId=gYDRuh1IEfGWDDGcPrJbnQ; domain=.salesforce.com; path=/; expires=Thu, 11-Mar-2027 12:47:47 GMT; Max-Age=31536000; secure; SameSite=None
             Sforce-Limit-Info:
-                - api-usage=68/441450
+                - api-usage=4/441450
             Strict-Transport-Security:
                 - max-age=63072000; includeSubDomains
             Vary:
@@ -45,51 +45,53 @@ interactions:
             X-Content-Type-Options:
                 - nosniff
             X-Request-Id:
-                - ab808f47b2b8aeaa0e060e622b302a97
+                - b4930132d664d3370bb463af7922cb3a
             X-Robots-Tag:
                 - none
             X-Sfdc-Edge-Cache:
                 - MISS
             X-Sfdc-Request-Id:
-                - ab808f47b2b8aeaa0e060e622b302a97
+                - b4930132d664d3370bb463af7922cb3a
         status: 200 OK
         code: 200
-        duration: 859.745291ms
+        duration: 838.195833ms
     - id: 1
       request:
         proto: HTTP/1.1
         proto_major: 1
         proto_minor: 1
-        content_length: 0
+        content_length: 68
         host: storm-050b6314da1346.my.salesforce.com
+        body: |
+            {"sql":"SELECT * FROM CurrencyType_Home__dll LIMIT 1","rowLimit":1}
         headers:
             Accept-Encoding:
                 - identity
             Content-Type:
                 - application/json
             Cookie:
-                - CookieConsentPolicy=0:1; LSKey-c$CookieConsentPolicy=0:1; BrowserId=vbzyIhzeEfGMXXktXvfTpQ
+                - CookieConsentPolicy=0:1; LSKey-c$CookieConsentPolicy=0:1; BrowserId=gYDRuh1IEfGWDDGcPrJbnQ
             User-Agent:
                 - go-resty/3.0.0-beta.6 (https://resty.dev)
-        url: https://storm-050b6314da1346.my.salesforce.com/services/data/v64.0/ssot/data-streams/CurrencyType_Home__dll
-        method: GET
+        url: https://storm-050b6314da1346.my.salesforce.com/services/data/v64.0/ssot/query-sql
+        method: POST
       response:
         proto: HTTP/2.0
         proto_major: 2
         proto_minor: 0
         content_length: -1
-        body: '{"advancedAttributes":{},"capabilities":{},"connectorInfo":{"connectorDetails":{"name":"SalesforceDotCom_Home","sourceObject":"CurrencyType","type":"SalesforceDotCom"},"connectorType":"SalesforceDotCom"},"dataAccessMode":"INGEST","dataLakeObjectInfo":{"capabilities":{},"category":"Other","dataLakeFieldInfoRepresentation":[{"dataType":"Text","isPrimaryKey":false,"label":"KQ_Id","name":"KQ_Id"},{"dataType":"Text","isPrimaryKey":false,"label":"SfdcOrganizationId","name":"SfdcOrganizationId"},{"dataType":"DateTime","isPrimaryKey":false,"label":"Last Modified Date","name":"LastModifiedDate"},{"dataType":"Number","isPrimaryKey":false,"label":"Conversion Rate","name":"ConversionRate"},{"dataType":"Number","isPrimaryKey":false,"label":"Decimal Places","name":"DecimalPlaces"},{"dataType":"Text","isPrimaryKey":false,"label":"Data Source Object","name":"DataSourceObject"},{"dataType":"Text","isPrimaryKey":false,"label":"Corporate Currency","name":"IsCorporate"},{"dataType":"DateTime","isPrimaryKey":false,"label":"Created Date","name":"CreatedDate"},{"dataType":"Text","isPrimaryKey":false,"label":"Data Source","name":"DataSource"},{"dataType":"Text","isPrimaryKey":false,"label":"Currency ISO Code","name":"IsoCode"},{"dataType":"Text","isPrimaryKey":true,"label":"Currency Type ID","name":"Id"},{"dataType":"DateTime","isPrimaryKey":false,"label":"System Modstamp","name":"SystemModstamp"},{"dataType":"Text","isPrimaryKey":false,"label":"Last Modified By ID","name":"LastModifiedById"},{"dataType":"Text","isPrimaryKey":false,"label":"Active","name":"IsActive"},{"dataType":"Text","isPrimaryKey":false,"label":"Created By ID","name":"CreatedById"},{"dataType":"Text","isPrimaryKey":false,"label":"cdp_sys_SourceVersion","name":"cdp_sys_SourceVersion"}],"dataSpaceInfo":[{"label":"default","name":"default"}],"fields":[{"dataType":"Text","isPrimaryKey":false,"label":"KQ_Id","name":"KQ_Id"},{"dataType":"Text","isPrimaryKey":false,"label":"SfdcOrganizationId","name":"SfdcOrganizationId"},{"dataType":"DateTime","isPrimaryKey":false,"label":"Last Modified Date","name":"LastModifiedDate"},{"dataType":"Number","isPrimaryKey":false,"label":"Conversion Rate","name":"ConversionRate"},{"dataType":"Number","isPrimaryKey":false,"label":"Decimal Places","name":"DecimalPlaces"},{"dataType":"Text","isPrimaryKey":false,"label":"Data Source Object","name":"DataSourceObject"},{"dataType":"Text","isPrimaryKey":false,"label":"Corporate Currency","name":"IsCorporate"},{"dataType":"DateTime","isPrimaryKey":false,"label":"Created Date","name":"CreatedDate"},{"dataType":"Text","isPrimaryKey":false,"label":"Data Source","name":"DataSource"},{"dataType":"Text","isPrimaryKey":false,"label":"Currency ISO Code","name":"IsoCode"},{"dataType":"Text","isPrimaryKey":true,"label":"Currency Type ID","name":"Id"},{"dataType":"DateTime","isPrimaryKey":false,"label":"System Modstamp","name":"SystemModstamp"},{"dataType":"Text","isPrimaryKey":false,"label":"Last Modified By ID","name":"LastModifiedById"},{"dataType":"Text","isPrimaryKey":false,"label":"Active","name":"IsActive"},{"dataType":"Text","isPrimaryKey":false,"label":"Created By ID","name":"CreatedById"},{"dataType":"Text","isPrimaryKey":false,"label":"cdp_sys_SourceVersion","name":"cdp_sys_SourceVersion"}],"id":"0gOWt000000KnNxMAK","label":"CurrencyType_Home","name":"CurrencyType_Home__dll","recordModifiedFieldName":"SystemModstamp","status":"ACTIVE"},"dataSource":"Salesforce_Home","dataStreamType":"SFDC","isEnabled":true,"label":"CurrencyType_Home","lastAddedRecords":0,"lastProcessedRecords":0,"lastRefreshDate":"2026-03-11T00:08:00.000Z","lastRunStatus":"SUCCESS","mappings":[],"name":"CurrencyType_Home","recordId":"1dsWt000000HwijIAC","refreshConfig":{"frequency":{"frequencyType":"BATCH","hours":[],"refreshDayOfMonth":[]},"fullRefreshIntervalDays":"DAYS_10","hasHeaders":false,"isAccelerationEnabled":false,"refreshMode":"UPSERT","shouldFetchImmediately":false,"shouldTreatMissingFilesAsFailures":false},"sourceFields":[{"datatype":"Text","name":"Id"},{"datatype":"Text","name":"IsoCode"},{"datatype":"Number","name":"ConversionRate"},{"datatype":"Number","name":"DecimalPlaces"},{"datatype":"Text","name":"IsActive"},{"datatype":"Text","name":"IsCorporate"},{"datatype":"DateTime","format":"yyyy-MM-dd&#39;T&#39;HH:mm:ss.SSS&#39;Z&#39;","name":"CreatedDate"},{"datatype":"Text","name":"CreatedById"},{"datatype":"DateTime","format":"yyyy-MM-dd&#39;T&#39;HH:mm:ss.SSS&#39;Z&#39;","name":"LastModifiedDate"},{"datatype":"Text","name":"LastModifiedById"},{"datatype":"DateTime","format":"yyyy-MM-dd&#39;T&#39;HH:mm:ss.SSS&#39;Z&#39;","name":"SystemModstamp"},{"datatype":"Text","name":"SfdcOrganizationId"}],"status":"ACTIVE","totalRecords":1}'
+        body: '{"data":[["true","005Wt0000045LMTIA2","true","005Wt0000045LMTIA2","2025-06-27T18:16:54+00:00",1.000000000000000000,2.000000000000000000,null,null,"2025-06-27T18:16:54+00:00","00DWt000008dxQDMAY","Salesforce_Home","CurrencyType","01LWt000000DRdVMAW","USD","2025-06-27T18:16:54+00:00"]],"metadata":[{"name":"IsCorporate__c","nullable":true,"type":"Varchar"},{"name":"CreatedById__c","nullable":true,"type":"Varchar"},{"name":"IsActive__c","nullable":true,"type":"Varchar"},{"name":"LastModifiedById__c","nullable":true,"type":"Varchar"},{"name":"SystemModstamp__c","nullable":true,"type":"TimestampTZ"},{"name":"ConversionRate__c","nullable":true,"precision":38,"scale":18,"type":"Numeric"},{"name":"DecimalPlaces__c","nullable":true,"precision":38,"scale":18,"type":"Numeric"},{"name":"KQ_Id__c","nullable":true,"type":"Varchar"},{"name":"cdp_sys_SourceVersion__c","nullable":true,"type":"Varchar"},{"name":"CreatedDate__c","nullable":true,"type":"TimestampTZ"},{"name":"SfdcOrganizationId__c","nullable":true,"type":"Varchar"},{"name":"DataSource__c","nullable":true,"type":"Varchar"},{"name":"DataSourceObject__c","nullable":true,"type":"Varchar"},{"name":"Id__c","nullable":false,"type":"Varchar"},{"name":"IsoCode__c","nullable":true,"type":"Varchar"},{"name":"LastModifiedDate__c","nullable":true,"type":"TimestampTZ"}],"returnedRows":1,"status":{"chunkCount":1,"completionStatus":"ResultsProduced","expirationTime":"","progress":1.0,"queryId":"MTAuMjQuNDguMTkwOjc0ODQ_af170431-4ee7-74aa-a04c-94c4ca3467d5","rowCount":1}}'
         headers:
             Cache-Control:
                 - no-cache,must-revalidate,max-age=0,no-store,private
             Content-Type:
                 - application/json;charset=UTF-8
             Date:
-                - Wed, 11 Mar 2026 00:10:43 GMT
+                - Wed, 11 Mar 2026 12:47:48 GMT
             Server:
                 - sfdcedge
             Sforce-Limit-Info:
-                - api-usage=68/441450
+                - api-usage=4/441450
             Strict-Transport-Security:
                 - max-age=63072000; includeSubDomains
             Vary:
@@ -97,13 +99,11 @@ interactions:
             X-Content-Type-Options:
                 - nosniff
             X-Request-Id:
-                - a78c1fe97fe11fc59a5c8f889f29e161
+                - 6d64fddaf30075572683cf1060a222f5
             X-Robots-Tag:
                 - none
-            X-Sfdc-Edge-Cache:
-                - MISS
             X-Sfdc-Request-Id:
-                - a78c1fe97fe11fc59a5c8f889f29e161
-        status: 200 OK
-        code: 200
-        duration: 946.613ms
+                - 6d64fddaf30075572683cf1060a222f5
+        status: 201 Created
+        code: 201
+        duration: 508.451417ms

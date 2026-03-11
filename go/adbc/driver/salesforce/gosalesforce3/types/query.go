@@ -18,15 +18,35 @@ const (
 	SqlTypeTimestamp   SqlType = "Timestamp"
 	SqlTypeTimestampTZ SqlType = "TimestampTZ"
 	SqlTypeOid         SqlType = "Oid"
+	SqlTypeArrayOf     SqlType = "ArrayOfX"
 	SqlTypeUnspecified SqlType = "Unspecified"
 )
 
+// SqlQueryCompletionStatus represents the status of a SQL query.
+type SqlQueryCompletionStatus = string
+
+const (
+	SqlQueryFinished        SqlQueryCompletionStatus = "Finished"
+	SqlQueryResultsProduced SqlQueryCompletionStatus = "ResultsProduced"
+	SqlQueryRunning         SqlQueryCompletionStatus = "Running"
+	SqlQueryUnspecified     SqlQueryCompletionStatus = "Unspecified"
+)
+
 type SqlQueryStatus struct {
-	ChunkCount       int     `json:"chunkCount"`
-	CompletionStatus string  `json:"completionStatus"`
-	Progress         float64 `json:"progress"`
-	QueryID          string  `json:"queryId"`
-	RowCount         int64   `json:"rowCount"`
+	ChunkCount       int                      `json:"chunkCount"`
+	CompletionStatus SqlQueryCompletionStatus `json:"completionStatus"`
+	ExpirationTime   string                   `json:"expirationTime,omitempty"`
+	Progress         float64                  `json:"progress"`
+	QueryID          string                   `json:"queryId"`
+	RowCount         int64                    `json:"rowCount"`
+}
+
+func (s *SqlQueryStatus) IsFinished() bool {
+	return s.CompletionStatus == SqlQueryFinished || s.CompletionStatus == SqlQueryResultsProduced
+}
+
+func (s *SqlQueryStatus) IsRunning() bool {
+	return s.CompletionStatus == SqlQueryRunning
 }
 
 type SqlParameter struct {
@@ -45,6 +65,8 @@ type SqlQueryRequest struct {
 	WorkloadName string `json:"-"`
 }
 
+// SqlQueryResponse is the response from Create SQL Query.
+// It combines the Get Query status and Get Query Rows data.
 type SqlQueryResponse struct {
 	Data         [][]any            `json:"data"`
 	Metadata     []SqlQueryMetadata `json:"metadata"`
@@ -52,10 +74,18 @@ type SqlQueryResponse struct {
 	ReturnedRows int64              `json:"returnedRows"`
 }
 
+// SqlQueryRowsResponse is the response from Get Query Rows.
+type SqlQueryRowsResponse struct {
+	Data         [][]any            `json:"data"`
+	Metadata     []SqlQueryMetadata `json:"metadata"`
+	ReturnedRows int64              `json:"returnedRows"`
+}
+
 type SqlQueryMetadata struct {
-	Name      string  `json:"name"`
-	Nullable  bool    `json:"nullable"`
-	Type      SqlType `json:"type"`
-	Precision *int    `json:"precision,omitempty"`
-	Scale     *int    `json:"scale,omitempty"`
+	Name         string  `json:"name"`
+	Nullable     bool    `json:"nullable"`
+	Type         SqlType `json:"type"`
+	InnerElement SqlType `json:"innerElement,omitempty"`
+	Precision    *int    `json:"precision,omitempty"`
+	Scale        *int    `json:"scale,omitempty"`
 }

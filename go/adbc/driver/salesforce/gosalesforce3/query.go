@@ -3,12 +3,14 @@ package gosalesforce3
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
 )
 
-// TODO: this is technically called "Create SQL Query" in the docs.
-// Actually executing it to completion is a potentially multi-call process.
+// ExecuteSqlQuery creates and executes a SQL query, returning results inline.
+// This is the "Create SQL Query" endpoint in the docs. For large result sets,
+// use GetQuery to poll status and GetQueryRows to fetch paginated results.
 func (c *Client) ExecuteSqlQuery(ctx context.Context, req *types.SqlQueryRequest) (*types.SqlQueryResponse, error) {
 	if err := c.ensureAuth(); err != nil {
 		return nil, err
@@ -34,50 +36,68 @@ func (c *Client) ExecuteSqlQuery(ctx context.Context, req *types.SqlQueryRequest
 	return &result, nil
 }
 
-// TODO: We're missing the other endpoints:
-// - Get Query: `GET /ssot/query-sql/{queryId}`
-// - Get Query Rows: `GET /ssot/query-sql/{queryId}/rows`
-// - Cancel Query: `DELETE /ssot/query-sql/{queryId}` (supposedly returns 200 with no body on success, but we should verify this with testing)
-//
-// This API is a bit weird since `Create SQL Query` returns a JSON response that is a combination of the `Get Query` and `Get Query Rows` responses, see below.
-//
-// type SqlQueryParams struct {
-//   // used as URL query params for all query endpoints.
-//   dataspace string // optional, uses "default" if not provided
-//   workloadName string // optional, used to enrich log files for debugging
-//
-//   // this is only used for `Get Query` (maybe `Create Query` too, but it's not documented if it is)
-//   waitTimeMs int // optional, max 10000 (10s), if not provided, returns immediately
-//
-//   // these are only used for `Get Query Rows`
-//   rowLimit int // optional, must be greater than 0. Fewer rows may be returned, but will not exceed this limit
-//   offset int // optional, row number to start when fetching next chunk. Must be less than total available rows.
-// }
-//
-//
-// type GetQueryResp struct {
-//   completionStatus string // enum("Finished" - execution complete, results available in-mem and persisted | "ResultsProduced" - execution complete, results available in-mem (not yet persisted?) | "Running" - query executing | "Unspecified")
-//   expirationTime string // appears to always be in the format "seconds: <SEC>\n" where the value is the unix epoch time at which the query results will expire (no idea what happens when it expires though, but we can assume it won't be available anymore)
-//   progress float // between 0.0 and 1.0 (inclusive). 0 means not started, 1 means complete and ready to retrieve
-//   queryId string // uid for the query, used to call other endpoints after Create (doubtful that this will change after creation, but the docs don't specify if it's immutable or not)
-//   rowCount int // total number of available rows for extraction (theoretically, this could increase as progress is made, but unclear. I guess we could fetch results before the query is finished, as long as we keep the offset below the most recent rowCount)
-// }
-//
-// type GetQueryRowsResp struct {
-//   returnedRows int // number of rows in this response
-//   metadata []struct{
-//     type string // enum("ArrayOfX"|"BigInt"|"Bool"|"Char"|"Date"|"Double"|"Float"|"Integer"|"Numeric"|"Oid"|"SmallInt"|"Time"|"Timestamp"|"TimestampTZ"|"Varchar"|"Unspecified")
-//     innerElement string? // used when `type` is "ArrayOfX", will be one of the other types (except "ArrayOfX"; nested arrays not allows) to specify the type of the array elements
-//     name string // column name
-//     nullable bool
-//     precision int? // only for numeric types
-//     scale int? // only for numeric types
-//   }
-//   data [][]any // Array of rows, where each row is an array of column values in the same order as `metadata`
-//   }
-// }
-//
-// type CreateSqlQueryResp struct {
-//   GetQueryRowResp // embedded
-//   Status GetQueryResp `json:"status"` // nested under the status key
-// }
+// GetQuery retrieves the status of a previously created SQL query.
+// Use waitTimeMs to long-poll (max 10000ms); 0 returns immediately.
+func (c *Client) GetQuery(ctx context.Context, queryID string, waitTimeMs int) (*types.SqlQueryStatus, error) {
+	if err := c.ensureAuth(); err != nil {
+		return nil, err
+	}
+
+	r := c.ssotRequest(ctx)
+	if waitTimeMs > 0 {
+		r.SetQueryParam("waitTimeMs", strconv.Itoa(waitTimeMs))
+	}
+
+	var result types.SqlQueryStatus
+	resp, err := r.SetResult(&result).Get(c.ssotURL("/query-sql/" + queryID))
+	if err != nil {
+		return nil, fmt.Errorf("get query status failed: %w", err)
+	}
+	if resp.IsError() {
+		return nil, checkError(resp)
+	}
+
+	return &result, nil
+}
+
+// GetQueryRows retrieves rows from a completed SQL query.
+// Use offset and rowLimit to paginate through large result sets.
+func (c *Client) GetQueryRows(ctx context.Context, queryID string, offset int64, rowLimit int64) (*types.SqlQueryRowsResponse, error) {
+	if err := c.ensureAuth(); err != nil {
+		return nil, err
+	}
+
+	r := c.ssotRequest(ctx).
+		SetQueryParam("offset", strconv.FormatInt(offset, 10))
+	if rowLimit > 0 {
+		r.SetQueryParam("rowLimit", strconv.FormatInt(rowLimit, 10))
+	}
+
+	var result types.SqlQueryRowsResponse
+	resp, err := r.SetResult(&result).Get(c.ssotURL("/query-sql/" + queryID + "/rows"))
+	if err != nil {
+		return nil, fmt.Errorf("get query rows failed: %w", err)
+	}
+	if resp.IsError() {
+		return nil, checkError(resp)
+	}
+
+	return &result, nil
+}
+
+// CancelQuery cancels a running SQL query.
+func (c *Client) CancelQuery(ctx context.Context, queryID string) error {
+	if err := c.ensureAuth(); err != nil {
+		return err
+	}
+
+	resp, err := c.ssotRequest(ctx).Delete(c.ssotURL("/query-sql/" + queryID))
+	if err != nil {
+		return fmt.Errorf("cancel query failed: %w", err)
+	}
+	if resp.IsError() {
+		return checkError(resp)
+	}
+
+	return nil
+}
