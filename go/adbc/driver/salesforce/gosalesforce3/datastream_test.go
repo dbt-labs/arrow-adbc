@@ -2,29 +2,35 @@ package gosalesforce3
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 	"testing"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestGetDataStream(t *testing.T) {
-	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "GET", r.Method)
-		assert.Contains(t, r.URL.Path, "/data-streams/test_stream")
+type DataStreamSuite struct {
+	APISuite
+}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(types.DataStream{
-			ID:   "abc123",
-			Name: "test_stream",
-		})
-	}))
+func (s *DataStreamSuite) TestGetDataStream() {
+	// First get a valid data stream name from metadata
+	meta, err := s.Client.GetMetadata(context.Background(), &types.MetadataRequest{})
+	s.Require().NoError(err)
+	s.Require().NotEmpty(meta.Metadata, "need at least one entity")
 
-	ds, err := client.GetDataStream(context.Background(), "test_stream")
-	require.NoError(t, err)
-	assert.Equal(t, "test_stream", ds.Name)
-	assert.Equal(t, "abc123", ds.ID)
+	// Use the first entity name — data streams often share names with DLOs
+	ds, err := s.Client.GetDataStream(context.Background(), meta.Metadata[0].Name)
+	if err != nil {
+		// Data stream might not exist for this entity, that's OK
+		sfErr, ok := err.(*SalesforceError)
+		if ok && sfErr.IsNotFound() {
+			s.T().Skipf("no data stream found for %s, skipping", meta.Metadata[0].Name)
+		}
+		s.Require().NoError(err)
+	}
+	s.NotEmpty(ds.Name)
+}
+
+func TestDataStreamSuite(t *testing.T) {
+	suite.Run(t, new(DataStreamSuite))
 }

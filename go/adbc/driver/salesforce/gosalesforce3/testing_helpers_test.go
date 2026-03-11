@@ -1,6 +1,8 @@
 package gosalesforce3
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,19 +15,55 @@ import (
 	"resty.dev/v3"
 )
 
+// APISuite is a base test suite that uses VCR cassettes.
+//
+// When real credentials are available (SFDC_ env vars), it authenticates
+// against live Salesforce and records HTTP interactions to cassettes.
+// When credentials are absent, it replays from existing cassettes.
 type APISuite struct {
 	suite.Suite
 	Client   *Client
 	recorder *recorder.Recorder
 }
 
+// hasRealCredentials returns true if SFDC_ env vars are set for live recording.
+func hasRealCredentials() bool {
+	return os.Getenv("SFDC_LOGIN_URL") != "" &&
+		os.Getenv("SFDC_CLIENT_ID") != "" &&
+		os.Getenv("SFDC_USERNAME") != "" &&
+		os.Getenv("SFDC_CLIENT_PRIVATE_KEY_PATH") != ""
+}
+
+// realAuthConfig builds an AuthConfig from SFDC_ env vars.
+func realAuthConfig(t require.TestingT) *types.AuthConfig {
+	keyPath := os.Getenv("SFDC_CLIENT_PRIVATE_KEY_PATH")
+	if !filepath.IsAbs(keyPath) {
+		keyPath = filepath.Join("..", keyPath)
+	}
+	keyPEM, err := os.ReadFile(keyPath)
+	require.NoError(t, err)
+
+	return &types.AuthConfig{
+		LoginURL:      os.Getenv("SFDC_LOGIN_URL"),
+		ClientID:      os.Getenv("SFDC_CLIENT_ID"),
+		Username:      os.Getenv("SFDC_USERNAME"),
+		PrivateKeyPEM: string(keyPEM),
+	}
+}
+
 func (s *APISuite) SetupTest() {
 	t := s.T()
 	cassetteName := filepath.Join("testdata", sanitizeCassetteName(t.Name()))
 
+	mode := recorder.ModeReplayOnly
+	if hasRealCredentials() {
+		mode = recorder.ModeRecordOnce
+	}
+
 	r, err := recorder.New(cassetteName,
-		recorder.WithMode(recorder.ModeRecordOnce),
+		recorder.WithMode(mode),
 		recorder.WithSkipRequestLatency(true),
+		// Strip auth headers from saved cassettes
 		recorder.WithHook(func(i *cassette.Interaction) error {
 			delete(i.Request.Headers, "Authorization")
 			return nil
@@ -40,20 +78,40 @@ func (s *APISuite) SetupTest() {
 	restyClient := resty.New()
 	restyClient.SetTransport(r)
 	restyClient.SetHeader("Content-Type", "application/json")
+	// Disable gzip so cassettes store plain text (readable + replayable)
+	restyClient.SetHeader("Accept-Encoding", "identity")
 
-	client, err := NewClient(
-		testAuthConfig(),
-		WithHTTPClient(restyClient),
-	)
-	require.NoError(t, err)
+	if hasRealCredentials() {
+		// Live mode: authenticate for real, VCR records the API calls
+		cfg := realAuthConfig(t)
+		client, err := NewClient(cfg, WithHTTPClient(restyClient))
+		require.NoError(t, err)
 
-	client.instanceURL = "https://test.salesforce.com"
-	client.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{
-		AccessToken: "test-token",
-	})
-	client.http.SetAuthToken("test-token")
+		err = client.Authenticate(context.Background())
+		require.NoError(t, err)
 
-	s.Client = client
+		s.Client = client
+	} else {
+		// Replay mode: use static token and instance URL from cassettes
+		client, err := NewClient(
+			&types.AuthConfig{
+				LoginURL:   "https://test.salesforce.com",
+				ClientID:   "test-client-id",
+				Username:   "test@example.com",
+				APIVersion: "v64.0",
+			},
+			WithHTTPClient(restyClient),
+		)
+		require.NoError(t, err)
+
+		client.instanceURL = "https://test.salesforce.com"
+		client.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{
+			AccessToken: "test-token",
+		})
+		client.http.SetAuthToken("test-token")
+
+		s.Client = client
+	}
 }
 
 func (s *APISuite) TearDownTest() {
@@ -63,15 +121,6 @@ func (s *APISuite) TearDownTest() {
 	}
 	if s.Client != nil {
 		s.Client.Close()
-	}
-}
-
-func testAuthConfig() *types.AuthConfig {
-	return &types.AuthConfig{
-		LoginURL:   "https://test.salesforce.com",
-		ClientID:   "test-client-id",
-		Username:   "test@example.com",
-		APIVersion: "v64.0",
 	}
 }
 

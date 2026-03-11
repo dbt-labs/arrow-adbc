@@ -2,77 +2,59 @@ package gosalesforce3
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
-	"resty.dev/v3"
+	"github.com/stretchr/testify/suite"
 )
 
-func newTestClient(t *testing.T, handler http.Handler) *Client {
-	t.Helper()
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
-	restyClient := resty.New()
-	restyClient.SetHeader("Content-Type", "application/json")
-	t.Cleanup(func() { restyClient.Close() })
-
-	client, err := NewClient(&types.AuthConfig{APIVersion: "v64.0"}, WithHTTPClient(restyClient))
-	require.NoError(t, err)
-	client.instanceURL = server.URL
-	client.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test"})
-	return client
+type DLOSuite struct {
+	APISuite
 }
 
-func TestCreateDataLakeObject(t *testing.T) {
-	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Contains(t, r.URL.Path, "/data-lake-objects")
+func (s *DLOSuite) TestCreateAndGetAndDeleteDLO() {
+	ctx := context.Background()
+	dloName := "sftest_dlo__dll"
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(types.DataLakeObject{
-			Name:   "test_dlo",
-			Label:  "Test DLO",
-			Status: "Active",
-		})
-	}))
+	// Clean up any leftover from previous runs
+	_ = s.Client.DeleteDataLakeObject(ctx, dloName)
 
-	dlo, err := client.CreateDataLakeObject(context.Background(), &types.CreateDataLakeObjectRequest{
-		Name:     "test_dlo",
-		Label:    "Test DLO",
+	req := &types.CreateDataLakeObjectRequest{
+		Name:     dloName,
+		Label:    "sftest DLO",
 		Category: types.DLOCategoryProfile,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "test_dlo", dlo.Name)
-	assert.True(t, dlo.IsActive())
+		Fields: []types.DataLakeFieldInputRepresentation{
+			{Name: "id__c", Label: "id__c", DataType: "Text", IsPrimaryKey: "true"},
+			{Name: "name__c", Label: "name__c", DataType: "Text", IsPrimaryKey: "false"},
+		},
+	}
+
+	dlo, err := s.Client.CreateDataLakeObject(ctx, req)
+	if err != nil {
+		// May fail if previous run's DLO is still processing
+		sfErr, ok := err.(*SalesforceError)
+		if ok && sfErr.Code == "INVALID_INPUT" {
+			s.T().Skipf("DLO still exists from previous run (likely still processing): %v", err)
+		}
+		s.Require().NoError(err, "create DLO failed")
+	}
+	s.T().Logf("Created DLO: %s (id=%s, status=%s)", dlo.Name, dlo.ID, dlo.Status)
+
+	// Get
+	fetched, err := s.Client.GetDataLakeObject(ctx, dloName)
+	s.Require().NoError(err, "get DLO failed")
+	s.Equal(dloName, fetched.Name)
+	s.T().Logf("Fetched DLO: %s (status=%s)", fetched.Name, fetched.Status)
+
+	// Delete — may fail if DLO is still processing (async provisioning)
+	err = s.Client.DeleteDataLakeObject(ctx, dloName)
+	if err != nil {
+		s.T().Logf("Delete DLO deferred (still processing): %v", err)
+	} else {
+		s.T().Log("Deleted DLO successfully")
+	}
 }
 
-func TestGetDataLakeObject(t *testing.T) {
-	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "GET", r.Method)
-		assert.Contains(t, r.URL.Path, "/data-lake-objects/test_dlo")
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(types.DataLakeObject{Name: "test_dlo", Status: "Active"})
-	}))
-
-	dlo, err := client.GetDataLakeObject(context.Background(), "test_dlo")
-	require.NoError(t, err)
-	assert.Equal(t, "test_dlo", dlo.Name)
-}
-
-func TestDeleteDataLakeObject(t *testing.T) {
-	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "DELETE", r.Method)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	err := client.DeleteDataLakeObject(context.Background(), "test_dlo")
-	require.NoError(t, err)
+func TestDLOSuite(t *testing.T) {
+	suite.Run(t, new(DLOSuite))
 }

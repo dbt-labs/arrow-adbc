@@ -2,6 +2,20 @@ package types
 
 import "strings"
 
+// DataTransformType represents the type of data transform.
+type DataTransformType = string
+
+const (
+	DataTransformTypeBatch DataTransformType = "BATCH"
+)
+
+// DataTransformDefinitionType represents the type of definition.
+type DataTransformDefinitionType = string
+
+const (
+	DataTransformDefinitionTypeDCSQL DataTransformDefinitionType = "DCSQL"
+)
+
 type DataTransformStatus string
 
 const (
@@ -50,13 +64,15 @@ func (s DataTransformRunStatus) IsTerminal() bool {
 	return s.IsSuccess() || s.IsFailure() || s.IsCanceled()
 }
 
+// DataTransform represents a Data Transform resource (response).
 type DataTransform struct {
 	ID            string                  `json:"id,omitempty"`
 	Name          string                  `json:"name"`
 	Label         string                  `json:"label,omitempty"`
-	Status        DataTransformStatus     `json:"publishStatus"`
+	Status        DataTransformStatus     `json:"status"`
 	LastRunStatus DataTransformRunStatus  `json:"lastRunStatus,omitempty"`
-	Definition    DataTransformDefinition `json:"definition,omitempty"`
+	Definition    DataTransformDefinition `json:"definition,omitzero"`
+	Type          DataTransformType       `json:"type,omitempty"`
 }
 
 func (dt *DataTransform) IsActive() bool         { return dt.Status.IsActive() }
@@ -64,40 +80,63 @@ func (dt *DataTransform) IsLastRunSuccess() bool  { return dt.LastRunStatus.IsSu
 func (dt *DataTransform) IsLastRunFailure() bool  { return dt.LastRunStatus.IsFailure() }
 func (dt *DataTransform) IsLastRunCanceled() bool { return dt.LastRunStatus.IsCanceled() }
 
+// DataTransformDefinition holds the transform logic.
 type DataTransformDefinition struct {
-	Type     string                         `json:"type"`
-	Version  string                         `json:"version"`
-	Manifest DataTransformManifest          `json:"manifest,omitempty"`
-	Nodes    map[string]DataTransformNode   `json:"nodes,omitempty"`
-	Sources  map[string]DataTransformSource `json:"sources,omitempty"`
+	Type              DataTransformDefinitionType      `json:"type"`
+	Version           string                           `json:"version"`
+	Manifest          DataTransformManifest            `json:"manifest,omitzero"`
+	OutputDataObjects []DataTransformOutputDataObject  `json:"outputDataObjects,omitempty"`
 }
 
+// DataTransformManifest is the dbt-style manifest with nodes.
 type DataTransformManifest struct {
-	OutputObjects []DataTransformOutput `json:"outputObjects,omitempty"`
+	Nodes map[string]DataTransformNode `json:"nodes,omitempty"`
 }
 
-type DataTransformOutput struct {
-	ObjectName string `json:"objectName"`
-	Label      string `json:"label,omitempty"`
-	Category   string `json:"category,omitempty"`
-}
-
+// DataTransformNode represents a computation node in a transform.
 type DataTransformNode struct {
-	SQL     string   `json:"sql"`
-	Sources []string `json:"sources,omitempty"`
+	Name         string                     `json:"name"`
+	RelationName string                     `json:"relation_name,omitempty"`
+	Config       DataTransformNodeConfig    `json:"config"`
+	CompiledCode string                     `json:"compiled_code"`
+	DependsOn    map[string]any             `json:"depends_on,omitempty"`
 }
 
-type DataTransformSource struct {
-	ObjectName string `json:"objectName"`
+// DataTransformNodeConfig configures how a node materializes.
+type DataTransformNodeConfig struct {
+	Materialized string `json:"materialized"`
+	WriteMode    string `json:"writeMode,omitempty"`
 }
 
+// DataTransformOutputDataObject describes an output object of a transform.
+type DataTransformOutputDataObject struct {
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Label     string `json:"label,omitempty"`
+	Category  string `json:"category,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// CreateDataTransformRequest is the request body for creating/updating a Data Transform.
 type CreateDataTransformRequest struct {
-	Name       string                  `json:"name"`
-	Label      string                  `json:"label,omitempty"`
-	Definition DataTransformDefinition `json:"definition"`
+	Name          string                  `json:"name"`
+	Label         string                  `json:"label,omitempty"`
+	Type          DataTransformType       `json:"type"`
+	Definition    DataTransformDefinition `json:"definition"`
+	DataSpaceName string                  `json:"dataSpaceName,omitempty"`
+	Description   string                  `json:"description,omitempty"`
+	PrimarySource string                  `json:"primarySource,omitempty"`
 }
 
+// DataTransformValidation is the response from the validation endpoint.
 type DataTransformValidation struct {
-	Valid  bool     `json:"valid"`
-	Errors []string `json:"errors,omitempty"`
+	Issues            []DataTransformValidationIssue             `json:"issues,omitempty"`
+	OutputDataObjects map[string][]DataTransformOutputDataObject `json:"outputDataObjects,omitempty"`
+}
+
+// DataTransformValidationIssue represents a validation problem.
+type DataTransformValidationIssue struct {
+	ErrorCode     string `json:"errorCode"`
+	ErrorMessage  string `json:"errorMessage"`
+	ErrorSeverity string `json:"errorSeverity"`
 }

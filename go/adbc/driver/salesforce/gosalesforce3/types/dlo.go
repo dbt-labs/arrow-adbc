@@ -18,17 +18,40 @@ const (
 	DLOStatusError      DataLakeObjectStatus = "Error"
 )
 
+// CreateDataLakeObjectRequest is the request body for creating a DLO.
+// Note: field names differ from the response (DataLakeObject).
+type CreateDataLakeObjectRequest struct {
+	Name                       string                           `json:"name"`
+	Label                      string                           `json:"label"`
+	Category                   DataLakeObjectCategory           `json:"category"`
+	Fields                     []DataLakeFieldInputRepresentation `json:"dataLakeFieldInputRepresentations"`
+	DataspaceInfo              []DataspaceInfo                  `json:"dataspaceInfo"`
+	OrgUnitIdentifierFieldName string                           `json:"orgUnitIdentifierFieldName"`
+	RecordModifiedFieldName    string                           `json:"recordModifiedFieldName"`
+	EventDateTimeFieldName     string                           `json:"eventDateTimeFieldName,omitempty"`
+}
+
+// DataLakeFieldInputRepresentation is a field in the DLO create request.
+// Note: IsPrimaryKey is a string ("true"/"false") per the Salesforce API.
+type DataLakeFieldInputRepresentation struct {
+	Name         string `json:"name"`
+	Label        string `json:"label"`
+	DataType     string `json:"dataType"`
+	IsPrimaryKey string `json:"isPrimaryKey"`
+}
+
+// DataLakeObjects is the wrapper response from the GET endpoint.
+type DataLakeObjects struct {
+	DataLakeObjects []DataLakeObject `json:"dataLakeObjects"`
+}
+
+// DataLakeObject is the response representation of a DLO.
 type DataLakeObject struct {
 	ID       string                 `json:"id,omitempty"`
-	Name     string                 `json:"objectName"`
-	Label    string                 `json:"label"`
+	Name     string                 `json:"name"`
 	Category DataLakeObjectCategory `json:"category"`
 	Status   DataLakeObjectStatus   `json:"publishStatus,omitempty"`
-	Fields   []DataLakeField        `json:"fields,omitempty"`
-
-	OrgUnitIdentifierFieldName string          `json:"orgUnitIdentifierFieldName,omitempty"`
-	RecordModifiedFieldName    string          `json:"recordModifiedFieldName,omitempty"`
-	DataspaceInfo              []DataspaceInfo `json:"dataspaceInfo,omitempty"`
+	Fields   []DataLakeFieldOutput  `json:"dataLakeFieldInfoRepresentation,omitempty"`
 }
 
 func (d *DataLakeObject) IsActive() bool {
@@ -39,9 +62,10 @@ func (d *DataLakeObject) IsError() bool {
 	return strings.EqualFold(d.Status, DLOStatusError)
 }
 
-type DataLakeField struct {
+// DataLakeFieldOutput is a field in the DLO response.
+type DataLakeFieldOutput struct {
 	Name         string `json:"name"`
-	Label        string `json:"label,omitempty"`
+	DisplayName  string `json:"displayName"`
 	Type         string `json:"type"`
 	IsPrimaryKey bool   `json:"isPrimaryKey"`
 }
@@ -49,5 +73,3 @@ type DataLakeField struct {
 type DataspaceInfo struct {
 	Name string `json:"name"`
 }
-
-type CreateDataLakeObjectRequest = DataLakeObject

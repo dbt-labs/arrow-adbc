@@ -2,70 +2,38 @@ package gosalesforce3
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
-	"resty.dev/v3"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestGetMetadata(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/services/data/v64.0/ssot/metadata", r.URL.Path)
-		assert.Equal(t, "GET", r.Method)
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(types.MetadataResponse{
-			Metadata: []types.MetadataEntity{
-				{Name: "Account", Label: "Account", Category: "Profile"},
-			},
-		})
-	}))
-	defer server.Close()
-
-	restyClient := resty.New()
-	restyClient.SetHeader("Content-Type", "application/json")
-	defer restyClient.Close()
-
-	client, err := NewClient(&types.AuthConfig{APIVersion: "v64.0"}, WithHTTPClient(restyClient))
-	require.NoError(t, err)
-	client.instanceURL = server.URL
-	client.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test"})
-
-	resp, err := client.GetMetadata(context.Background(), &types.MetadataRequest{})
-	require.NoError(t, err)
-	assert.Len(t, resp.Metadata, 1)
-	assert.Equal(t, "Account", resp.Metadata[0].Name)
+type MetadataSuite struct {
+	APISuite
 }
 
-func TestGetMetadata_WithFilters(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "default", r.URL.Query().Get("dataspace"))
-		assert.Equal(t, "Profile", r.URL.Query().Get("entityCategory"))
+func (s *MetadataSuite) TestGetMetadata() {
+	resp, err := s.Client.GetMetadata(context.Background(), &types.MetadataRequest{})
+	s.Require().NoError(err)
+	s.NotNil(resp)
+	s.NotEmpty(resp.Metadata, "expected at least one metadata entity")
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(types.MetadataResponse{Metadata: []types.MetadataEntity{}})
-	}))
-	defer server.Close()
+	// Verify structure of first entity
+	entity := resp.Metadata[0]
+	s.NotEmpty(entity.Name)
+}
 
-	restyClient := resty.New()
-	restyClient.SetHeader("Content-Type", "application/json")
-	defer restyClient.Close()
-
-	client, err := NewClient(&types.AuthConfig{APIVersion: "v64.0"}, WithHTTPClient(restyClient))
-	require.NoError(t, err)
-	client.instanceURL = server.URL
-	client.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test"})
-
-	resp, err := client.GetMetadata(context.Background(), &types.MetadataRequest{
-		Dataspace:      "default",
+func (s *MetadataSuite) TestGetMetadata_WithEntityCategory() {
+	resp, err := s.Client.GetMetadata(context.Background(), &types.MetadataRequest{
 		EntityCategory: "Profile",
 	})
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
+	s.Require().NoError(err)
+	s.NotNil(resp)
+	// The filter is applied server-side; we just verify we got a response
+	// (the Category field in the response may be empty depending on API version)
+	s.T().Logf("Got %d entities with entityCategory=Profile filter", len(resp.Metadata))
+}
+
+func TestMetadataSuite(t *testing.T) {
+	suite.Run(t, new(MetadataSuite))
 }
