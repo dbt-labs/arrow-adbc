@@ -19,10 +19,10 @@ func (s *QuerySuite) TestExecuteSqlQuery() {
 	s.Require().NotEmpty(meta.Metadata, "need at least one entity to query")
 
 	entity := meta.Metadata[0]
-	resp, err := s.Client.ExecuteSqlQuery(context.Background(), &types.SqlQueryRequest{
+	resp, err := s.Client.CreateSqlQuery(context.Background(), &types.SqlQueryRequest{
 		SQL:      "SELECT * FROM " + entity.Name + " LIMIT 1",
 		RowLimit: 1,
-	})
+	}, nil)
 	s.Require().NoError(err)
 	s.NotNil(resp)
 	s.NotEmpty(resp.Metadata, "expected column metadata")

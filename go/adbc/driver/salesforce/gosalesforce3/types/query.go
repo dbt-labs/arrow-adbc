@@ -55,14 +55,15 @@ type SqlParameter struct {
 	Value any    `json:"value"`
 }
 
+type SqlQueryOptions struct {
+	Dataspace    string
+	WorkloadName string
+}
+
 type SqlQueryRequest struct {
 	SQL           string         `json:"sql"`
 	RowLimit      int64          `json:"rowLimit,omitempty"`
 	SqlParameters []SqlParameter `json:"sqlParameters,omitempty"`
-	// Dataspace and WorkloadName are sent as URL query params, not in the request body.
-	// They are kept here for convenience so callers can set them in one place.
-	Dataspace    string `json:"-"`
-	WorkloadName string `json:"-"`
 }
 
 // SqlQueryResponse is the response from Create SQL Query.

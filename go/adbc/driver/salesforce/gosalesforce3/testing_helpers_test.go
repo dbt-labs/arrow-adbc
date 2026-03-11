@@ -57,7 +57,7 @@ func (s *APISuite) SetupTest() {
 
 	mode := recorder.ModeReplayOnly
 	if hasRealCredentials() {
-		mode = recorder.ModeRecordOnce
+		mode = recorder.ModeRecordOnce // TODO: use a stdlib flag/env var to enable ModeRecordOnly for easier cassette updates
 	}
 
 	r, err := recorder.New(cassetteName,
@@ -124,6 +124,7 @@ func (s *APISuite) TearDownTest() {
 	}
 }
 
+// TODO: does this really need to be a separate function? We could just do this inline since I belive its only used once.
 func sanitizeCassetteName(name string) string {
 	return strings.ReplaceAll(name, "/", "_")
 }

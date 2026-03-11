@@ -34,10 +34,10 @@ func (s *IntegrationSuite) TestAuthAndBasicQuery() {
 
 	// Run a simple query against the first entity
 	entity := meta.Metadata[0]
-	resp, err := s.Client.ExecuteSqlQuery(ctx, &types.SqlQueryRequest{
+	resp, err := s.Client.CreateSqlQuery(ctx, &types.SqlQueryRequest{
 		SQL:      "SELECT * FROM " + entity.Name + " LIMIT 1",
 		RowLimit: 1,
-	})
+	}, nil)
 	s.Require().NoError(err)
 	s.NotEmpty(resp.Metadata, "expected column metadata")
 	s.T().Logf("Query on %s: %d rows, %d columns", entity.Name, resp.ReturnedRows, len(resp.Metadata))
@@ -96,10 +96,10 @@ func (s *IntegrationSuite) TestSqlQueryWithRowLimit() {
 	s.Require().NotEmpty(meta.Metadata)
 
 	entity := meta.Metadata[0]
-	resp, err := s.Client.ExecuteSqlQuery(ctx, &types.SqlQueryRequest{
+	resp, err := s.Client.CreateSqlQuery(ctx, &types.SqlQueryRequest{
 		SQL:      "SELECT * FROM " + entity.Name + " LIMIT 5",
 		RowLimit: 5,
-	})
+	}, nil)
 	s.Require().NoError(err)
 	s.LessOrEqual(resp.ReturnedRows, int64(5))
 	s.NotEmpty(resp.Metadata)
@@ -121,17 +121,17 @@ func (s *IntegrationSuite) TestSqlQueryStatus() {
 	s.Require().NotEmpty(meta.Metadata)
 
 	entity := meta.Metadata[0]
-	resp, err := s.Client.ExecuteSqlQuery(ctx, &types.SqlQueryRequest{
+	resp, err := s.Client.CreateSqlQuery(ctx, &types.SqlQueryRequest{
 		SQL:      "SELECT * FROM " + entity.Name + " LIMIT 1",
 		RowLimit: 1,
-	})
+	}, nil)
 	s.Require().NoError(err)
 	s.NotEmpty(resp.Status.QueryID, "expected a query ID")
 	s.T().Logf("Query status: %s, progress: %.1f, queryId: %s",
 		resp.Status.CompletionStatus, resp.Status.Progress, resp.Status.QueryID)
 
 	// Get the query status by ID
-	status, err := s.Client.GetQuery(ctx, resp.Status.QueryID, 0)
+	status, err := s.Client.GetSqlQueryStatus(ctx, resp.Status.QueryID, 0, nil)
 	s.Require().NoError(err)
 	s.Equal(resp.Status.QueryID, status.QueryID)
 	s.T().Logf("GetQuery status: %s, rowCount: %d", status.CompletionStatus, status.RowCount)
@@ -145,15 +145,15 @@ func (s *IntegrationSuite) TestGetQueryRows() {
 	s.Require().NotEmpty(meta.Metadata)
 
 	entity := meta.Metadata[0]
-	resp, err := s.Client.ExecuteSqlQuery(ctx, &types.SqlQueryRequest{
+	resp, err := s.Client.CreateSqlQuery(ctx, &types.SqlQueryRequest{
 		SQL:      "SELECT * FROM " + entity.Name + " LIMIT 3",
 		RowLimit: 3,
-	})
+	}, nil)
 	s.Require().NoError(err)
 	s.NotEmpty(resp.Status.QueryID)
 
 	// Fetch rows separately
-	rows, err := s.Client.GetQueryRows(ctx, resp.Status.QueryID, 0, 3)
+	rows, err := s.Client.GetSqlQueryRows(ctx, resp.Status.QueryID, 0, 3, nil)
 	s.Require().NoError(err)
 	s.NotNil(rows)
 	s.T().Logf("GetQueryRows: %d rows returned", rows.ReturnedRows)
