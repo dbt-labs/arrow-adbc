@@ -12,28 +12,31 @@ import (
 	"testing"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
-func generateTestKey(t *testing.T) string {
-	t.Helper()
+type AuthSuite struct {
+	suite.Suite
+}
+
+func (s *AuthSuite) generateTestKey() string {
+	s.T().Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	s.Require().NoError(err)
 	keyBytes := x509.MarshalPKCS1PrivateKey(key)
 	block := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes}
 	return string(pem.EncodeToMemory(block))
 }
 
-func TestAuthenticate_JWTFlow(t *testing.T) {
+func (s *AuthSuite) TestAuthenticate_JWTFlow() {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/services/oauth2/token", r.URL.Path)
-		require.Equal(t, "POST", r.Method)
+		s.Require().Equal("/services/oauth2/token", r.URL.Path)
+		s.Require().Equal("POST", r.Method)
 
 		err := r.ParseForm()
-		require.NoError(t, err)
-		assert.Equal(t, "urn:ietf:params:oauth:grant-type:jwt-bearer", r.FormValue("grant_type"))
-		assert.NotEmpty(t, r.FormValue("assertion"))
+		s.Require().NoError(err)
+		s.Equal("urn:ietf:params:oauth:grant-type:jwt-bearer", r.FormValue("grant_type"))
+		s.NotEmpty(r.FormValue("assertion"))
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
@@ -48,20 +51,20 @@ func TestAuthenticate_JWTFlow(t *testing.T) {
 		LoginURL:      server.URL,
 		ClientID:      "test-client-id",
 		Username:      "user@example.com",
-		PrivateKeyPEM: generateTestKey(t),
+		PrivateKeyPEM: s.generateTestKey(),
 		APIVersion:    "v64.0",
 	}
 
 	client, err := NewClient(cfg)
-	require.NoError(t, err)
+	s.Require().NoError(err)
 	defer client.Close()
 
 	err = client.Authenticate(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "https://myinstance.salesforce.com", client.instanceURL)
+	s.Require().NoError(err)
+	s.Equal("https://myinstance.salesforce.com", client.instanceURL)
 }
 
-func TestAuthenticate_InvalidKey(t *testing.T) {
+func (s *AuthSuite) TestAuthenticate_InvalidKey() {
 	cfg := &types.AuthConfig{
 		LoginURL:      "https://login.salesforce.com",
 		ClientID:      "test-client-id",
@@ -71,9 +74,13 @@ func TestAuthenticate_InvalidKey(t *testing.T) {
 	}
 
 	client, err := NewClient(cfg)
-	require.NoError(t, err)
+	s.Require().NoError(err)
 	defer client.Close()
 
 	err = client.Authenticate(context.Background())
-	assert.Error(t, err)
+	s.Error(err)
+}
+
+func TestAuthSuite(t *testing.T) {
+	suite.Run(t, new(AuthSuite))
 }

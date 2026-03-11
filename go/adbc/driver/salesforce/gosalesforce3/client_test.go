@@ -4,11 +4,14 @@ import (
 	"testing"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestNewClient(t *testing.T) {
+type ClientSuite struct {
+	suite.Suite
+}
+
+func (s *ClientSuite) TestNewClient() {
 	cfg := &types.AuthConfig{
 		LoginURL:      "https://login.salesforce.com",
 		ClientID:      "test-client-id",
@@ -17,17 +20,17 @@ func TestNewClient(t *testing.T) {
 		APIVersion:    "v64.0",
 	}
 	client, err := NewClient(cfg)
-	require.NoError(t, err)
-	assert.NotNil(t, client)
+	s.Require().NoError(err)
+	s.NotNil(client)
 	defer client.Close()
 }
 
-func TestNewClient_NilConfig(t *testing.T) {
+func (s *ClientSuite) TestNewClient_NilConfig() {
 	_, err := NewClient(nil)
-	assert.Error(t, err)
+	s.Error(err)
 }
 
-func TestNewClient_DefaultAPIVersion(t *testing.T) {
+func (s *ClientSuite) TestNewClient_DefaultAPIVersion() {
 	cfg := &types.AuthConfig{
 		LoginURL:      "https://login.salesforce.com",
 		ClientID:      "test-client-id",
@@ -35,7 +38,11 @@ func TestNewClient_DefaultAPIVersion(t *testing.T) {
 		PrivateKeyPEM: "fake-key",
 	}
 	client, err := NewClient(cfg)
-	require.NoError(t, err)
+	s.Require().NoError(err)
 	defer client.Close()
-	assert.Contains(t, client.ssotBaseURL(), "/v64.0/")
+	s.Contains(client.ssotBaseURL(), "/v64.0/")
+}
+
+func TestClientSuite(t *testing.T) {
+	suite.Run(t, new(ClientSuite))
 }
