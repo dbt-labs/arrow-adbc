@@ -43,6 +43,11 @@ func (c *Client) Authenticate(ctx context.Context) error {
 }
 
 func (c *Client) ensureAuth() error {
+	// TODO: this method should honestly not be needed
+	// `golang.org/x/oauth2`'s `TokenSource` can be used to create a `*http.Client` (via `oauth2.NewClient`)
+	// or `http.RoundTripper` (via `oauth2.Transport`) that automatically handles token refreshing.
+	// Since we're using `resty` for managing the REST API calls, we can probably seek some guidance from their docs site:
+	// https://resty.dev/docs/example/oauth2-client-credentials/
 	if c.tokenSource == nil {
 		return fmt.Errorf("client not authenticated: call Authenticate first")
 	}

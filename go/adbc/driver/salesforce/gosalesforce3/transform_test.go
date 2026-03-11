@@ -23,7 +23,7 @@ func (s *TransformSuite) TestValidateDataTransform() {
 
 	targetName := "sftest_validate_output__dll"
 
-	req := &types.CreateDataTransformRequest{
+	req := &types.DataTransformRequest{
 		Name:  "sftest_validate",
 		Label: "sftest Validate",
 		Type:  types.DataTransformTypeBatch,
@@ -31,12 +31,12 @@ func (s *TransformSuite) TestValidateDataTransform() {
 			Type:    types.DataTransformDefinitionTypeDCSQL,
 			Version: "1.0",
 			Manifest: types.DataTransformManifest{
-				Nodes: map[string]types.DataTransformNode{
-					targetName: {
+				Nodes: types.DataTransformNodes{
+					types.DataTransformNodeID(targetName): {
 						Name:         targetName,
 						RelationName: targetName,
 						Config: types.DataTransformNodeConfig{
-							Materialized: "table",
+							Materialized: types.MaterializationTable,
 						},
 						CompiledCode: "SELECT * FROM \"" + sourceEntity + "\" LIMIT 1",
 					},
@@ -49,7 +49,7 @@ func (s *TransformSuite) TestValidateDataTransform() {
 	s.Require().NoError(err, "validate transform failed")
 	s.T().Logf("Validation: %d issues, %d output object keys", len(result.Issues), len(result.OutputDataObjects))
 	for _, issue := range result.Issues {
-		s.T().Logf("  [%s] %s: %s", issue.ErrorSeverity, issue.ErrorCode, issue.ErrorMessage)
+		s.T().Logf("  [%s] %s: %s", issue.Severity, issue.Code, issue.Message)
 	}
 
 	// Validate should return output data objects for the target

@@ -8,22 +8,18 @@ import (
 )
 
 // CreateDataLakeObject creates a new Data Lake Object.
-func (c *Client) CreateDataLakeObject(ctx context.Context, req *types.CreateDataLakeObjectRequest) (*types.DataLakeObject, error) {
+func (c *Client) CreateDataLakeObject(ctx context.Context, req *types.DataLakeObjectRequest) (*types.DataLakeObject, error) {
 	if err := c.ensureAuth(); err != nil {
 		return nil, err
 	}
 
 	var result types.DataLakeObject
-	resp, err := c.http.R().
-		SetContext(ctx).
-		SetBody(req).
-		SetResult(&result).
-		Post(c.ssotBaseURL() + "/data-lake-objects")
+	resp, err := c.ssotRequest(ctx).SetBody(req).SetResult(&result).Post(c.ssotURL("/data-lake-objects"))
 	if err != nil {
 		return nil, fmt.Errorf("create DLO request failed: %w", err)
 	}
 	if resp.IsError() {
-		return nil, c.checkError(resp)
+		return nil, checkError(resp)
 	}
 	return &result, nil
 }
@@ -36,15 +32,12 @@ func (c *Client) GetDataLakeObject(ctx context.Context, nameOrID string) (*types
 	}
 
 	var result types.DataLakeObjects
-	resp, err := c.http.R().
-		SetContext(ctx).
-		SetResult(&result).
-		Get(fmt.Sprintf("%s/data-lake-objects/%s", c.ssotBaseURL(), nameOrID))
+	resp, err := c.ssotRequest(ctx).SetResult(&result).Get(c.ssotURL("/data-lake-objects/" + nameOrID))
 	if err != nil {
 		return nil, fmt.Errorf("get DLO request failed: %w", err)
 	}
 	if resp.IsError() {
-		return nil, c.checkError(resp)
+		return nil, checkError(resp)
 	}
 	if len(result.DataLakeObjects) == 0 {
 		return nil, &SalesforceError{
@@ -62,14 +55,12 @@ func (c *Client) DeleteDataLakeObject(ctx context.Context, nameOrID string) erro
 		return err
 	}
 
-	resp, err := c.http.R().
-		SetContext(ctx).
-		Delete(fmt.Sprintf("%s/data-lake-objects/%s", c.ssotBaseURL(), nameOrID))
+	resp, err := c.ssotRequest(ctx).Delete(c.ssotURL("/data-lake-objects/" + nameOrID))
 	if err != nil {
 		return fmt.Errorf("delete DLO request failed: %w", err)
 	}
 	if resp.IsError() {
-		return c.checkError(resp)
+		return checkError(resp)
 	}
 	return nil
 }

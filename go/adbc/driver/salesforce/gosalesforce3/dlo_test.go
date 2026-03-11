@@ -19,10 +19,10 @@ func (s *DLOSuite) TestCreateAndGetAndDeleteDLO() {
 	// Clean up any leftover from previous runs
 	_ = s.Client.DeleteDataLakeObject(ctx, dloName)
 
-	req := &types.CreateDataLakeObjectRequest{
+	req := &types.DataLakeObjectRequest{
 		Name:     dloName,
 		Label:    "sftest DLO",
-		Category: types.DLOCategoryProfile,
+		Category: types.CategoryProfile,
 		Fields: []types.DataLakeFieldInputRepresentation{
 			{Name: "id__c", Label: "id__c", DataType: "Text", IsPrimaryKey: "true"},
 			{Name: "name__c", Label: "name__c", DataType: "Text", IsPrimaryKey: "false"},

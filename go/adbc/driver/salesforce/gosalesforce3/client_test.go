@@ -43,6 +43,32 @@ func (s *ClientSuite) TestNewClient_DefaultAPIVersion() {
 	s.Contains(client.ssotBaseURL(), "/v64.0/")
 }
 
+func (s *ClientSuite) TestNewClient_NormalizeAPIVersion() {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"64.0", "v64.0"},
+		{"v64.0", "v64.0"},
+		{"64", "v64.0"},
+		{"v64", "v64.0"},
+		{"63.0", "v63.0"},
+	}
+	for _, tc := range cases {
+		cfg := &types.AuthConfig{
+			LoginURL:      "https://login.salesforce.com",
+			ClientID:      "test-client-id",
+			Username:      "user@example.com",
+			PrivateKeyPEM: "fake-key",
+			APIVersion:    tc.input,
+		}
+		client, err := NewClient(cfg)
+		s.Require().NoError(err)
+		s.Contains(client.ssotBaseURL(), "/"+tc.expected+"/", "input %q should normalize to %q", tc.input, tc.expected)
+		client.Close()
+	}
+}
+
 func TestClientSuite(t *testing.T) {
 	suite.Run(t, new(ClientSuite))
 }

@@ -3,7 +3,6 @@ package gosalesforce3
 import (
 	"context"
 	"fmt"
-	"net/url"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
 )
@@ -13,36 +12,27 @@ func (c *Client) GetMetadata(ctx context.Context, req *types.MetadataRequest) (*
 		return nil, err
 	}
 
-	params := url.Values{}
+	r := c.ssotRequest(ctx)
 	if req.Dataspace != "" {
-		params.Set("dataspace", req.Dataspace)
+		r.SetQueryParam("dataspace", req.Dataspace)
 	}
 	if req.EntityCategory != "" {
-		params.Set("entityCategory", req.EntityCategory)
+		r.SetQueryParam("entityCategory", req.EntityCategory)
 	}
 	if req.EntityName != "" {
-		params.Set("entityName", req.EntityName)
+		r.SetQueryParam("entityName", req.EntityName)
 	}
 	if req.EntityType != "" {
-		params.Set("entityType", req.EntityType)
-	}
-
-	endpoint := c.ssotBaseURL() + "/metadata"
-	if encoded := params.Encode(); encoded != "" {
-		endpoint += "?" + encoded
+		r.SetQueryParam("entityType", req.EntityType)
 	}
 
 	var result types.MetadataResponse
-
-	resp, err := c.http.R().
-		SetContext(ctx).
-		SetResult(&result).
-		Get(endpoint)
+	resp, err := r.SetResult(&result).Get(c.ssotURL("/metadata"))
 	if err != nil {
 		return nil, fmt.Errorf("metadata request failed: %w", err)
 	}
 	if resp.IsError() {
-		return nil, c.checkError(resp)
+		return nil, checkError(resp)
 	}
 
 	return &result, nil

@@ -30,16 +30,12 @@ func (c *Client) UpsertDataSpaceMembers(ctx context.Context, dataSpace string, m
 	reqBody.Members.Members = members
 
 	var result responseBody
-	resp, err := c.http.R().
-		SetContext(ctx).
-		SetBody(&reqBody).
-		SetResult(&result).
-		Put(fmt.Sprintf("%s/data-spaces/%s/members", c.ssotBaseURL(), dataSpace))
+	resp, err := c.ssotRequest(ctx).SetBody(&reqBody).SetResult(&result).Put(c.ssotURL("/data-spaces/" + dataSpace + "/members"))
 	if err != nil {
 		return nil, fmt.Errorf("upsert data space members request failed: %w", err)
 	}
 	if resp.IsError() {
-		return nil, c.checkError(resp)
+		return nil, checkError(resp)
 	}
 
 	return result.DataCloudActionResponse, nil

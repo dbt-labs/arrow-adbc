@@ -1,9 +1,10 @@
 package gosalesforce3
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce3/types"
 	"golang.org/x/oauth2"
@@ -11,6 +12,16 @@ import (
 )
 
 const defaultAPIVersion = "v64.0"
+
+// normalizeAPIVersion accepts versions in the form "XX.Y", "vXX.Y", "vXX", or "XX"
+// and normalizes to "vXX.Y" (appending ".0" if no minor version is present).
+func normalizeAPIVersion(v string) string {
+	v = strings.TrimPrefix(v, "v")
+	if !strings.Contains(v, ".") {
+		v += ".0"
+	}
+	return "v" + v
+}
 
 type Client struct {
 	config      *types.AuthConfig
@@ -36,6 +47,8 @@ func NewClient(cfg *types.AuthConfig, opts ...Option) (*Client, error) {
 	}
 	if cfg.APIVersion == "" {
 		cfg.APIVersion = defaultAPIVersion
+	} else {
+		cfg.APIVersion = normalizeAPIVersion(cfg.APIVersion)
 	}
 
 	c := &Client{
@@ -51,6 +64,13 @@ func NewClient(cfg *types.AuthConfig, opts ...Option) (*Client, error) {
 		c.http.SetHeader("Content-Type", "application/json")
 		c.http.SetRetryCount(3)
 		c.http.AddRetryConditions(func(resp *resty.Response, err error) bool {
+			// TODO: not sure what all the possible status codes are across these endpoints.
+			// We can start with this, but should try to identify other conditions that would warrent a retry.
+			//
+			// The following docs may be helpful for this: https://developer.salesforce.com/docs/atlas.en-us.chatterapi.meta/chatterapi/connect_error_responses.htm
+			//
+			// There is also a special `Sforce-Limit-Info` header that indicates the current API usage/limit.
+			// See: https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/headers_api_usage.htm
 			if err != nil {
 				return true
 			}
@@ -71,46 +91,14 @@ func (c *Client) ssotBaseURL() string {
 	return fmt.Sprintf("%s/services/data/%s/ssot", c.instanceURL, c.config.APIVersion)
 }
 
-func (c *Client) checkError(resp *resty.Response) error {
-	if resp.IsSuccess() {
-		return nil
-	}
-
-	sfErr := &SalesforceError{
-		StatusCode: resp.StatusCode(),
-		Message:    resp.Status(),
-	}
-
-	body := resp.Bytes()
-	if len(body) == 0 {
-		return sfErr
-	}
-
-	// Try as single object
-	var obj map[string]any
-	if err := json.Unmarshal(body, &obj); err == nil {
-		if msg, ok := obj["message"].(string); ok {
-			sfErr.Message = msg
-		}
-		if code, ok := obj["errorCode"].(string); ok {
-			sfErr.Code = code
-		}
-		if errType, ok := obj["type"].(string); ok {
-			sfErr.Type = errType
-		}
-		return sfErr
-	}
-
-	// Try as array
-	var arr []map[string]any
-	if err := json.Unmarshal(body, &arr); err == nil && len(arr) > 0 {
-		if msg, ok := arr[0]["message"].(string); ok {
-			sfErr.Message = msg
-		}
-		if code, ok := arr[0]["errorCode"].(string); ok {
-			sfErr.Code = code
-		}
-	}
-
-	return sfErr
+// ssotRequest returns a new resty request with the context pre-set.
+// Use with relative paths: c.ssotRequest(ctx).Get(c.ssotURL("/metadata"))
+func (c *Client) ssotRequest(ctx context.Context) *resty.Request {
+	return c.http.R().SetContext(ctx)
 }
+
+// ssotURL builds a full SSOT endpoint URL from a relative path.
+func (c *Client) ssotURL(path string) string {
+	return c.ssotBaseURL() + path
+}
+
