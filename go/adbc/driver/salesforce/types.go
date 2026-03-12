@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"log"
 
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
+	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
 // buildArrowSchema builds Arrow schema from SQL Query API metadata
-func (s *statement) buildArrowSchema(metadata []api.SqlQueryMetadata) *arrow.Schema {
+func (s *statement) buildArrowSchema(metadata []sftypes.SqlQueryMetadata) *arrow.Schema {
 	fields := make([]arrow.Field, len(metadata))
 
 	for i, col := range metadata {
@@ -232,31 +232,31 @@ func convertToFloat32(value any) (float32, bool) {
 
 // SalesforceSqlTypeToArrowType converts a Salesforce type to an Arrow type
 // reference: https://developer.salesforce.com/docs/data/connectapi/references/spec?meta=createSqlQuery
-func SalesforceSqlTypeToArrowType(sfType api.SqlType) arrow.DataType {
+func SalesforceSqlTypeToArrowType(sfType sftypes.SqlType) arrow.DataType {
 	switch sfType {
-	case api.SqlTypeVarchar, api.SqlTypeChar:
+	case sftypes.SqlTypeVarchar, sftypes.SqlTypeChar:
 		return arrow.BinaryTypes.String
-	case api.SqlTypeBigInt:
+	case sftypes.SqlTypeBigInt:
 		return arrow.PrimitiveTypes.Int64
-	case api.SqlTypeInteger:
+	case sftypes.SqlTypeInteger:
 		return arrow.PrimitiveTypes.Int32
-	case api.SqlTypeSmallInt:
+	case sftypes.SqlTypeSmallInt:
 		return arrow.PrimitiveTypes.Int16
-	case api.SqlTypeDouble:
+	case sftypes.SqlTypeDouble:
 		return arrow.PrimitiveTypes.Float64
-	case api.SqlTypeNumeric, api.SqlTypeFloat:
+	case sftypes.SqlTypeNumeric, sftypes.SqlTypeFloat:
 		return arrow.PrimitiveTypes.Float32
-	case api.SqlTypeBool:
+	case sftypes.SqlTypeBool:
 		return arrow.FixedWidthTypes.Boolean
-	case api.SqlTypeDate:
+	case sftypes.SqlTypeDate:
 		return arrow.FixedWidthTypes.Date32
-	case api.SqlTypeTime:
+	case sftypes.SqlTypeTime:
 		return arrow.FixedWidthTypes.Time32ms
-	case api.SqlTypeTimestamp, api.SqlTypeTimestampTZ:
+	case sftypes.SqlTypeTimestamp, sftypes.SqlTypeTimestampTZ:
 		return arrow.FixedWidthTypes.Timestamp_ms
-	case api.SqlTypeOid:
+	case sftypes.SqlTypeOid:
 		return arrow.PrimitiveTypes.Uint32
-	case api.SqlTypeUnspecified:
+	case sftypes.SqlTypeUnspecified:
 		return arrow.Null
 	default:
 		// Handle ArrayOfX types

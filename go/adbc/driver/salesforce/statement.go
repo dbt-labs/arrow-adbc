@@ -18,15 +18,12 @@
 package salesforce
 
 import (
-	"cmp"
 	"context"
 	"fmt"
-	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
+	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
@@ -81,7 +78,7 @@ func (s *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int64
 
 // executeSQLQuery executes a SQL query using the Salesforce Data Cloud APIs
 func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, int64, error) {
-	if s.cnxn.client == nil || s.cnxn.client.GetDataCloudToken() == nil {
+	if s.cnxn.client == nil {
 		return nil, 0, adbc.Error{
 			Code: adbc.StatusInvalidState,
 			Msg:  "connection not properly initialized",
@@ -90,115 +87,25 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 
 	logger := s.cnxn.Logger.With("operation", "executeSQLQuery")
 
-	// This is supposed to be equivalent to `CREATE OR REPLACE TABLE`
+	// TODO: re-implement data transform CREATE TABLE flow using the new gosalesforce API.
+	// The orchestration wrappers (CreateOrUpdateDataTransform, WaitForDataTransform,
+	// MustRunDataTransform, WaitForDataTransformRun) need to be ported from gosalesforce_old.
 	if s.dloCategory != "" && s.dloPrimaryKey != "" && s.targetDLO != "" {
-		logger := logger.With(slog.Group("opt", "dloCategory", s.dloCategory, "dloPrimaryKey", s.dloPrimaryKey, "targetDLO", s.targetDLO, "dataSpace", s.cnxn.dataSpace))
-
-		if s.cnxn.dataSpace == "" {
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInvalidState,
-				Msg:  "data space must be set for the DLO to be created",
-			}
+		_ = logger // suppress unused
+		return nil, 0, adbc.Error{
+			Code: adbc.StatusNotImplemented,
+			Msg:  "data transform CREATE TABLE flow is not yet implemented with the new API client",
 		}
-
-		logger.DebugContext(ctx, "Writing sql to DT...")
-		// Creates a data transform
-		req := api.NewBatchDataTransformRequest(
-			s.targetDLO,
-			s.targetDLO,
-			map[string]api.DbtDataTransformNode{
-				"node": api.NewDbtDataTransformNode(
-					"node",
-					s.targetDLO,
-					s.query,
-					"TABLE",
-					s.dloWriteMode,
-					nil,
-				),
-			},
-		)
-
-		logger.DebugContext(ctx, "Validating batch DT", "req", req)
-
-		valid, err := s.cnxn.client.ValidateDataTransform(ctx, req)
-		if err != nil {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to validate the data transform for create/update: %v", err)
-		}
-		logger.DebugContext(ctx, "Validated", "issues", valid.Issues, "odo", valid.OutputDataObjects)
-
-		odo := slices.Clone(valid.OutputDataObjects[req.Name])
-
-		for i := range odo[0].Fields {
-			f := &odo[0].Fields[i]
-			f.IsPrimaryKey = f.Name == s.dloPrimaryKey
-			f.Label = cmp.Or(f.Label, f.Name) // default label
-		}
-
-		odo[0].Category = "Profile"                      // TODO
-		odo[0].Label = cmp.Or(odo[0].Label, odo[0].Name) // default label
-		req.Definition.OutputDataObjects = odo
-
-		logger.DebugContext(ctx, "Creating batch DT", "req", req)
-		dt, err := s.cnxn.client.CreateOrUpdateDataTransform(ctx, req)
-		if err != nil {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to create/update the data transform: %v", err)
-		}
-
-		logger.DebugContext(ctx, "Created batch DT. Waiting...", "dt", dt)
-
-		dt, err = s.cnxn.client.WaitForDataTransform(ctx, dt)
-		if err != nil {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed while wating for data transform: %v", err)
-		}
-		if !dt.Status.IsActive() {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform is not active, current status: %v", dt.Status)
-		}
-
-		logger.DebugContext(ctx, "Running batch DT.", "dt", dt)
-
-		err = s.cnxn.client.MustRunDataTransform(ctx, dt.Name)
-		if err != nil {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to run data transform: %v", err)
-		}
-
-		logger.DebugContext(ctx, "Run started. Waiting...", "dt", dt)
-
-		dt, err = s.cnxn.client.WaitForDataTransformRun(ctx, dt, s.dataTransformTimeout)
-		if err != nil {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed while wating for data transform run: %v", err)
-		}
-		if !dt.LastRunStatus.IsSuccess() {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform run was unsuccessful: last run status: %v", dt.LastRunStatus)
-		}
-
-		logger.DebugContext(ctx, "Run complete. Associating with dataspace.")
-
-		_, err = s.cnxn.client.UpsertDataSpaceMembers(ctx, s.cnxn.dataSpace, []api.DataSpaceMember{{Name: s.targetDLO}})
-		if err != nil {
-			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to associate with dataspace: %v", err)
-		}
-
-		// Returns empty
-		emptySchema := arrow.NewSchema([]arrow.Field{}, nil) // TODO
-		reader, err := array.NewRecordReader(emptySchema, []arrow.RecordBatch{})
-		if err != nil {
-			err = fmt.Errorf("failed to create empty record reader: %w", err)
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInternal,
-				Msg:  err.Error(),
-			}
-		}
-		return reader, 0, nil
 	}
 
 	rowLimit := s.cnxn.getQueryRowLimit()
 
-	queryRequest := &api.SqlQueryRequest{
+	queryRequest := &sftypes.SqlQueryRequest{
 		SQL:      s.query,
 		RowLimit: rowLimit,
 	}
 
-	response, err := api.ExecuteSqlQuery(ctx, s.cnxn.client, queryRequest)
+	response, err := s.cnxn.client.CreateSqlQuery(ctx, queryRequest, nil)
 	if err != nil {
 		err = fmt.Errorf("SQL query execution failed: %w", err)
 		return nil, 0, adbc.Error{
@@ -221,7 +128,7 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 }
 
 // convertSqlQueryResponseToArrow converts SQL Query API response to Arrow format
-func (s *statement) convertSqlQueryResponseToArrow(response *api.SqlQueryResponse) (array.RecordReader, int64, error) {
+func (s *statement) convertSqlQueryResponseToArrow(response *sftypes.SqlQueryResponse) (array.RecordReader, int64, error) {
 	if len(response.Data) == 0 {
 		// Return empty reader with schema if available
 		schema := s.buildArrowSchema(response.Metadata)

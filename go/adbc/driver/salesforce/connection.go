@@ -25,7 +25,8 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
+	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce"
+	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 )
@@ -53,114 +54,73 @@ type connectionImpl struct {
 	queryTimeout  string
 
 	// Salesforce client
-	client *api.Client
+	client *sfapi.Client
 }
 
-// Initializes the api client
+// newClient initializes and authenticates the Salesforce API client.
 func (c *connectionImpl) newClient(ctx context.Context) error {
 	switch c.authType {
 	case OptionValueAuthTypeJwtBearer:
-		return c.setupJWTAuth(ctx)
+		// JWT Bearer is the only auth flow supported by the new client.
 	case OptionValueAuthTypeUsernamePassword:
-		return c.setupUsernamePasswordAuth(ctx)
+		return adbc.Error{
+			Code: adbc.StatusNotImplemented,
+			Msg:  "username/password auth is not yet supported; use JWT Bearer flow",
+		}
 	default:
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
 			Msg:  fmt.Sprintf("unsupported auth type: %s", c.authType),
 		}
 	}
-}
 
-// Sets up (authenticates) the api client via the JWT Bearer Flow
-func (c *connectionImpl) setupJWTAuth(ctx context.Context) error {
-	err := c.setupRequired(c.authType)
-	if err != nil {
-		return err
-	}
-
-	if c.jwtBearerPrivateKey == "" {
-		return adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "jwtBearerPrivateKey required for JWT Bearer authentication",
-		}
-	}
-
-	config, err := api.NewJWTConfig(c.loginURL, c.clientId, c.username, c.jwtBearerPrivateKey)
-	if err != nil {
-		return adbc.Error{
-			Code: adbc.StatusInvalidState,
-			Msg:  fmt.Sprintf("failed to create JWT config: %v", err),
-		}
-	}
-	return c.finalize(ctx, config)
-}
-
-// Sets up (authenticates) the api client via the Username/Password Flow
-func (c *connectionImpl) setupUsernamePasswordAuth(ctx context.Context) error {
-	err := c.setupRequired(c.authType)
-	if err != nil {
-		return err
-	}
-
-	if c.password == "" {
-		return adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "Password is required for username/password authentication",
-		}
-	}
-	if c.clientSecret == "" {
-		return adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "Client secret is required for username/password authentication",
-		}
-	}
-
-	config := api.NewUsernamePasswordConfig(c.loginURL, c.clientId, c.clientSecret, c.username, c.password)
-	return c.finalize(ctx, config)
-}
-
-// Validates and sets the required connectionImpl fields for the authentication flow
-func (c *connectionImpl) setupRequired(authType string) error {
 	if c.username == "" {
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
-			Msg:  fmt.Sprintf("username is required for %s authentication", authType),
+			Msg:  "username is required for authentication",
 		}
 	}
-
 	if c.clientId == "" {
 		return adbc.Error{
 			Code: adbc.StatusInvalidArgument,
-			Msg:  fmt.Sprintf("client ID is required for %s authentication", authType),
+			Msg:  "client ID is required for authentication",
 		}
 	}
-
+	if c.jwtBearerPrivateKey == "" {
+		return adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  "private key is required for JWT Bearer authentication",
+		}
+	}
 	if c.loginURL == "" {
 		c.loginURL = DefaultLoginURL
 	}
 
-	return nil
-}
-
-// Finalizes the connectionImpl fields for the authentication flow
-func (c *connectionImpl) finalize(ctx context.Context, config *api.AuthConfig) error {
-	c.client = api.NewClientWithLogger(config, c.version, c.Logger.WithGroup("client"))
-
-	// Authenticate and get token
-	err := c.client.Authenticate(ctx)
+	client, err := sfapi.NewClient(
+		&sftypes.AuthConfig{
+			LoginURL:      c.loginURL,
+			ClientID:      c.clientId,
+			Username:      c.username,
+			PrivateKeyPEM: c.jwtBearerPrivateKey,
+			APIVersion:    c.version,
+		},
+		sfapi.WithLogger(c.Logger.WithGroup("client")),
+	)
 	if err != nil {
 		return adbc.Error{
 			Code: adbc.StatusInvalidState,
-			Msg:  fmt.Sprintf("%s authentication failed: %v", c.authType, err),
+			Msg:  fmt.Sprintf("failed to create client: %v", err),
 		}
 	}
 
-	// Try to get CDP token for Data Cloud access
-	err = c.client.ExchangeAndSetDataCloudToken(ctx)
-	if err != nil {
-		return err
+	if err := client.Authenticate(ctx); err != nil {
+		return adbc.Error{
+			Code: adbc.StatusInvalidState,
+			Msg:  fmt.Sprintf("authentication failed: %v", err),
+		}
 	}
 
+	c.client = client
 	return nil
 }
 
@@ -283,7 +243,10 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 	}
 
 	// use catalog as data space
-	metadataResp, err := api.GetMetadata(ctx, c.client, *catalog, "", tableName, "")
+	metadataResp, err := c.client.GetMetadata(ctx, &sftypes.MetadataRequest{
+		Dataspace:  *catalog,
+		EntityName: tableName,
+	})
 	if err != nil {
 		return nil, adbc.Error{
 			Code: adbc.StatusInvalidState,
@@ -328,7 +291,7 @@ func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
 	stmt := &statement{
 		alloc:                c.Alloc,
 		cnxn:                 c,
-		dataTransformTimeout: api.MAX_ELAPSED_TIME,
+		dataTransformTimeout: 3 * time.Minute,
 	}
 
 	return stmt, nil
