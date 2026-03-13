@@ -1,0 +1,221 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: test.salesforce.com
+        headers:
+            Accept-Encoding:
+                - identity
+            User-Agent:
+                - sf-d360-api/dev (go)
+            X-Salesforce-Partner-Name:
+                - dbt_labs
+        url: https://test.salesforce.com/services/data/v64.0/ssot/data-transforms/flow_test_create_run_transform/actions/cancel
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        body: |-
+            [
+              {
+                "errorCode": "URL_NOT_RESET",
+                "message": "Destination URL not reset. The URL returned from login must be set"
+              }
+            ]
+        headers:
+            Cache-Control:
+                - no-cache,must-revalidate,max-age=0,no-store,private
+            Content-Type:
+                - application/json;charset=UTF-8
+            Date:
+                - Fri, 13 Mar 2026 21:59:14 GMT
+            Set-Cookie:
+                - CookieConsentPolicy=0:0; path=/; expires=Sat, 13-Mar-2027 21:59:14 GMT; Max-Age=31536000; secure
+                - LSKey-c$CookieConsentPolicy=0:0; path=/; expires=Sat, 13-Mar-2027 21:59:14 GMT; Max-Age=31536000; secure
+                - BrowserId=4AhseB8nEfG17DkN7G0_xg; domain=.salesforce.com; path=/; expires=Sat, 13-Mar-2027 21:59:14 GMT; Max-Age=31536000; secure; SameSite=None
+            Strict-Transport-Security:
+                - max-age=63072000; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Content-Type-Options:
+                - nosniff
+        status: 400 Bad Request
+        code: 400
+        duration: 357.434417ms
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: test.salesforce.com
+        headers:
+            Accept-Encoding:
+                - identity
+            Cookie:
+                - CookieConsentPolicy=0:0; LSKey-c$CookieConsentPolicy=0:0; BrowserId=4AhseB8nEfG17DkN7G0_xg
+            User-Agent:
+                - sf-d360-api/dev (go)
+            X-Salesforce-Partner-Name:
+                - dbt_labs
+        url: https://test.salesforce.com/services/data/v64.0/ssot/data-transforms/flow_test_create_run_transform
+        method: GET
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        body: |-
+            [
+              {
+                "errorCode": "URL_NOT_RESET",
+                "message": "Destination URL not reset. The URL returned from login must be set"
+              }
+            ]
+        headers:
+            Cache-Control:
+                - no-cache,must-revalidate,max-age=0,no-store,private
+            Content-Type:
+                - application/json;charset=UTF-8
+            Date:
+                - Fri, 13 Mar 2026 21:59:14 GMT
+            Strict-Transport-Security:
+                - max-age=63072000; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Content-Type-Options:
+                - nosniff
+        status: 400 Bad Request
+        code: 400
+        duration: 83.567833ms
+    - id: 2
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: test.salesforce.com
+        headers:
+            Accept-Encoding:
+                - identity
+            Cookie:
+                - CookieConsentPolicy=0:0; LSKey-c$CookieConsentPolicy=0:0; BrowserId=4AhseB8nEfG17DkN7G0_xg
+            User-Agent:
+                - sf-d360-api/dev (go)
+            X-Salesforce-Partner-Name:
+                - dbt_labs
+        url: https://test.salesforce.com/services/data/v64.0/ssot/data-lake-objects/flow_test_create_run__dll
+        method: DELETE
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        body: |-
+            [
+              {
+                "errorCode": "URL_NOT_RESET",
+                "message": "Destination URL not reset. The URL returned from login must be set"
+              }
+            ]
+        headers:
+            Cache-Control:
+                - no-cache,must-revalidate,max-age=0,no-store,private
+            Content-Type:
+                - application/json;charset=UTF-8
+            Date:
+                - Fri, 13 Mar 2026 21:59:14 GMT
+            Strict-Transport-Security:
+                - max-age=63072000; includeSubDomains
+            X-Content-Type-Options:
+                - nosniff
+        status: 400 Bad Request
+        code: 400
+        duration: 84.7035ms
+    - id: 3
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 455
+        host: test.salesforce.com
+        body: |
+            {
+              "name": "flow_test_create_run_transform",
+              "label": "flow_test_create_run_transform",
+              "type": "BATCH",
+              "definition": {
+                "type": "DCSQL",
+                "version": "1.0",
+                "manifest": {
+                  "nodes": {
+                    "node_flow_test_create_run__dll": {
+                      "name": "flow_test_create_run__dll",
+                      "relation_name": "flow_test_create_run__dll",
+                      "config": {
+                        "materialized": "table",
+                        "writeMode": "OVERWRITE"
+                      },
+                      "compiled_code": "SELECT primary_key__c, fieldtype_Text__c FROM test_all_field_types__dll"
+                    }
+                  }
+                }
+              },
+              "dataSpaceName": "default"
+            }
+        headers:
+            Accept-Encoding:
+                - identity
+            Content-Type:
+                - application/json
+            Cookie:
+                - CookieConsentPolicy=0:0; LSKey-c$CookieConsentPolicy=0:0; BrowserId=4AhseB8nEfG17DkN7G0_xg
+            User-Agent:
+                - sf-d360-api/dev (go)
+            X-Salesforce-Partner-Name:
+                - dbt_labs
+        url: https://test.salesforce.com/services/data/v64.0/ssot/data-transforms-validation
+        method: POST
+      response:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        transfer_encoding:
+            - chunked
+        content_length: -1
+        body: |-
+            [
+              {
+                "errorCode": "URL_NOT_RESET",
+                "message": "Destination URL not reset. The URL returned from login must be set"
+              }
+            ]
+        headers:
+            Cache-Control:
+                - no-cache,must-revalidate,max-age=0,no-store,private
+            Content-Type:
+                - application/json;charset=UTF-8
+            Date:
+                - Fri, 13 Mar 2026 21:59:15 GMT
+            Strict-Transport-Security:
+                - max-age=63072000; includeSubDomains
+            Vary:
+                - Accept-Encoding
+            X-Content-Type-Options:
+                - nosniff
+        status: 400 Bad Request
+        code: 400
+        duration: 86.163667ms

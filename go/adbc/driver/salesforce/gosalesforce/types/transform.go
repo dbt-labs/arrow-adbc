@@ -85,9 +85,9 @@ const (
 type WriteMode = string
 
 const (
-	WriteModeOverwrite WriteMode = "overwrite"
-	WriteModeAppend    WriteMode = "append"
-	WriteModeMerge     WriteMode = "merge"
+	WriteModeOverwrite WriteMode = "OVERWRITE"
+	WriteModeAppend    WriteMode = "APPEND"
+	WriteModeMerge     WriteMode = "MERGE"
 )
 
 // ValidationSeverity is the severity of a validation issue.
@@ -105,15 +105,15 @@ type DataTransformNodeID string
 
 // DataTransform represents a Data Transform resource (response).
 type DataTransform struct {
-	ID               string                 `json:"id,omitempty"`
-	Name             string                 `json:"name"`
-	Label            string                 `json:"label,omitempty"`
-	Status           DataTransformStatus    `json:"status"`
-	LastRunStatus    DataTransformRunStatus `json:"lastRunStatus,omitempty"`
-	LastRunErrorCode any                    `json:"lastRunErrorCode,omitempty"`
-	LastRunDate      string                 `json:"lastRunDate,omitempty"`
+	ID               string                  `json:"id,omitempty"`
+	Name             string                  `json:"name"`
+	Label            string                  `json:"label,omitempty"`
+	Status           DataTransformStatus     `json:"status"`
+	LastRunStatus    DataTransformRunStatus  `json:"lastRunStatus,omitempty"`
+	LastRunErrorCode any                     `json:"lastRunErrorCode,omitempty"` // TODO: proper struct type needed
+	LastRunDate      string                  `json:"lastRunDate,omitempty"`
 	Definition       DataTransformDefinition `json:"definition,omitzero"`
-	Type             DataTransformType      `json:"type,omitempty"`
+	Type             DataTransformType       `json:"type,omitempty"`
 }
 
 func (dt *DataTransform) IsActive() bool          { return dt.Status.IsActive() }
@@ -173,7 +173,16 @@ type DataTransformOutputDataObject struct {
 	Label     string               `json:"label,omitempty"`
 	Category  DataObjectCategory   `json:"category,omitempty"`
 	Namespace string               `json:"namespace,omitempty"`
-	Fields    any                  `json:"fields,omitempty"` // TODO: proper types
+	Fields    []DataTransformOutputField `json:"fields,omitempty"`
+}
+
+// DataTransformOutputField describes a field in an output data object.
+type DataTransformOutputField struct {
+	Name              string `json:"name"`
+	Label             string `json:"label,omitempty"`
+	Type              string `json:"type"`
+	IsPrimaryKey      bool   `json:"isPrimaryKey"`
+	KeyQualifierField string `json:"keyQualifierField,omitempty"`
 }
 
 // DataTransformOutputDataObjects is a slice of output data objects.

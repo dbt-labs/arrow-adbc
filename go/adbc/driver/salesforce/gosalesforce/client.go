@@ -82,7 +82,11 @@ func NewClient(cfg *types.AuthConfig, opts ...Option) (*Client, error) {
 	// 	// 	return resp.StatusCode() == 429 || resp.StatusCode() >= 500
 	// 	// })
 	// }
-	c.http.SetDebug(false) // TODO: toggle as needed
+
+	c.http.
+		SetHeader("X-Salesforce-Partner-Name", "dbt_labs"). // TODO: make configurable
+		SetHeader("User-Agent", "sf-d360-api/dev (go)").    // TODO: this could be more canonical
+		SetDebug(false)                                     // TODO: toggle as needed
 
 	return c, nil
 }

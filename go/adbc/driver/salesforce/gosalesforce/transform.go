@@ -90,6 +90,21 @@ func (c *Client) ValidateDataTransform(ctx context.Context, req *types.DataTrans
 	return &result, nil
 }
 
+func (c *Client) RetryDataTransform(ctx context.Context, nameOrID string) (*types.DataTransform, error) {
+	var result types.DataTransform
+	resp, err := c.request(ctx).
+		SetPathParam("nameOrID", nameOrID).
+		SetResult(&result).
+		Post("/services/data/{version}/ssot/data-transforms/{nameOrID}/actions/retry")
+	if err != nil {
+		return nil, fmt.Errorf("retry data transform request failed: %w", err)
+	}
+	if resp.IsError() {
+		return nil, checkError(resp)
+	}
+	return &result, nil
+}
+
 func (c *Client) RunDataTransform(ctx context.Context, nameOrID string) (*types.DataCloudActionResponse, error) {
 	var result types.DataCloudActionResponse
 	resp, err := c.request(ctx).
