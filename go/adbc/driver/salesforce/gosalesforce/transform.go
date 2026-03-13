@@ -7,6 +7,19 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
 )
 
+func (c *Client) ListDataTransforms(ctx context.Context) (*types.DataTransformCollection, error) {
+	var result types.DataTransformCollection
+	resp, err := c.request(ctx).SetResult(&result).
+		Get("/services/data/{version}/ssot/data-transforms")
+	if err != nil {
+		return nil, fmt.Errorf("list data transforms request failed: %w", err)
+	}
+	if resp.IsError() {
+		return nil, checkError(resp)
+	}
+	return &result, nil
+}
+
 func (c *Client) CreateDataTransform(ctx context.Context, req *types.DataTransformRequest) (*types.DataTransform, error) {
 	var result types.DataTransform
 	resp, err := c.request(ctx).SetBody(req).SetResult(&result).

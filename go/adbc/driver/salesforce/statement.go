@@ -30,6 +30,7 @@ import (
 )
 
 type statement struct {
+	// TODO: this should embed driverbase.StatementImplBase eventually
 	alloc memory.Allocator
 	cnxn  *connectionImpl
 

@@ -92,16 +92,17 @@ func (s *APISuite) SetupTest() {
 	require.NoError(t, err)
 	s.recorder = r
 
-	restyClient := resty.New()
-	restyClient.SetTransport(r)
-	restyClient.SetHeader("Content-Type", "application/json")
-	// Disable gzip so cassettes store plain text (readable + replayable)
-	restyClient.SetHeader("Accept-Encoding", "identity")
+	withVCR := WithModifyClient(func(c *resty.Client) {
+		// Use vcr transport
+		c.SetTransport(r)
+		// Disable gzip so cassettes store plain text (readable + replayable)
+		c.SetHeader("Accept-Encoding", "identity")
+	})
 
 	if hasRealCredentials() {
 		// Live mode: authenticate for real, VCR records the API calls
 		cfg := realAuthConfig(t)
-		client, err := NewClient(cfg, WithHTTPClient(restyClient))
+		client, err := NewClient(cfg, withVCR)
 		require.NoError(t, err)
 
 		err = client.Authenticate(context.Background())
@@ -117,7 +118,7 @@ func (s *APISuite) SetupTest() {
 				Username:   "test@example.com",
 				APIVersion: "v64.0",
 			},
-			WithHTTPClient(restyClient),
+			withVCR,
 		)
 		require.NoError(t, err)
 

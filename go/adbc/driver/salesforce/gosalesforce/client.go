@@ -36,8 +36,12 @@ func WithLogger(l *slog.Logger) Option {
 	return func(c *Client) { c.logger = l }
 }
 
-func WithHTTPClient(r *resty.Client) Option {
-	return func(c *Client) { c.http = r }
+// WithModifyClient allows tweaking settings on the underlying *resty.Client.
+// Mainly used for testing
+func WithModifyClient(mod func(*resty.Client)) Option {
+	return func(c *Client) {
+		mod(c.http)
+	}
 }
 
 func NewClient(cfg *types.AuthConfig, opts ...Option) (*Client, error) {
@@ -53,32 +57,43 @@ func NewClient(cfg *types.AuthConfig, opts ...Option) (*Client, error) {
 	c := &Client{
 		config: cfg,
 		logger: slog.Default(),
+		http:   resty.New(),
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 
-	if c.http == nil {
-		c.http = resty.New()
-		c.http.SetHeader("Content-Type", "application/json")
-		c.http.SetRetryCount(3)
-		c.http.AddRetryConditions(func(resp *resty.Response, err error) bool {
-			// TODO: not sure what all the possible status codes are across these endpoints.
-			// We can start with this, but should try to identify other conditions that would warrent a retry.
-			//
-			// The following docs may be helpful for this: https://developer.salesforce.com/docs/atlas.en-us.chatterapi.meta/chatterapi/connect_error_responses.htm
-			//
-			// There is also a special `Sforce-Limit-Info` header that indicates the current API usage/limit.
-			// See: https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/headers_api_usage.htm
-			if err != nil {
-				return true
-			}
-			return resp.StatusCode() == 429 || resp.StatusCode() >= 500
-		})
-	}
+	// if c.http == nil {
+	// 	c.http = resty.New()
+	// 	// c.http.SetHeader("Content-Type", "application/json") // this is default, so no need
+
+	// 	c.http.SetRetryCount(3)
+	// 	// c.http.AddRetryConditions(func(resp *resty.Response, err error) bool {
+	// 	// 	// TODO: not sure what all the possible status codes are across these endpoints.
+	// 	// 	// We can start with this, but should try to identify other conditions that would warrent a retry.
+	// 	// 	//
+	// 	// 	// The following docs may be helpful for this: https://developer.salesforce.com/docs/atlas.en-us.chatterapi.meta/chatterapi/connect_error_responses.htm
+	// 	// 	//
+	// 	// 	// There is also a special `Sforce-Limit-Info` header that indicates the current API usage/limit.
+	// 	// 	// See: https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/headers_api_usage.htm
+	// 	// 	if err != nil {
+	// 	// 		return true
+	// 	// 	}
+	// 	// 	return resp.StatusCode() == 429 || resp.StatusCode() >= 500
+	// 	// })
+	// }
+	c.http.SetDebug(false) // TODO: toggle as needed
 
 	return c, nil
 }
+
+// SetBaseURL overrides the instance URL used for API requests.
+// Intended for use in tests (replay mode).
+func (c *Client) SetBaseURL(url string) { c.http.SetBaseURL(url) }
+
+// SetAuthToken overrides the Bearer token used for API requests.
+// Intended for use in tests (replay mode).
+func (c *Client) SetAuthToken(token string) { c.http.SetAuthToken(token) }
 
 func (c *Client) Close() {
 	if c.http != nil {

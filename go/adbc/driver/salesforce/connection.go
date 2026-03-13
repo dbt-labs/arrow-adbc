@@ -142,13 +142,17 @@ func (c *connectionImpl) SetAutocommit(enabled bool) error {
 
 // Current namespace support (for catalog/schema)
 func (c *connectionImpl) GetCurrentCatalog() (string, error) {
-	// Salesforce doesn't have a traditional catalog concept
-	return "", nil
+	return "", adbc.Error{
+		Code: adbc.StatusNotImplemented,
+		Msg:  "Salesforce does not support catalog operations",
+	}
 }
 
 func (c *connectionImpl) GetCurrentDbSchema() (string, error) {
-	// Salesforce doesn't have a traditional schema concept
-	return "", nil
+	return "", adbc.Error{
+		Code: adbc.StatusNotImplemented,
+		Msg:  "Salesforce does not support schema operations",
+	}
 }
 
 func (c *connectionImpl) SetCurrentCatalog(catalog string) error {

@@ -171,12 +171,12 @@ func (s *IntegrationSuite) TestCreateProfileDLO() {
 		Name:     name,
 		Label:    "sftest Profile DLO",
 		Category: types.CategoryProfile,
-		Fields: []types.DataLakeFieldInputRepresentation{
-			{Name: "id__c", Label: "ID", DataType: "Text", IsPrimaryKey: "true"},
-			{Name: "first_name__c", Label: "First Name", DataType: "Text", IsPrimaryKey: "false"},
-			{Name: "email__c", Label: "Email", DataType: "Email", IsPrimaryKey: "false"},
-			{Name: "is_active__c", Label: "Is Active", DataType: "Boolean", IsPrimaryKey: "false"},
-			{Name: "total_spent__c", Label: "Total Spent", DataType: "Number", IsPrimaryKey: "false"},
+		FieldInputRepresentations: []types.DataLakeFieldInputRepresentation{
+			{Name: "id__c", Label: "ID", DataType: "Text", IsPrimaryKey: true},
+			{Name: "first_name__c", Label: "First Name", DataType: "Text", IsPrimaryKey: false},
+			{Name: "email__c", Label: "Email", DataType: "Email", IsPrimaryKey: false},
+			{Name: "is_active__c", Label: "Is Active", DataType: "Boolean", IsPrimaryKey: false},
+			{Name: "total_spent__c", Label: "Total Spent", DataType: "Number", IsPrimaryKey: false},
 		},
 	}
 
@@ -209,11 +209,11 @@ func (s *IntegrationSuite) TestCreateEngagementDLO() {
 		Name:     name,
 		Label:    "sftest Events DLO",
 		Category: types.CategoryEngagement,
-		Fields: []types.DataLakeFieldInputRepresentation{
-			{Name: "event_id__c", Label: "Event ID", DataType: "Text", IsPrimaryKey: "true"},
-			{Name: "customer_id__c", Label: "Customer ID", DataType: "Text", IsPrimaryKey: "false"},
-			{Name: "event_type__c", Label: "Event Type", DataType: "Text", IsPrimaryKey: "false"},
-			{Name: "event_ts__c", Label: "Event Timestamp", DataType: "DateTime", IsPrimaryKey: "false"},
+		FieldInputRepresentations: []types.DataLakeFieldInputRepresentation{
+			{Name: "event_id__c", Label: "Event ID", DataType: "Text", IsPrimaryKey: true},
+			{Name: "customer_id__c", Label: "Customer ID", DataType: "Text", IsPrimaryKey: false},
+			{Name: "event_type__c", Label: "Event Type", DataType: "Text", IsPrimaryKey: false},
+			{Name: "event_ts__c", Label: "Event Timestamp", DataType: "DateTime", IsPrimaryKey: false},
 		},
 		EventDateTimeFieldName: "event_ts__c",
 	}

@@ -23,9 +23,9 @@ func (s *DLOSuite) TestCreateAndGetAndDeleteDLO() {
 		Name:     dloName,
 		Label:    "sftest DLO",
 		Category: types.CategoryProfile,
-		Fields: []types.DataLakeFieldInputRepresentation{
-			{Name: "id__c", Label: "id__c", DataType: "Text", IsPrimaryKey: "true"},
-			{Name: "name__c", Label: "name__c", DataType: "Text", IsPrimaryKey: "false"},
+		FieldInputRepresentations: []types.DataLakeFieldInputRepresentation{
+			{Name: "id__c", Label: "id__c", DataType: "Text", IsPrimaryKey: true},
+			{Name: "name__c", Label: "name__c", DataType: "Text", IsPrimaryKey: false},
 		},
 	}
 

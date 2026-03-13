@@ -100,6 +100,7 @@ func (d *driverImpl) NewDatabase(opts map[string]string) (adbc.Database, error) 
 	return d.NewDatabaseWithContext(context.Background(), opts)
 }
 
+// NewDatabaseWithContext creates a new database connection for Salesforce Data Cloud
 func (d *driverImpl) NewDatabaseWithContext(ctx context.Context, opts map[string]string) (adbc.Database, error) {
 	dbBase, err := driverbase.NewDatabaseImplBase(ctx, &d.DriverImplBase)
 	if err != nil {

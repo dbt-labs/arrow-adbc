@@ -20,7 +20,7 @@ type DataLakeObjectRequest struct {
 	Name                       string                             `json:"name"`
 	Label                      string                             `json:"label"`
 	Category                   DataObjectCategory                 `json:"category"`
-	Fields                     []DataLakeFieldInputRepresentation `json:"dataLakeFieldInputRepresentations"`
+	FieldInputRepresentations  []DataLakeFieldInputRepresentation `json:"dataLakeFieldInputRepresentations"`
 	DataspaceInfo              []DataspaceInfo                    `json:"dataspaceInfo"`
 	OrgUnitIdentifierFieldName string                             `json:"orgUnitIdentifierFieldName"`
 	RecordModifiedFieldName    string                             `json:"recordModifiedFieldName"`
@@ -33,7 +33,7 @@ type DataLakeFieldInputRepresentation struct {
 	Name         string `json:"name"`
 	Label        string `json:"label"`
 	DataType     string `json:"dataType"`
-	IsPrimaryKey string `json:"isPrimaryKey"`
+	IsPrimaryKey bool   `json:"isPrimaryKey"`
 }
 
 // DataLakeObjects is the wrapper response from the GET endpoint.
@@ -43,11 +43,11 @@ type DataLakeObjects struct {
 
 // DataLakeObject is the response representation of a DLO.
 type DataLakeObject struct {
-	ID       string             `json:"id,omitempty"`
-	Name     string             `json:"name"`
-	Category DataObjectCategory `json:"category"`
-	Status   DataLakeObjectStatus   `json:"publishStatus,omitempty"`
-	Fields   []DataLakeFieldOutput  `json:"dataLakeFieldInfoRepresentation,omitempty"`
+	ID       string                `json:"id,omitempty"`
+	Name     string                `json:"name"`
+	Category DataObjectCategory    `json:"category"`
+	Status   DataLakeObjectStatus  `json:"status,omitempty"`
+	Fields   []DataLakeFieldOutput `json:"dataLakeFieldInfoRepresentation,omitempty"`
 }
 
 func (d *DataLakeObject) IsActive() bool {
