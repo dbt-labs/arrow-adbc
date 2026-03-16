@@ -55,6 +55,9 @@ type connectionImpl struct {
 
 	// Salesforce client
 	client *sfapi.Client
+
+	// Backoff configuration for polling operations
+	backoffConfig sftypes.BackoffConfig
 }
 
 // newClient initializes and authenticates the Salesforce API client.
@@ -121,6 +124,7 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 	}
 
 	c.client = client
+	c.backoffConfig = sftypes.DefaultBackoffConfig()
 	return nil
 }
 
@@ -296,6 +300,7 @@ func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
 		alloc:                c.Alloc,
 		cnxn:                 c,
 		dataTransformTimeout: 3 * time.Minute,
+		backoffConfig:        c.backoffConfig,
 	}
 
 	return stmt, nil

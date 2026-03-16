@@ -48,6 +48,7 @@ type statement struct {
 	// Data Transform options
 	targetDLO            string
 	dataTransformTimeout time.Duration
+	backoffConfig        sftypes.BackoffConfig
 }
 
 // Close cleans up the statement
@@ -86,17 +87,8 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		}
 	}
 
-	logger := s.cnxn.Logger.With("operation", "executeSQLQuery")
-
-	// TODO: re-implement data transform CREATE TABLE flow using the new gosalesforce API.
-	// The orchestration wrappers (CreateOrUpdateDataTransform, WaitForDataTransform,
-	// MustRunDataTransform, WaitForDataTransformRun) need to be ported from gosalesforce_old.
-	if s.dloCategory != "" && s.dloPrimaryKey != "" && s.targetDLO != "" {
-		_ = logger // suppress unused
-		return nil, 0, adbc.Error{
-			Code: adbc.StatusNotImplemented,
-			Msg:  "data transform CREATE TABLE flow is not yet implemented with the new API client",
-		}
+	if s.targetDLO != "" {
+		return s.executeCreateTable(ctx)
 	}
 
 	rowLimit := s.cnxn.getQueryRowLimit()
@@ -149,6 +141,131 @@ func (s *statement) convertSqlQueryResponseToArrow(response *sftypes.SqlQueryRes
 	}
 
 	return reader, int64(response.ReturnedRows), nil
+}
+
+// executeCreateTable implements the CREATE TABLE flow using Data Transforms.
+// It validates the transform, creates it, waits for it to become active, runs it,
+// and returns an empty RecordReader with the inferred schema.
+func (s *statement) executeCreateTable(ctx context.Context) (array.RecordReader, int64, error) {
+	client := s.cnxn.client
+	transformName := s.targetDLO + "_transform"
+
+	writeMode := sftypes.WriteModeOverwrite
+	if s.dloWriteMode != "" {
+		writeMode = sftypes.WriteMode(s.dloWriteMode)
+	}
+
+	category := sftypes.CategoryProfile
+	if s.dloCategory != "" {
+		category = sftypes.Category(s.dloCategory)
+	}
+
+	req := &sftypes.DataTransformRequest{
+		Name:          transformName,
+		Label:         transformName,
+		Type:          sftypes.DataTransformTypeBatch,
+		DataSpaceName: s.cnxn.dataSpace,
+		Definition: sftypes.DataTransformDefinition{
+			Type:    sftypes.DataTransformDefinitionTypeDCSQL,
+			Version: "1.0",
+			Manifest: sftypes.DataTransformManifest{
+				Nodes: sftypes.DataTransformNodes{
+					sftypes.DataTransformNodeID("node_" + s.targetDLO): {
+						Name:         s.targetDLO,
+						RelationName: s.targetDLO,
+						Config: sftypes.DataTransformNodeConfig{
+							Materialized: sftypes.MaterializationTable,
+							WriteMode:    writeMode,
+						},
+						CompiledCode: s.query,
+					},
+				},
+			},
+		},
+	}
+
+	primaryKey := s.dloPrimaryKey
+	if primaryKey == "" {
+		primaryKey = "Id"
+	}
+
+	// Validate and create the transform
+	dt, validation, err := client.ValidateAndCreateTransform(ctx, req, primaryKey)
+	if err != nil {
+		return nil, 0, adbc.Error{
+			Code: adbc.StatusInternal,
+			Msg:  fmt.Sprintf("validate and create transform failed: %v", err),
+		}
+	}
+
+	// Build Arrow schema from validation output data objects
+	schema := s.buildSchemaFromValidation(validation, transformName, category)
+
+	// Wait for the transform to become Active
+	dt, err = client.WaitForTransformStatus(ctx, dt.Name, &s.backoffConfig, sftypes.StatusActive, sftypes.StatusError)
+	if err != nil {
+		return nil, 0, adbc.Error{
+			Code: adbc.StatusInternal,
+			Msg:  fmt.Sprintf("waiting for transform active: %v", err),
+		}
+	}
+	if dt.Status.IsError() {
+		return nil, 0, adbc.Error{
+			Code: adbc.StatusInternal,
+			Msg:  fmt.Sprintf("transform entered error status after creation"),
+		}
+	}
+
+	// Run the transform and wait for completion
+	dt, err = client.RunAndWaitForTransform(ctx, dt.Name, &s.backoffConfig)
+	if err != nil {
+		return nil, 0, adbc.Error{
+			Code: adbc.StatusInternal,
+			Msg:  fmt.Sprintf("run and wait for transform failed: %v", err),
+		}
+	}
+	if !dt.LastRunStatus.IsSuccess() {
+		return nil, 0, adbc.Error{
+			Code: adbc.StatusInternal,
+			Msg:  fmt.Sprintf("transform run ended with status %s (error=%v)", dt.LastRunStatus, dt.LastRunErrorCode),
+		}
+	}
+
+	// Return empty RecordReader with the inferred schema
+	reader, err := array.NewRecordReader(schema, []arrow.RecordBatch{})
+	if err != nil {
+		return nil, 0, adbc.Error{
+			Code: adbc.StatusInternal,
+			Msg:  fmt.Sprintf("creating record reader: %v", err),
+		}
+	}
+	return reader, 0, nil
+}
+
+// buildSchemaFromValidation builds an Arrow schema from the validation output data objects.
+func (s *statement) buildSchemaFromValidation(validation *sftypes.DataTransformValidation, transformName string, category sftypes.Category) *arrow.Schema {
+	if validation == nil {
+		return arrow.NewSchema(nil, nil)
+	}
+
+	odos, ok := validation.OutputDataObjects[transformName]
+	if !ok || len(odos) == 0 {
+		return arrow.NewSchema(nil, nil)
+	}
+
+	var fields []arrow.Field
+	for _, odo := range odos {
+		for _, f := range odo.Fields {
+			arrowType := SalesforceDLOTypeToArrowType(f.Type)
+			fields = append(fields, arrow.Field{
+				Name:     f.Name,
+				Type:     arrowType,
+				Nullable: !f.IsPrimaryKey,
+			})
+		}
+	}
+
+	return arrow.NewSchema(fields, nil)
 }
 
 // Bind operations
@@ -215,6 +332,12 @@ func (s *statement) GetOptionInt(key string) (int64, error) {
 	switch key {
 	case OptionIntDataTransformRunTimeout:
 		return s.dataTransformTimeout.Milliseconds(), nil
+	case OptionIntBackoffInitialIntervalMs:
+		return s.backoffConfig.InitialInterval.Milliseconds(), nil
+	case OptionIntBackoffMaxIntervalMs:
+		return s.backoffConfig.MaxInterval.Milliseconds(), nil
+	case OptionIntBackoffMaxElapsedTimeMs:
+		return s.backoffConfig.MaxElapsedTime.Milliseconds(), nil
 	}
 	return 0, adbc.Error{
 		Code: adbc.StatusNotFound,
@@ -261,6 +384,12 @@ func (s *statement) SetOptionInt(key string, value int64) error {
 	switch key {
 	case OptionIntDataTransformRunTimeout:
 		s.dataTransformTimeout = time.Duration(value) * time.Millisecond
+	case OptionIntBackoffInitialIntervalMs:
+		s.backoffConfig.InitialInterval = time.Duration(value) * time.Millisecond
+	case OptionIntBackoffMaxIntervalMs:
+		s.backoffConfig.MaxInterval = time.Duration(value) * time.Millisecond
+	case OptionIntBackoffMaxElapsedTimeMs:
+		s.backoffConfig.MaxElapsedTime = time.Duration(value) * time.Millisecond
 	default:
 		return adbc.Error{
 			Code: adbc.StatusNotImplemented,

@@ -1,6 +1,9 @@
 package types
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 type DataCloudError struct {
 	Code    string `json:"errorCode"`
@@ -92,3 +95,22 @@ func (p *Paginated) HasNextPage() bool {
 type Items[T any] []T
 
 // TODO: create remaining collection types
+
+// BackoffConfig controls exponential backoff behavior for polling operations.
+type BackoffConfig struct {
+	InitialInterval time.Duration
+	MaxInterval     time.Duration
+	MaxElapsedTime  time.Duration // 0 = no limit, rely on ctx
+	Multiplier      float64
+	RandomFactor    float64
+}
+
+func DefaultBackoffConfig() BackoffConfig {
+	return BackoffConfig{
+		InitialInterval: 5 * time.Second,
+		MaxInterval:     60 * time.Second,
+		MaxElapsedTime:  0,
+		Multiplier:      1.5,
+		RandomFactor:    0.5,
+	}
+}

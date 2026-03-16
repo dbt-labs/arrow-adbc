@@ -55,6 +55,9 @@ const (
 	OptionStringDLOWriteMode         = "adbc.salesforce.dc.dlo.write_mode"
 	OptionsStringTargetDLO           = "adbc.salesforce.dc.dlo.target_dlo"
 	OptionIntDataTransformRunTimeout = "adbc.salesforce.dc.data_transform_run_timeout"
+	OptionIntBackoffInitialIntervalMs = "adbc.salesforce.dc.backoff.initial_interval_ms"
+	OptionIntBackoffMaxIntervalMs     = "adbc.salesforce.dc.backoff.max_interval_ms"
+	OptionIntBackoffMaxElapsedTimeMs  = "adbc.salesforce.dc.backoff.max_elapsed_time_ms"
 
 	// Default values
 	DefaultLoginURL = "https://login.salesforce.com"

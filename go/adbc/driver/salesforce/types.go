@@ -3,6 +3,7 @@ package salesforce
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/apache/arrow-go/v18/arrow"
@@ -266,6 +267,26 @@ func SalesforceSqlTypeToArrowType(sfType sftypes.SqlType) arrow.DataType {
 			return arrow.ListOf(elementArrowType)
 		}
 		// Default to string for unknown types
+		return arrow.BinaryTypes.String
+	}
+}
+
+// SalesforceDLOTypeToArrowType converts a Salesforce DLO field type to an Arrow type.
+// This is distinct from SalesforceSqlTypeToArrowType which maps SQL response types.
+// DLO field types come from DataTransformOutputField.Type in validation responses.
+func SalesforceDLOTypeToArrowType(sfType string) arrow.DataType {
+	switch strings.ToLower(sfType) {
+	case "text", "email", "phone", "url":
+		return arrow.BinaryTypes.String
+	case "number", "currency", "percent":
+		return arrow.PrimitiveTypes.Float64
+	case "boolean":
+		return arrow.FixedWidthTypes.Boolean
+	case "date", "dateonly":
+		return arrow.FixedWidthTypes.Date32
+	case "datetime":
+		return arrow.FixedWidthTypes.Timestamp_ms
+	default:
 		return arrow.BinaryTypes.String
 	}
 }

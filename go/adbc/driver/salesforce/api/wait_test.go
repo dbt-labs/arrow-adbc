@@ -1,4 +1,4 @@
-package flows
+package api
 
 import (
 	"bytes"
@@ -9,13 +9,11 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api"
-	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
@@ -23,9 +21,11 @@ import (
 	"resty.dev/v3"
 )
 
+// NOTE: hasRealCredentials() and realAuthConfig() are defined in testing_helpers_test.go
+
 type FlowsSuite struct {
 	suite.Suite
-	Client   *sfapi.Client
+	Client   *Client
 	recorder *recorder.Recorder
 }
 
@@ -34,29 +34,6 @@ func TestFlows(t *testing.T) {
 		t.Skip("skipping flow tests: no Salesforce credentials")
 	}
 	suite.Run(t, new(FlowsSuite))
-}
-
-func hasRealCredentials() bool {
-	return os.Getenv("SFDC_LOGIN_URL") != "" &&
-		os.Getenv("SFDC_CLIENT_ID") != "" &&
-		os.Getenv("SFDC_USERNAME") != "" &&
-		os.Getenv("SFDC_CLIENT_PRIVATE_KEY_PATH") != ""
-}
-
-func realAuthConfig(t require.TestingT) *sftypes.AuthConfig {
-	keyPath := os.Getenv("SFDC_CLIENT_PRIVATE_KEY_PATH")
-	if !filepath.IsAbs(keyPath) {
-		keyPath = filepath.Join("..", "..", keyPath)
-	}
-	keyPEM, err := os.ReadFile(keyPath)
-	require.NoError(t, err)
-
-	return &sftypes.AuthConfig{
-		LoginURL:      os.Getenv("SFDC_LOGIN_URL"),
-		ClientID:      os.Getenv("SFDC_CLIENT_ID"),
-		Username:      os.Getenv("SFDC_USERNAME"),
-		PrivateKeyPEM: string(keyPEM),
-	}
 }
 
 func parseURL(raw string) *url.URL {
@@ -131,14 +108,14 @@ func (s *FlowsSuite) SetupTest() {
 	require.NoError(t, err)
 	s.recorder = r
 
-	withVCR := sfapi.WithModifyClient(func(c *resty.Client) {
+	withVCR := WithModifyClient(func(c *resty.Client) {
 		c.SetTransport(r)
 		c.SetHeader("Accept-Encoding", "identity")
 	})
 
 	if hasRealCredentials() {
 		cfg := realAuthConfig(t)
-		client, err := sfapi.NewClient(cfg, withVCR, sfapi.WithLogger(logger))
+		client, err := NewClient(cfg, withVCR, WithLogger(logger))
 		require.NoError(t, err)
 
 		err = client.Authenticate(context.Background())
@@ -146,15 +123,15 @@ func (s *FlowsSuite) SetupTest() {
 
 		s.Client = client
 	} else {
-		client, err := sfapi.NewClient(
-			&sftypes.AuthConfig{
+		client, err := NewClient(
+			&types.AuthConfig{
 				LoginURL:   "https://test.salesforce.com",
 				ClientID:   "test-client-id",
 				Username:   "test@example.com",
 				APIVersion: "v64.0",
 			},
 			withVCR,
-			sfapi.WithLogger(logger),
+			WithLogger(logger),
 		)
 		require.NoError(t, err)
 
@@ -175,23 +152,23 @@ func (s *FlowsSuite) TearDownTest() {
 	}
 }
 
-func buildTransformRequest(transformName, outputDLOName, sqlQuery string) *sftypes.DataTransformRequest {
-	return &sftypes.DataTransformRequest{
+func buildTransformRequest(transformName, outputDLOName, sqlQuery string) *types.DataTransformRequest {
+	return &types.DataTransformRequest{
 		Name:          transformName,
 		Label:         transformName,
-		Type:          sftypes.DataTransformTypeBatch,
+		Type:          types.DataTransformTypeBatch,
 		DataSpaceName: "default",
-		Definition: sftypes.DataTransformDefinition{
-			Type:    sftypes.DataTransformDefinitionTypeDCSQL,
+		Definition: types.DataTransformDefinition{
+			Type:    types.DataTransformDefinitionTypeDCSQL,
 			Version: "1.0",
-			Manifest: sftypes.DataTransformManifest{
-				Nodes: sftypes.DataTransformNodes{
-					sftypes.DataTransformNodeID("node_" + outputDLOName): {
+			Manifest: types.DataTransformManifest{
+				Nodes: types.DataTransformNodes{
+					types.DataTransformNodeID("node_" + outputDLOName): {
 						Name:         outputDLOName,
 						RelationName: outputDLOName,
-						Config: sftypes.DataTransformNodeConfig{
-							Materialized: sftypes.MaterializationTable,
-							WriteMode:    sftypes.WriteModeOverwrite,
+						Config: types.DataTransformNodeConfig{
+							Materialized: types.MaterializationTable,
+							WriteMode:    types.WriteModeOverwrite,
 						},
 						CompiledCode: sqlQuery,
 					},
@@ -205,10 +182,10 @@ func buildTransformRequest(transformName, outputDLOName, sqlQuery string) *sftyp
 // Used at the start of each test to remove leftovers from prior failed runs.
 func (s *FlowsSuite) cleanupResources(ctx context.Context, transformName, dloName string) {
 	t := s.T()
-	if err := DeleteTransformAndWait(ctx, s.Client, transformName); err != nil {
+	if err := s.Client.DeleteTransformAndWait(ctx, transformName, nil); err != nil {
 		t.Logf("cleanup: failed to delete transform %q: %v", transformName, err)
 	}
-	if err := DeleteDLOAndWait(ctx, s.Client, dloName); err != nil {
+	if err := s.Client.DeleteDLOAndWait(ctx, dloName, nil); err != nil {
 		t.Logf("cleanup: failed to delete DLO %q: %v", dloName, err)
 	}
 }
@@ -224,25 +201,25 @@ func (s *FlowsSuite) TestCreateRunDeleteTransform() {
 	req := buildTransformRequest(transformName, outputDLO, sql)
 
 	// Create via validate + create
-	dt, err := ValidateAndCreateTransform(ctx, s.Client, req, "primary_key__c")
+	dt, _, err := s.Client.ValidateAndCreateTransform(ctx, req, "primary_key__c")
 	s.Require().NoError(err)
 	s.Require().NotNil(dt)
 
 	// Wait for Active
-	dt, err = WaitForTransformReady(ctx, s.Client, transformName)
+	dt, err = s.Client.WaitForTransformStatus(ctx, transformName, nil, types.StatusActive, types.StatusError)
 	s.Require().NoError(err)
 	s.Require().True(dt.Status.IsActive())
 
 	// Run and wait
-	dt, err = RunAndWaitForTransform(ctx, s.Client, transformName)
+	dt, err = s.Client.RunAndWaitForTransform(ctx, transformName, nil)
 	s.Require().NoError(err)
 	s.Require().True(dt.LastRunStatus.IsSuccess())
 
 	// Cleanup
-	err = DeleteTransformAndWait(ctx, s.Client, transformName)
+	err = s.Client.DeleteTransformAndWait(ctx, transformName, nil)
 	s.Require().NoError(err)
 
-	err = DeleteDLOAndWait(ctx, s.Client, outputDLO)
+	err = s.Client.DeleteDLOAndWait(ctx, outputDLO, nil)
 	s.Require().NoError(err)
 }
 
@@ -257,25 +234,25 @@ func (s *FlowsSuite) TestValidateAndCreateWithAutoCreateDLO() {
 	req := buildTransformRequest(transformName, outputDLO, sql)
 
 	// Validate and create
-	dt, err := ValidateAndCreateTransform(ctx, s.Client, req, "primary_key__c")
+	dt, _, err := s.Client.ValidateAndCreateTransform(ctx, req, "primary_key__c")
 	s.Require().NoError(err)
 	s.Require().NotNil(dt)
 
 	// Wait for Active
-	dt, err = WaitForTransformReady(ctx, s.Client, transformName)
+	dt, err = s.Client.WaitForTransformStatus(ctx, transformName, nil, types.StatusActive, types.StatusError)
 	s.Require().NoError(err)
 	s.Require().True(dt.Status.IsActive())
 
 	// Run and wait
-	dt, err = RunAndWaitForTransform(ctx, s.Client, transformName)
+	dt, err = s.Client.RunAndWaitForTransform(ctx, transformName, nil)
 	s.Require().NoError(err)
 	s.Require().True(dt.LastRunStatus.IsSuccess())
 
 	// Cleanup
-	err = DeleteTransformAndWait(ctx, s.Client, transformName)
+	err = s.Client.DeleteTransformAndWait(ctx, transformName, nil)
 	s.Require().NoError(err)
 
-	err = DeleteDLOAndWait(ctx, s.Client, outputDLO)
+	err = s.Client.DeleteDLOAndWait(ctx, outputDLO, nil)
 	s.Require().NoError(err)
 }
 
@@ -290,26 +267,26 @@ func (s *FlowsSuite) TestDeleteTransformAndWait() {
 	req := buildTransformRequest(transformName, outputDLO, sql)
 
 	// Create transform
-	dt, err := ValidateAndCreateTransform(ctx, s.Client, req, "primary_key__c")
+	dt, _, err := s.Client.ValidateAndCreateTransform(ctx, req, "primary_key__c")
 	s.Require().NoError(err)
 	s.Require().NotNil(dt)
 
 	// Wait for Active
-	_, err = WaitForTransformReady(ctx, s.Client, transformName)
+	_, err = s.Client.WaitForTransformStatus(ctx, transformName, nil, types.StatusActive, types.StatusError)
 	s.Require().NoError(err)
 
 	// Delete and wait
-	err = DeleteTransformAndWait(ctx, s.Client, transformName)
+	err = s.Client.DeleteTransformAndWait(ctx, transformName, nil)
 	s.Require().NoError(err)
 
 	// Verify 404
 	_, err = s.Client.GetDataTransform(ctx, transformName)
 	s.Require().Error(err)
-	var sfErr *sfapi.SalesforceError
+	var sfErr *SalesforceError
 	s.Require().True(errors.As(err, &sfErr))
 	s.Require().True(sfErr.IsNotFound())
 
 	// Cleanup output DLO
-	err = DeleteDLOAndWait(ctx, s.Client, outputDLO)
+	err = s.Client.DeleteDLOAndWait(ctx, outputDLO, nil)
 	s.Require().NoError(err)
 }
