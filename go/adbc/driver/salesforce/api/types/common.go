@@ -47,6 +47,15 @@ func (s Status) IsError() bool      { return s.isEq(StatusError) }
 func (s Status) IsInactive() bool   { return s.isEq(StatusInactive) }
 func (s Status) IsDeleting() bool   { return s.isEq(StatusDeleting) }
 
+func (s Status) IsOneOf(statuses ...Status) bool {
+	for _, other := range statuses {
+		if s.isEq(other) {
+			return true
+		}
+	}
+	return false
+}
+
 // Example usage:
 //
 //	type Dummy struct {

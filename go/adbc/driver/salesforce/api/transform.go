@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
@@ -31,6 +32,19 @@ func (c *Client) CreateDataTransform(ctx context.Context, req *types.DataTransfo
 		return nil, checkError(resp)
 	}
 	return &result, nil
+}
+
+func (c *Client) CreateOrUpdateDataTransform(ctx context.Context, req *types.DataTransformRequest) (*types.DataTransform, error) {
+	dt, err := c.CreateDataTransform(ctx, req)
+	if err == nil {
+		return dt, nil
+	}
+	// If create failed, try update (transform may already exist)
+	var sfErr *SalesforceError
+	if errors.As(err, &sfErr) && sfErr.StatusCode == 409 {
+		return c.UpdateDataTransform(ctx, req)
+	}
+	return nil, err
 }
 
 func (c *Client) GetDataTransform(ctx context.Context, nameOrID string) (*types.DataTransform, error) {

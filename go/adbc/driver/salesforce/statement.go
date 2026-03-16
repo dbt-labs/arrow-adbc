@@ -148,7 +148,7 @@ func (s *statement) convertSqlQueryResponseToArrow(response *sftypes.SqlQueryRes
 // and returns an empty RecordReader with the inferred schema.
 func (s *statement) executeCreateTable(ctx context.Context) (array.RecordReader, int64, error) {
 	client := s.cnxn.client
-	transformName := s.targetDLO + "_transform"
+	transformName := s.targetDLO
 
 	writeMode := sftypes.WriteModeOverwrite
 	if s.dloWriteMode != "" {

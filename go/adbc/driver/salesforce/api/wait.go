@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
@@ -40,10 +37,8 @@ func (c *Client) WaitForTransformStatus(ctx context.Context, name string, cfg *t
 				return nil, fmt.Errorf("waiting for transform status: %w", err)
 			}
 
-			for _, t := range targets {
-				if strings.EqualFold(string(dt.Status), string(t)) {
-					return dt, nil
-				}
+			if dt.Status.IsOneOf(targets...) {
+				return dt, nil
 			}
 
 			if dt.Status.IsDeleting() {
@@ -126,10 +121,8 @@ func (c *Client) WaitForDLOStatus(ctx context.Context, name string, cfg *types.B
 				return nil, fmt.Errorf("waiting for DLO status: %w", err)
 			}
 
-			for _, t := range targets {
-				if strings.EqualFold(string(dlo.Status), string(t)) {
-					return dlo, nil
-				}
+			if dlo.Status.IsOneOf(targets...) {
+				return dlo, nil
 			}
 
 			if dlo.Status.IsDeleting() {
@@ -198,45 +191,22 @@ func (c *Client) DeleteTransformAndWait(ctx context.Context, name string, cfg *t
 	return c.WaitForTransformDeleted(ctx, name, cfg)
 }
 
-// ValidateAndCreateTransform validates a transform request, extracts the output data objects
-// from the validation response, marks the primary key field, and creates the transform.
-// Returns both the created transform and the validation result (for schema inference).
+// ValidateAndCreateTransform validates a transform request, configures the output
+// data objects from the validation response, and creates or updates the transform.
+// Returns both the created/updated transform and the validation result (for schema inference).
 func (c *Client) ValidateAndCreateTransform(ctx context.Context, req *types.DataTransformRequest, primaryKeyFieldName string) (*types.DataTransform, *types.DataTransformValidation, error) {
 	validation, err := c.ValidateDataTransform(ctx, req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("validating transform: %w", err)
 	}
 
-	odos, ok := validation.OutputDataObjects[req.Name]
-	if !ok {
-		return nil, nil, fmt.Errorf("validated outputDataObjects malformed: expected %q, found %v",
-			req.Name,
-			slices.Collect(maps.Keys(validation.OutputDataObjects)),
-		)
+	if err := req.ConfigureOutputDataObjects(validation, primaryKeyFieldName); err != nil {
+		return nil, nil, err
 	}
 
-	for i := range odos {
-		if odos[i].Label == "" {
-			odos[i].Label = odos[i].Name
-		}
-		if odos[i].Category == "" {
-			odos[i].Category = "Profile"
-		}
-		for j := range odos[i].Fields {
-			if odos[i].Fields[j].Name == primaryKeyFieldName {
-				odos[i].Fields[j].IsPrimaryKey = true
-			}
-			if odos[i].Fields[j].Label == "" {
-				odos[i].Fields[j].Label = odos[i].Fields[j].Name
-			}
-		}
-	}
-
-	req.Definition.OutputDataObjects = odos
-
-	dt, err := c.CreateDataTransform(ctx, req)
+	dt, err := c.CreateOrUpdateDataTransform(ctx, req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating transform: %w", err)
+		return nil, nil, fmt.Errorf("creating/updating transform: %w", err)
 	}
 	return dt, validation, nil
 }

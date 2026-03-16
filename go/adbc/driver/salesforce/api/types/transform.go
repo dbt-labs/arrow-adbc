@@ -1,6 +1,11 @@
 package types
 
-import "strings"
+import (
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+)
 
 // DataTransformType represents the type of data transform.
 type DataTransformType = string
@@ -209,4 +214,37 @@ type DataTransformValidationIssue struct {
 	Code     string   `json:"errorCode"`
 	Message  string   `json:"errorMessage"`
 	Severity Severity `json:"errorSeverity"`
+}
+
+// ConfigureOutputDataObjects takes a validation response and applies the inferred
+// output data objects to the request's definition, setting the primary key field
+// and filling in missing labels/categories.
+func (req *DataTransformRequest) ConfigureOutputDataObjects(validation *DataTransformValidation, primaryKeyFieldName string) error {
+	odos, ok := validation.OutputDataObjects[req.Name]
+	if !ok {
+		return fmt.Errorf("validated outputDataObjects malformed: expected %q, found %v",
+			req.Name,
+			slices.Collect(maps.Keys(validation.OutputDataObjects)),
+		)
+	}
+
+	for i := range odos {
+		if odos[i].Label == "" {
+			odos[i].Label = odos[i].Name
+		}
+		if odos[i].Category == "" {
+			odos[i].Category = "Profile"
+		}
+		for j := range odos[i].Fields {
+			if odos[i].Fields[j].Name == primaryKeyFieldName {
+				odos[i].Fields[j].IsPrimaryKey = true
+			}
+			if odos[i].Fields[j].Label == "" {
+				odos[i].Fields[j].Label = odos[i].Fields[j].Name
+			}
+		}
+	}
+
+	req.Definition.OutputDataObjects = odos
+	return nil
 }
