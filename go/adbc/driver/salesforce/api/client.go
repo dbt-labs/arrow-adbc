@@ -1,4 +1,4 @@
-package gosalesforce
+package api
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"golang.org/x/oauth2"
 	"resty.dev/v3"
 )
@@ -84,9 +84,17 @@ func NewClient(cfg *types.AuthConfig, opts ...Option) (*Client, error) {
 	// }
 
 	c.http.
+		SetDebug(false). // TODO: toggle as needed
+		// OnDebugLog(func(dl *resty.DebugLog) {
+		// 	c.logger.Debug(
+		// 		"http",
+		// 		slog.Any("request", dl.Request),
+		// 		slog.Any("response", dl.Response),
+		// 		slog.Any("trace-info", dl.TraceInfo),
+		// 	)
+		// }).
 		SetHeader("X-Salesforce-Partner-Name", "dbt_labs"). // TODO: make configurable
-		SetHeader("User-Agent", "sf-d360-api/dev (go)").    // TODO: this could be more canonical
-		SetDebug(false)                                     // TODO: toggle as needed
+		SetHeader("User-Agent", "sf-d360-api/dev (go)")     // TODO: this could be more canonical
 
 	return c, nil
 }
@@ -103,6 +111,9 @@ func (c *Client) Close() {
 	if c.http != nil {
 		c.http.Close()
 	}
+}
+func (c *Client) GetLogger() *slog.Logger {
+	return c.logger
 }
 
 // request returns a new resty request with the context and API version path param pre-set.

@@ -1,4 +1,4 @@
-package gosalesforce
+package api
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 )
 
 func (c *Client) Authenticate(ctx context.Context) error {
+	// Potential BUG: calling this multiple times will lead to multiple middlewares in the chain
+
 	privateKeyPEM := c.config.PrivateKeyPEM
 	if !strings.Contains(privateKeyPEM, "BEGIN") {
 		return fmt.Errorf("invalid private key: must be PEM-encoded")

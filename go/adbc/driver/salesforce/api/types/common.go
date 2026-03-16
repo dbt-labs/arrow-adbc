@@ -1,19 +1,48 @@
 package types
 
-// DataCloudActionResponse is the standard response for action endpoints.
-type DataCloudActionResponse struct {
-	Success bool     `json:"success"`
-	Errors  []string `json:"errors,omitempty"`
+import "strings"
+
+type DataCloudError struct {
+	Code    string `json:"errorCode"`
+	Message string `json:"errorMessage"`
 }
 
-// DataObjectCategory is the category of a data object (DLO, DMO, OutputDataObject, etc.).
-type DataObjectCategory = string
+// DataCloudActionResponse is the standard response for action endpoints.
+type DataCloudActionResponse struct {
+	Success bool             `json:"success"`
+	Errors  []DataCloudError `json:"errors,omitempty"`
+}
+
+// Category is the category of a data object (DLO, DMO, OutputDataObject, etc.).
+type Category string
 
 const (
-	CategoryProfile    DataObjectCategory = "Profile"
-	CategoryEngagement DataObjectCategory = "Engagement"
-	CategoryOther      DataObjectCategory = "Other"
+	CategoryProfile        Category = "Profile"
+	CategoryEngagement     Category = "Engagement"
+	CategoryOther          Category = "Other"
+	CategoryInsights       Category = "Insights"        // unused
+	CategoryDirectoryTable Category = "Directory_Table" // unused
 )
+
+type Status string
+
+const (
+	StatusActive     Status = "Active"
+	StatusProcessing Status = "Processing"
+	StatusError      Status = "Error"
+	StatusInactive   Status = "Inactive"
+	StatusDeleting   Status = "Deleting"
+)
+
+func (s Status) isEq(other Status) bool {
+	return strings.EqualFold(string(s), string(other))
+}
+
+func (s Status) IsActive() bool     { return s.isEq(StatusActive) }
+func (s Status) IsProcessing() bool { return s.isEq(StatusProcessing) }
+func (s Status) IsError() bool      { return s.isEq(StatusError) }
+func (s Status) IsInactive() bool   { return s.isEq(StatusInactive) }
+func (s Status) IsDeleting() bool   { return s.isEq(StatusDeleting) }
 
 // Example usage:
 //
@@ -50,6 +79,10 @@ type Paginated struct {
 	NextPageUrl string `json:"nextPageUrl"`
 }
 
+func (p *Paginated) HasNextPage() bool {
+	return p.NextPageUrl != ""
+}
+
 // Items is meant to be embedded in a `...Collection` struct with a `json` tag.
 //
 // Data 360 Connect doesn't use a common key for the list of resources.
@@ -59,8 +92,3 @@ type Paginated struct {
 type Items[T any] []T
 
 // TODO: create remaining collection types
-
-type DataTransformCollection struct {
-	Paginated
-	Items[DataTransform] `json:"dataTransforms"`
-}

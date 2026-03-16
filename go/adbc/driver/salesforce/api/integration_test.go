@@ -1,10 +1,10 @@
-package gosalesforce
+package api
 
 import (
 	"context"
 	"testing"
 
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -171,7 +171,7 @@ func (s *IntegrationSuite) TestCreateProfileDLO() {
 		Name:     name,
 		Label:    "sftest Profile DLO",
 		Category: types.CategoryProfile,
-		FieldInputRepresentations: []types.DataLakeFieldInputRepresentation{
+		FieldInputRepresentations: []types.DataLakeField{
 			{Name: "id__c", Label: "ID", DataType: "Text", IsPrimaryKey: true},
 			{Name: "first_name__c", Label: "First Name", DataType: "Text", IsPrimaryKey: false},
 			{Name: "email__c", Label: "Email", DataType: "Email", IsPrimaryKey: false},
@@ -209,7 +209,7 @@ func (s *IntegrationSuite) TestCreateEngagementDLO() {
 		Name:     name,
 		Label:    "sftest Events DLO",
 		Category: types.CategoryEngagement,
-		FieldInputRepresentations: []types.DataLakeFieldInputRepresentation{
+		FieldInputRepresentations: []types.DataLakeField{
 			{Name: "event_id__c", Label: "Event ID", DataType: "Text", IsPrimaryKey: true},
 			{Name: "customer_id__c", Label: "Customer ID", DataType: "Text", IsPrimaryKey: false},
 			{Name: "event_type__c", Label: "Event Type", DataType: "Text", IsPrimaryKey: false},

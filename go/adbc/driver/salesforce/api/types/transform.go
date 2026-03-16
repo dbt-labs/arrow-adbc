@@ -16,56 +16,40 @@ const (
 	DataTransformDefinitionTypeDCSQL DataTransformDefinitionType = "DCSQL"
 )
 
-type DataTransformStatus string
+type RunStatus string
 
 const (
-	TransformStatusActive     DataTransformStatus = "Active"
-	TransformStatusError      DataTransformStatus = "Error"
-	TransformStatusProcessing DataTransformStatus = "Processing"
-	TransformStatusDeleting   DataTransformStatus = "Deleting"
+	RunStatusNone              RunStatus = "None"
+	RunStatusCanceled          RunStatus = "Canceled"
+	RunStatusFailure           RunStatus = "Failure"
+	RunStatusInProgress        RunStatus = "InProgress"
+	RunStatusPartialFailure    RunStatus = "PartialFailure"
+	RunStatusPartiallyCanceled RunStatus = "PartiallyCanceled"
+	RunStatusPending           RunStatus = "Pending"
+	RunStatusSuccess           RunStatus = "Success"
 )
 
-func (s DataTransformStatus) IsActive() bool {
-	return strings.EqualFold(string(s), string(TransformStatusActive))
-}
-func (s DataTransformStatus) IsError() bool {
-	return strings.EqualFold(string(s), string(TransformStatusError))
-}
-func (s DataTransformStatus) IsProcessing() bool {
-	return strings.EqualFold(string(s), string(TransformStatusProcessing))
-}
-
-type DataTransformRunStatus string
-
-const (
-	RunStatusSuccess    DataTransformRunStatus = "Success"
-	RunStatusFailure    DataTransformRunStatus = "Failure"
-	RunStatusCanceled   DataTransformRunStatus = "Canceled"
-	RunStatusPending    DataTransformRunStatus = "Pending"
-	RunStatusInProgress DataTransformRunStatus = "InProgress"
-)
-
-func (s DataTransformRunStatus) IsSuccess() bool {
+func (s RunStatus) IsSuccess() bool {
 	return strings.EqualFold(string(s), string(RunStatusSuccess))
 }
-func (s DataTransformRunStatus) IsFailure() bool {
+func (s RunStatus) IsFailure() bool {
 	return strings.EqualFold(string(s), string(RunStatusFailure))
 }
-func (s DataTransformRunStatus) IsCanceled() bool {
+func (s RunStatus) IsCanceled() bool {
 	return strings.EqualFold(string(s), string(RunStatusCanceled))
 }
-func (s DataTransformRunStatus) IsPending() bool {
+func (s RunStatus) IsPending() bool {
 	return strings.EqualFold(string(s), string(RunStatusPending))
 }
-func (s DataTransformRunStatus) IsInProgress() bool {
+func (s RunStatus) IsInProgress() bool {
 	return strings.EqualFold(string(s), string(RunStatusInProgress))
 }
-func (s DataTransformRunStatus) IsTerminal() bool {
+func (s RunStatus) IsTerminal() bool {
 	return s.IsSuccess() || s.IsFailure() || s.IsCanceled()
 }
 
 // OutputDataObjectType is the discriminant for output data objects.
-type OutputDataObjectType = string
+type OutputDataObjectType string
 
 const (
 	OutputDataObjectTypeDLO OutputDataObjectType = "dataLakeObject"
@@ -73,7 +57,7 @@ const (
 )
 
 // Materialization controls how a transform node materializes its output.
-type Materialization = string
+type Materialization string
 
 const (
 	MaterializationTable     Materialization = "table"
@@ -82,7 +66,7 @@ const (
 
 // WriteMode controls how a materialized table is written.
 // Only relevant when Materialization is "table".
-type WriteMode = string
+type WriteMode string
 
 const (
 	WriteModeOverwrite WriteMode = "OVERWRITE"
@@ -90,13 +74,13 @@ const (
 	WriteModeMerge     WriteMode = "MERGE"
 )
 
-// ValidationSeverity is the severity of a validation issue.
-type ValidationSeverity = string
+// Severity is the severity of a validation issue.
+type Severity = string
 
 const (
-	ValidationSeverityWarning ValidationSeverity = "WARNING"
-	ValidationSeverityError   ValidationSeverity = "ERROR"
-	ValidationSeverityFatal   ValidationSeverity = "FATAL"
+	ValidationSeverityWarning Severity = "WARNING"
+	ValidationSeverityError   Severity = "ERROR"
+	ValidationSeverityFatal   Severity = "FATAL"
 )
 
 // DataTransformNodeID uniquely identifies a node within a transform manifest.
@@ -108,12 +92,17 @@ type DataTransform struct {
 	ID               string                  `json:"id,omitempty"`
 	Name             string                  `json:"name"`
 	Label            string                  `json:"label,omitempty"`
-	Status           DataTransformStatus     `json:"status"`
-	LastRunStatus    DataTransformRunStatus  `json:"lastRunStatus,omitempty"`
+	Status           Status                  `json:"status"`
+	LastRunStatus    RunStatus               `json:"lastRunStatus,omitempty"`
 	LastRunErrorCode any                     `json:"lastRunErrorCode,omitempty"` // TODO: proper struct type needed
 	LastRunDate      string                  `json:"lastRunDate,omitempty"`
 	Definition       DataTransformDefinition `json:"definition,omitzero"`
 	Type             DataTransformType       `json:"type,omitempty"`
+}
+
+type DataTransformCollection struct {
+	Paginated
+	Items[DataTransform] `json:"dataTransforms"`
 }
 
 func (dt *DataTransform) IsActive() bool          { return dt.Status.IsActive() }
@@ -168,11 +157,11 @@ type DataTransformNodeConfig struct {
 // It is the base shape for both DataLakeObject and DataModelObject outputs,
 // discriminated by the Type field.
 type DataTransformOutputDataObject struct {
-	Type      OutputDataObjectType `json:"type"`
-	Name      string               `json:"name"`
-	Label     string               `json:"label,omitempty"`
-	Category  DataObjectCategory   `json:"category,omitempty"`
-	Namespace string               `json:"namespace,omitempty"`
+	Type      OutputDataObjectType       `json:"type"`
+	Name      string                     `json:"name"`
+	Label     string                     `json:"label,omitempty"`
+	Category  Category                   `json:"category,omitempty"`
+	Namespace string                     `json:"namespace,omitempty"`
 	Fields    []DataTransformOutputField `json:"fields,omitempty"`
 }
 
@@ -217,7 +206,7 @@ type DataTransformValidation struct {
 
 // DataTransformValidationIssue represents a validation problem.
 type DataTransformValidationIssue struct {
-	Code     string             `json:"errorCode"`
-	Message  string             `json:"errorMessage"`
-	Severity ValidationSeverity `json:"errorSeverity"`
+	Code     string   `json:"errorCode"`
+	Message  string   `json:"errorMessage"`
+	Severity Severity `json:"errorSeverity"`
 }

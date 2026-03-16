@@ -1,10 +1,10 @@
-package gosalesforce
+package api
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 )
 
 func (c *Client) ListDataTransforms(ctx context.Context) (*types.DataTransformCollection, error) {

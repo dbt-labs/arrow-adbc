@@ -1,4 +1,4 @@
-package gosalesforce
+package api
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
-	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce"
-	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api"
+	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/apache/arrow-adbc/go/adbc/validation"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
@@ -132,7 +132,7 @@ func (s *SalesforceQuirks) ensureSeedDLO(ctx context.Context) error {
 		DataspaceInfo: []sftypes.DataspaceInfo{
 			{Name: "default"},
 		},
-		FieldInputRepresentations: []sftypes.DataLakeFieldInputRepresentation{
+		FieldInputRepresentations: []sftypes.DataLakeField{
 			{
 				Name:         "Id",
 				Label:        "Id",
@@ -145,22 +145,22 @@ func (s *SalesforceQuirks) ensureSeedDLO(ctx context.Context) error {
 }
 
 // arrowTypeToSFDLOType maps an Arrow data type to a Salesforce DLO DataType string.
-func arrowTypeToSFDLOType(dt arrow.DataType) string {
+func arrowTypeToSFDLOType(dt arrow.DataType) sftypes.DataType {
 	switch dt.ID() {
 	case arrow.STRING, arrow.LARGE_STRING, arrow.BINARY, arrow.LARGE_BINARY:
-		return "Text"
+		return sftypes.DataTypeText
 	case arrow.INT8, arrow.INT16, arrow.INT32, arrow.INT64,
 		arrow.UINT8, arrow.UINT16, arrow.UINT32, arrow.UINT64,
 		arrow.FLOAT16, arrow.FLOAT32, arrow.FLOAT64:
-		return "Number"
+		return sftypes.DataTypeNumber
 	case arrow.BOOL:
-		return "Boolean"
+		return sftypes.DataTypeBoolean
 	case arrow.DATE32, arrow.DATE64:
-		return "Date"
+		return sftypes.DataTypeDate // or DateOnly
 	case arrow.TIMESTAMP:
-		return "DateTime"
+		return sftypes.DataTypeDateTime
 	default:
-		return "Text"
+		return sftypes.DataTypeUnsupported // TODO: what could happen here?
 	}
 }
 
@@ -352,10 +352,10 @@ func (s *SalesforceQuirks) CreateSampleTable(name string, batch arrow.RecordBatc
 	// Step 1: Create target DLO from batch schema (skip if it already exists).
 	if _, existErr := s.client.GetDataLakeObject(ctx, name); existErr != nil {
 		schema := batch.Schema()
-		fields := make([]sftypes.DataLakeFieldInputRepresentation, schema.NumFields())
+		fields := make([]sftypes.DataLakeField, schema.NumFields())
 		for i := 0; i < schema.NumFields(); i++ {
 			f := schema.Field(i)
-			fields[i] = sftypes.DataLakeFieldInputRepresentation{
+			fields[i] = sftypes.DataLakeField{
 				Name:         f.Name,
 				Label:        f.Name,
 				DataType:     arrowTypeToSFDLOType(f.Type),

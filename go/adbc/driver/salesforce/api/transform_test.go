@@ -1,10 +1,10 @@
-package gosalesforce
+package api
 
 import (
 	"context"
 	"testing"
 
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/stretchr/testify/suite"
 )
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -13,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce"
-	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api"
+	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
@@ -45,7 +46,7 @@ func hasRealCredentials() bool {
 func realAuthConfig(t require.TestingT) *sftypes.AuthConfig {
 	keyPath := os.Getenv("SFDC_CLIENT_PRIVATE_KEY_PATH")
 	if !filepath.IsAbs(keyPath) {
-		keyPath = filepath.Join("..", keyPath)
+		keyPath = filepath.Join("..", "..", keyPath)
 	}
 	keyPEM, err := os.ReadFile(keyPath)
 	require.NoError(t, err)
@@ -106,6 +107,10 @@ var (
 
 func (s *FlowsSuite) SetupTest() {
 	t := s.T()
+	logger := slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
 	cassetteName := filepath.Join("testdata", strings.ReplaceAll(t.Name(), "/", "_"))
 
 	mode := recorder.ModeRecordOnly
@@ -133,7 +138,7 @@ func (s *FlowsSuite) SetupTest() {
 
 	if hasRealCredentials() {
 		cfg := realAuthConfig(t)
-		client, err := sfapi.NewClient(cfg, withVCR)
+		client, err := sfapi.NewClient(cfg, withVCR, sfapi.WithLogger(logger))
 		require.NoError(t, err)
 
 		err = client.Authenticate(context.Background())
@@ -149,6 +154,7 @@ func (s *FlowsSuite) SetupTest() {
 				APIVersion: "v64.0",
 			},
 			withVCR,
+			sfapi.WithLogger(logger),
 		)
 		require.NoError(t, err)
 

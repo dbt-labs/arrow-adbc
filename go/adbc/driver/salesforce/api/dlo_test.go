@@ -1,10 +1,10 @@
-package gosalesforce
+package api
 
 import (
 	"context"
 	"testing"
 
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -23,7 +23,7 @@ func (s *DLOSuite) TestCreateAndGetAndDeleteDLO() {
 		Name:     dloName,
 		Label:    "sftest DLO",
 		Category: types.CategoryProfile,
-		FieldInputRepresentations: []types.DataLakeFieldInputRepresentation{
+		FieldInputRepresentations: []types.DataLakeField{
 			{Name: "id__c", Label: "id__c", DataType: "Text", IsPrimaryKey: true},
 			{Name: "name__c", Label: "name__c", DataType: "Text", IsPrimaryKey: false},
 		},

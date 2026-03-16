@@ -25,8 +25,8 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
-	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce"
-	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/types"
+	sfapi "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api"
+	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 )

@@ -1,4 +1,4 @@
-package gosalesforce
+package api
 
 import (
 	"testing"
