@@ -35,14 +35,14 @@ func (c *Client) CreateDataTransform(ctx context.Context, req *types.DataTransfo
 }
 
 func (c *Client) CreateOrUpdateDataTransform(ctx context.Context, req *types.DataTransformRequest) (*types.DataTransform, error) {
-	dt, err := c.CreateDataTransform(ctx, req)
+	dt, err := c.UpdateDataTransform(ctx, req)
 	if err == nil {
 		return dt, nil
 	}
-	// If create failed, try update (transform may already exist)
+	// If update failed (transform doesn't exist), fall back to create
 	var sfErr *SalesforceError
-	if errors.As(err, &sfErr) && sfErr.StatusCode == 409 {
-		return c.UpdateDataTransform(ctx, req)
+	if errors.As(err, &sfErr) && sfErr.IsNotFound() {
+		return c.CreateDataTransform(ctx, req)
 	}
 	return nil, err
 }
