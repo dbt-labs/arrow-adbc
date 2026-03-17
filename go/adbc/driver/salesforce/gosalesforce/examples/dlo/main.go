@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce_old/api"
-	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce_old/shared"
+	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
+	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/shared"
 )
 
 func main() {

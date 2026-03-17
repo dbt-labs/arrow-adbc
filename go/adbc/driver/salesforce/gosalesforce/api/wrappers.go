@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce_old/shared"
+	"github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/shared"
 	"github.com/cenkalti/backoff/v5"
 )
 

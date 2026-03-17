@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce_old/api"
+	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
 )
 
 func main() {

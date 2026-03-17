@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"time"
 
-	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce_old/api"
-	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce_old/shared"
+	api "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/api"
+	shared "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce/shared"
 )
 
 func main() {
@@ -27,31 +28,78 @@ func main() {
 func demonstrateDCSQLDataTransform(client *api.Client) error {
 	ctx := context.Background()
 
-	name := "demonstrateDCSQLDataTransform"
+	// client.HttpOptions(ctx, "/services/data/v65.0/")
 
-	// Deletes if it exists
-	if _, err := client.GetDataTransform(ctx, name); err == nil {
-		fmt.Printf("Data transform %s already exists, deleting...\n", name)
-		client.DeleteDataTransform(ctx, name)
-	}
+	// // Deletes if it exists
+	// if _, err := client.GetDataTransform(ctx, name); err == nil {
+	// 	fmt.Printf("Data transform %s already exists, deleting...\n", name)
+	// 	client.DeleteDataTransform(ctx, name)
+	// }
 
-	err := client.DeleteDataTransformIfExists(ctx, name)
-	if err != nil {
-		fmt.Printf("ERROR: Failed to delete Data Transform: %v\n", err)
-		return err
-	}
+	name := "demonstrateDCSQLDataTransformAuto"
+	targetName := "customers_stg_auto__dll"
+
+	// err := client.DeleteDataTransformIfExists(ctx, name)
+	// if err != nil {
+	// 	fmt.Printf("ERROR: Failed to delete Data Transform: %v\n", err)
+	// 	return err
+	// }
 
 	request := api.NewBatchDataTransformRequest(
-		"demonstrateDCSQLDataTransform",
-		"demonstrateDCSQLDataTransform Example",
+		name,
+		"Example Demo DCSQL Data Transform Auto ",
 		map[string]api.DbtDataTransformNode{
 			"node": api.NewSimpleDbtDataTransformNode(
 				"node",
-				"customers_stg__dll",
-				"SELECT \"CustomerId__c\" FROM \"customers_raw__dll\"",
+				targetName,
+				"SELECT \"CustomerId__c\", \"CustomerId__c\" AS another_customer_id FROM \"customers_raw__dll\"",
 			),
 		},
 	)
+
+	validation, err := client.ValidateDataTransform(ctx, request)
+	if err != nil {
+		fmt.Printf("ERROR: DCSQL transform validation failed: %v\n", err)
+		return err
+	}
+
+	odos, ok := validation.OutputDataObjects[name]
+	if !ok {
+		return fmt.Errorf("ERROR: Something went wrong: missing name key")
+	}
+
+	odoIdx := slices.IndexFunc(odos, func(odo api.OutputDataObject) bool {
+		return odo.Name == targetName
+	})
+
+	if odoIdx < 0 {
+		return fmt.Errorf("ERROR: Something went wrong: missing matching output data object ")
+	}
+
+	odo := &odos[odoIdx]
+	if odo.Category == "" {
+		odo.Category = api.CategoryProfile
+	}
+	if odo.Label == "" {
+		odo.Label = odo.Name
+	}
+	for i := range odo.Fields {
+		r := &odo.Fields[i]
+
+		if i == 0 {
+			r.IsPrimaryKey = true
+		}
+
+		if r.Label == "" {
+			r.Label = r.Name
+		}
+	}
+
+	shared.PrettyPrintJSON(odo)
+
+	request.Definition.OutputDataObjects = odos
+
+	// return nil
 
 	// Creates a data transform
 	dataTransform, err := client.CreateDataTransform(ctx, request)
@@ -62,6 +110,7 @@ func demonstrateDCSQLDataTransform(client *api.Client) error {
 	fmt.Printf("✅ Advanced DCSQL transform created successfully!\n")
 	shared.PrettyPrintJSON(dataTransform)
 
+	return nil
 	// Waits for the data transform to be active
 	for {
 		dataTransform, err := client.GetDataTransform(ctx, dataTransform.Name)
