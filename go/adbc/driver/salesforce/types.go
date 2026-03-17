@@ -2,7 +2,6 @@ package salesforce
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	sftypes "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api/types"
@@ -28,9 +27,9 @@ func (s *statement) buildArrowSchema(metadata []sftypes.SqlQueryMetadata) *arrow
 }
 
 // buildArrowRecords converts the raw data to Arrow records
-func (s *statement) buildArrowRecords(schema *arrow.Schema, data [][]any) ([]arrow.Record, error) {
+func (s *statement) buildArrowRecords(schema *arrow.Schema, data [][]any) ([]arrow.RecordBatch, error) {
 	if len(data) == 0 {
-		return []arrow.Record{}, nil
+		return []arrow.RecordBatch{}, nil
 	}
 
 	// For now, create a simple single record
@@ -67,14 +66,14 @@ func (s *statement) buildArrowRecords(schema *arrow.Schema, data [][]any) ([]arr
 	}
 
 	// Create record
-	record := array.NewRecord(schema, arrays, int64(len(data)))
+	record := array.NewRecordBatch(schema, arrays, int64(len(data)))
 
 	// Release arrays
 	for _, arr := range arrays {
 		arr.Release()
 	}
 
-	return []arrow.Record{record}, nil
+	return []arrow.RecordBatch{record}, nil
 }
 
 // appendValueToBuilder appends a value to the appropriate builder type using the dataType
@@ -94,7 +93,7 @@ func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataT
 		if convertedValue, ok := convertToInt64(value); ok {
 			b.Append(convertedValue)
 		} else {
-			log.Printf("DEBUG: Failed to convert %T(%v) to int64\n", value, value)
+			// log.Printf("DEBUG: Failed to convert %T(%v) to int64\n", value, value)
 			b.AppendNull()
 		}
 
@@ -103,7 +102,7 @@ func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataT
 		if convertedValue, ok := convertToInt32(value); ok {
 			b.Append(convertedValue)
 		} else {
-			log.Printf("DEBUG: Failed to convert %T(%v) to int32\n", value, value)
+			// log.Printf("DEBUG: Failed to convert %T(%v) to int32\n", value, value)
 			b.AppendNull()
 		}
 
@@ -112,7 +111,7 @@ func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataT
 		if convertedValue, ok := convertToInt16(value); ok {
 			b.Append(convertedValue)
 		} else {
-			log.Printf("DEBUG: Failed to convert %T(%v) to int16\n", value, value)
+			// log.Printf("DEBUG: Failed to convert %T(%v) to int16\n", value, value)
 			b.AppendNull()
 		}
 
@@ -121,7 +120,7 @@ func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataT
 		if convertedValue, ok := convertToFloat64(value); ok {
 			b.Append(convertedValue)
 		} else {
-			log.Printf("DEBUG: Failed to convert %T(%v) to float64\n", value, value)
+			// log.Printf("DEBUG: Failed to convert %T(%v) to float64\n", value, value)
 			b.AppendNull()
 		}
 
@@ -130,7 +129,7 @@ func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataT
 		if convertedValue, ok := convertToFloat32(value); ok {
 			b.Append(convertedValue)
 		} else {
-			log.Printf("DEBUG: Failed to convert %T(%v) to float32\n", value, value)
+			// log.Printf("DEBUG: Failed to convert %T(%v) to float32\n", value, value)
 			b.AppendNull()
 		}
 
@@ -139,7 +138,7 @@ func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataT
 		if convertedValue, ok := value.(bool); ok {
 			b.Append(convertedValue)
 		} else {
-			log.Printf("DEBUG: Failed to convert %T(%v) to bool\n", value, value)
+			// log.Printf("DEBUG: Failed to convert %T(%v) to bool\n", value, value)
 			b.AppendNull()
 		}
 	case arrow.TIMESTAMP:
@@ -147,12 +146,12 @@ func appendValueToBuilder(builder array.Builder, value any, dataType arrow.DataT
 		if convertedValue, ok := convertToTimestamp(value); ok {
 			b.Append(convertedValue)
 		} else {
-			log.Printf("DEBUG: Failed to convert %T(%v) to timestamp\n", value, value)
+			// log.Printf("DEBUG: Failed to convert %T(%v) to timestamp\n", value, value)
 			b.AppendNull()
 		}
 
 	default:
-		log.Printf("DEBUG: Unsupported data type %v for value type %T with value %v\n", dataType, value, value)
+		// log.Printf("DEBUG: Unsupported data type %v for value type %T with value %v\n", dataType, value, value)
 		builder.AppendNull()
 	}
 }

@@ -49,15 +49,21 @@ const (
 	OptionStringDataSpace   = "adbc.salesforce.dc.data_space"
 
 	// Stmt options
-	OptionStringDLOCategory          = "adbc.salesforce.dc.dlo.category"
-	OptionStringDLOPrimaryKey        = "adbc.salesforce.dc.dlo.primary_key"
-	OptionStringDLOMaterialized      = "adbc.salesforce.dc.dlo.materialized"
-	OptionStringDLOWriteMode         = "adbc.salesforce.dc.dlo.write_mode"
-	OptionsStringTargetDLO           = "adbc.salesforce.dc.dlo.target_dlo"
-	OptionIntDataTransformRunTimeout = "adbc.salesforce.dc.data_transform_run_timeout"
+	OptionStringDLOCategory     = "adbc.salesforce.dc.dlo.category"
+	OptionStringDLOPrimaryKey   = "adbc.salesforce.dc.dlo.primary_key"
+	OptionStringDLOMaterialized = "adbc.salesforce.dc.dlo.materialized"
+	OptionStringDLOWriteMode    = "adbc.salesforce.dc.dlo.write_mode"
+	OptionStringTargetDLO       = "adbc.salesforce.dc.dlo.target_dlo"
+
+	// TODO: we should consider having more fine-grained control over timeouts, e.g. separate options for query execution, waiting for activation / deletion, waiting for run completion, etc.
+	// This is fine for now, but we may want to revisit this in the future.
+
+	OptionIntDataTransformRunTimeout  = "adbc.salesforce.dc.data_transform_run_timeout" // TODO: consider giving this a better name
 	OptionIntBackoffInitialIntervalMs = "adbc.salesforce.dc.backoff.initial_interval_ms"
 	OptionIntBackoffMaxIntervalMs     = "adbc.salesforce.dc.backoff.max_interval_ms"
 	OptionIntBackoffMaxElapsedTimeMs  = "adbc.salesforce.dc.backoff.max_elapsed_time_ms"
+	OptionDoubleBackoffMultiplier     = "adbc.salesforce.dc.backoff.multiplier"
+	OptionDoubleBackoffJitter         = "adbc.salesforce.dc.backoff.jitter"
 
 	// Default values
 	DefaultLoginURL = "https://login.salesforce.com"
@@ -74,7 +80,7 @@ func init() {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, dep := range info.Deps {
 			switch {
-			case dep.Path == "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/gosalesforce":
+			case dep.Path == "github.com/apache/arrow-adbc/go/adbc/driver/salesforce/api":
 				infoVendorVersion = dep.Version
 			}
 		}

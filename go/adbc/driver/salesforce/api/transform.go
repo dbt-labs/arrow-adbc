@@ -152,6 +152,7 @@ func (c *Client) CancelDataTransform(ctx context.Context, nameOrID string) (*typ
 func (c *Client) RefreshDataTransformStatus(ctx context.Context, nameOrID string) (*types.DataCloudActionResponse, error) {
 	var result types.DataCloudActionResponse
 	resp, err := c.request(ctx).
+		// EnableDebug().
 		SetPathParam("nameOrID", nameOrID).
 		SetResult(&result).
 		Post("/services/data/{version}/ssot/data-transforms/{nameOrID}/actions/refresh-status")

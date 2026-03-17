@@ -124,7 +124,7 @@ func (s *DriverSuite) TestCreateDLOFromRecordBatch() {
 	strs := sb.NewArray()
 	defer strs.Release()
 
-	batch := array.NewRecord(schema, []arrow.Array{ints, strs}, 3)
+	batch := array.NewRecordBatch(schema, []arrow.Array{ints, strs}, 3)
 	defer batch.Release()
 
 	// Ensure no leftover from a previous run.

@@ -20,6 +20,7 @@ package salesforce
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -36,10 +37,6 @@ type statement struct {
 
 	query string
 
-	// Parameter binding
-	paramBinding  *arrow.Record
-	streamBinding array.RecordReader
-
 	// Create DLO options
 	dloCategory   string
 	dloPrimaryKey string
@@ -53,11 +50,6 @@ type statement struct {
 
 // Close cleans up the statement
 func (s *statement) Close() error {
-	s.paramBinding = nil
-	if s.streamBinding != nil {
-		s.streamBinding.Release()
-		s.streamBinding = nil
-	}
 	return nil
 }
 
@@ -155,11 +147,6 @@ func (s *statement) executeCreateTable(ctx context.Context) (array.RecordReader,
 		writeMode = sftypes.WriteMode(s.dloWriteMode)
 	}
 
-	category := sftypes.CategoryProfile
-	if s.dloCategory != "" {
-		category = sftypes.Category(s.dloCategory)
-	}
-
 	req := &sftypes.DataTransformRequest{
 		Name:          transformName,
 		Label:         transformName,
@@ -199,7 +186,7 @@ func (s *statement) executeCreateTable(ctx context.Context) (array.RecordReader,
 	}
 
 	// Build Arrow schema from validation output data objects
-	schema := s.buildSchemaFromValidation(validation, transformName, category)
+	schema := s.buildSchemaFromValidation(validation, transformName)
 
 	// Wait for the transform to become Active
 	dt, err = client.WaitForTransformStatus(ctx, dt.Name, &s.backoffConfig, sftypes.StatusActive, sftypes.StatusError)
@@ -216,21 +203,41 @@ func (s *statement) executeCreateTable(ctx context.Context) (array.RecordReader,
 		}
 	}
 
-	// Run the transform and wait for completion
-	dt, err = client.RunAndWaitForTransform(ctx, dt.Name, &s.backoffConfig)
-	if err != nil {
+	// Associate the target DLO with the dataspace so it can be queried via SQL after the transform runs
+	if resp, err := client.UpsertDataSpaceMembers(ctx, s.cnxn.dataSpace, []sftypes.DataSpaceMember{
+		{Name: s.targetDLO},
+	}); err != nil {
 		return nil, 0, adbc.Error{
 			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("run and wait for transform failed: %v", err),
-		}
-	}
-	if !dt.LastRunStatus.IsSuccess() {
-		return nil, 0, adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("transform run ended with status %s (error=%v)", dt.LastRunStatus, dt.LastRunErrorCode),
+			Msg:  fmt.Sprintf("failed to associate DLO with dataspace: %v - %v", err, resp),
 		}
 	}
 
+	if true { // wait
+		// Run the transform and wait for completion
+		dt, err = client.RunAndWaitForTransform(ctx, dt.Name, &s.backoffConfig)
+		if err != nil {
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("run and wait for transform failed: %v", err),
+			}
+		}
+		if !dt.LastRunStatus.IsSuccess() {
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("transform run ended with status %s (error=%v)", dt.LastRunStatus, dt.LastRunErrorCode),
+			}
+		}
+	} else {
+		ar, err := client.RunDataTransform(ctx, dt.Name)
+		if err != nil {
+			return nil, 0, adbc.Error{
+				Code: adbc.StatusInternal,
+				Msg:  fmt.Sprintf("run (no wait) for transform failed: %v", err),
+			}
+		}
+		_ = ar
+	}
 	// Return empty RecordReader with the inferred schema
 	reader, err := array.NewRecordReader(schema, []arrow.RecordBatch{})
 	if err != nil {
@@ -243,7 +250,7 @@ func (s *statement) executeCreateTable(ctx context.Context) (array.RecordReader,
 }
 
 // buildSchemaFromValidation builds an Arrow schema from the validation output data objects.
-func (s *statement) buildSchemaFromValidation(validation *sftypes.DataTransformValidation, transformName string, category sftypes.Category) *arrow.Schema {
+func (s *statement) buildSchemaFromValidation(validation *sftypes.DataTransformValidation, transformName string) *arrow.Schema {
 	if validation == nil {
 		return arrow.NewSchema(nil, nil)
 	}
@@ -269,14 +276,18 @@ func (s *statement) buildSchemaFromValidation(validation *sftypes.DataTransformV
 }
 
 // Bind operations
-func (s *statement) Bind(ctx context.Context, values arrow.Record) error {
-	s.paramBinding = &values
-	return nil
+func (s *statement) Bind(_ context.Context, _ arrow.RecordBatch) error {
+	return adbc.Error{
+		Code: adbc.StatusNotImplemented,
+		Msg:  "parameter binding not supported for Salesforce",
+	}
 }
 
-func (s *statement) BindStream(ctx context.Context, stream array.RecordReader) error {
-	s.streamBinding = stream
-	return nil
+func (s *statement) BindStream(_ context.Context, _ array.RecordReader) error {
+	return adbc.Error{
+		Code: adbc.StatusNotImplemented,
+		Msg:  "stream binding not supported for Salesforce",
+	}
 }
 
 // ExecuteUpdate executes a statement that doesn't return results (INSERT, UPDATE, DELETE)
@@ -305,7 +316,7 @@ func (s *statement) GetOption(key string) (string, error) {
 		return s.dloWriteMode, nil
 	case OptionStringDLOMaterialized: // TODO
 		return "table", nil
-	case OptionsStringTargetDLO:
+	case OptionStringTargetDLO:
 		return s.targetDLO, nil
 	}
 	return "", adbc.Error{
@@ -322,9 +333,15 @@ func (s *statement) GetOptionBytes(key string) ([]byte, error) {
 }
 
 func (s *statement) GetOptionDouble(key string) (float64, error) {
+	switch key {
+	case OptionDoubleBackoffMultiplier:
+		return s.backoffConfig.Multiplier, nil
+	case OptionDoubleBackoffJitter:
+		return s.backoffConfig.RandomFactor, nil
+	}
 	return 0, adbc.Error{
 		Code: adbc.StatusNotFound,
-		Msg:  fmt.Sprintf("unknown statement option: %s", key),
+		Msg:  fmt.Sprintf("unknown double type statement option: %s", key),
 	}
 }
 
@@ -355,12 +372,20 @@ func (s *statement) SetOption(key, value string) error {
 		s.dloWriteMode = value // TODO validate
 	case OptionStringDLOMaterialized: // TODO
 		// TODO: noop for now
-	case OptionsStringTargetDLO:
+	case OptionStringTargetDLO:
 		s.targetDLO = value
 	default:
+		// Try parsing as int option
+		if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return s.SetOptionInt(key, intVal)
+		}
+		// Try parsing as double option
+		if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			return s.SetOptionDouble(key, floatVal)
+		}
 		return adbc.Error{
 			Code: adbc.StatusNotImplemented,
-			Msg:  fmt.Sprintf("unknown statement string type option: %s", key),
+			Msg:  fmt.Sprintf("unknown statement option: %s", key),
 		}
 	}
 	return nil
@@ -374,10 +399,18 @@ func (s *statement) SetOptionBytes(key string, value []byte) error {
 }
 
 func (s *statement) SetOptionDouble(key string, value float64) error {
-	return adbc.Error{
-		Code: adbc.StatusNotImplemented,
-		Msg:  fmt.Sprintf("unknown statement option: %s", key),
+	switch key {
+	case OptionDoubleBackoffMultiplier:
+		s.backoffConfig.Multiplier = value
+	case OptionDoubleBackoffJitter:
+		s.backoffConfig.RandomFactor = value
+	default:
+		return adbc.Error{
+			Code: adbc.StatusNotImplemented,
+			Msg:  fmt.Sprintf("unknown double type statement option: %s", key),
+		}
 	}
+	return nil
 }
 
 func (s *statement) SetOptionInt(key string, value int64) error {

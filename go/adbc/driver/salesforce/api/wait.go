@@ -58,15 +58,16 @@ func (c *Client) WaitForTransformStatus(ctx context.Context, name string, cfg *t
 func (c *Client) WaitForTransformDeleted(ctx context.Context, name string, cfg *types.BackoffConfig) error {
 	_, err := backoff.Retry(
 		ctx,
-		func() (_ struct{}, err error) {
-			var sfErr *SalesforceError
-			_, err = c.GetDataTransform(ctx, name)
-			if errors.As(err, &sfErr) && sfErr.IsNotFound() {
-				err = nil
-			} else {
-				err = errors.Join(fmt.Errorf("waiting for transform deleted"), err)
+		func() (_ struct{}, _ error) {
+			_, err := c.GetDataTransform(ctx, name)
+			if err == nil {
+				return struct{}{}, fmt.Errorf("transform %s still exists", name)
 			}
-			return
+			var sfErr *SalesforceError
+			if errors.As(err, &sfErr) && sfErr.IsNotFound() {
+				return struct{}{}, nil
+			}
+			return struct{}{}, fmt.Errorf("waiting for transform deleted: %w", err)
 		},
 		backoff.WithBackOff(c.newBackoff(cfg)),
 		backoff.WithNotify(func(err error, dur time.Duration) {
@@ -142,15 +143,16 @@ func (c *Client) WaitForDLOStatus(ctx context.Context, name string, cfg *types.B
 func (c *Client) WaitForDLODeleted(ctx context.Context, name string, cfg *types.BackoffConfig) error {
 	_, err := backoff.Retry(
 		ctx,
-		func() (_ struct{}, err error) {
-			var sfErr *SalesforceError
-			_, err = c.GetDataLakeObject(ctx, name)
-			if errors.As(err, &sfErr) && sfErr.IsNotFound() {
-				err = nil
-			} else {
-				err = errors.Join(fmt.Errorf("waiting for DLO deleted"), err)
+		func() (_ struct{}, _ error) {
+			_, err := c.GetDataLakeObject(ctx, name)
+			if err == nil {
+				return struct{}{}, fmt.Errorf("DLO %s still exists", name)
 			}
-			return
+			var sfErr *SalesforceError
+			if errors.As(err, &sfErr) && sfErr.IsNotFound() {
+				return struct{}{}, nil
+			}
+			return struct{}{}, fmt.Errorf("waiting for DLO deleted: %w", err)
 		},
 		backoff.WithBackOff(c.newBackoff(cfg)),
 		backoff.WithNotify(func(err error, dur time.Duration) {

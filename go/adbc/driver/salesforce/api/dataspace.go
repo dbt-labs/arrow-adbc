@@ -8,7 +8,7 @@ import (
 )
 
 // UpsertDataSpaceMembers adds or updates members in a data space.
-func (c *Client) UpsertDataSpaceMembers(ctx context.Context, dataSpace string, members []types.DataSpaceMember) (*types.DataCloudActionResponse, error) {
+func (c *Client) UpsertDataSpaceMembers(ctx context.Context, dataSpace string, members []types.DataSpaceMember) (any, error) {
 	type requestBody struct {
 		Members struct {
 			Members []types.DataSpaceMember `json:"members"`
@@ -16,7 +16,9 @@ func (c *Client) UpsertDataSpaceMembers(ctx context.Context, dataSpace string, m
 	}
 
 	type responseBody struct {
-		*types.DataCloudActionResponse
+		// *types.DataCloudActionResponse
+		Success bool  `json:"success,string"`
+		Errors  []any `json:"errors"` // TODO: properly type this
 		Members struct {
 			Members []types.DataSpaceMember `json:"members"`
 		} `json:"dataSpaceMembers"`
@@ -38,5 +40,5 @@ func (c *Client) UpsertDataSpaceMembers(ctx context.Context, dataSpace string, m
 		return nil, checkError(resp)
 	}
 
-	return result.DataCloudActionResponse, nil
+	return result, nil
 }

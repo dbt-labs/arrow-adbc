@@ -11,7 +11,7 @@ import (
 	"resty.dev/v3"
 )
 
-const defaultAPIVersion = "v64.0"
+const defaultAPIVersion = "v65.0"
 
 // normalizeAPIVersion accepts versions in the form "XX.Y", "vXX.Y", "vXX", or "XX"
 // and normalizes to "vXX.Y" (appending ".0" if no minor version is present).
@@ -54,47 +54,39 @@ func NewClient(cfg *types.AuthConfig, opts ...Option) (*Client, error) {
 		cfg.APIVersion = normalizeAPIVersion(cfg.APIVersion)
 	}
 
-	c := &Client{
-		config: cfg,
-		logger: slog.Default(),
-		http:   resty.New(),
-	}
+	c := new(Client)
+	c.config = cfg
+	c.logger = slog.Default()
+	// default resty client. can be modified with WithModifyClient option, mainly for testing (e.g. to set a custom base URL or auth token)
+	c.http = resty.New().
+		SetDebug(false).           // TODO: toggle as needed
+		SetDebugLogFormatter(nil). // force use slog
+		OnDebugLog(func(dl *resty.DebugLog) {
+			c.logger.Debug(
+				"http",
+				slog.Any("request", dl.Request),
+				slog.Any("response", dl.Response),
+				slog.Any("trace-info", dl.TraceInfo),
+			)
+		}).
+		SetHeader("X-Salesforce-Partner-Name", "dbt_labs"). // TODO: make configurable
+		// SetHeader("User-Agent", "sf-d360-api/dev (go)").     // TODO: this could be more canonical
+		AddResponseMiddleware(func(_ *resty.Client, resp *resty.Response) error {
+			rlInfo := resp.Header().Values("Sforce-Limit-Info")
+			if len(rlInfo) > 0 {
+				c.logger.Info(
+					"API usage info",
+					slog.String("endpoint", resp.Request.URL),
+					slog.String("method", resp.Request.Method),
+					slog.Any("limit-info", rlInfo),
+				)
+			}
+			return nil
+		})
+
 	for _, opt := range opts {
 		opt(c)
 	}
-
-	// if c.http == nil {
-	// 	c.http = resty.New()
-	// 	// c.http.SetHeader("Content-Type", "application/json") // this is default, so no need
-
-	// 	c.http.SetRetryCount(3)
-	// 	// c.http.AddRetryConditions(func(resp *resty.Response, err error) bool {
-	// 	// 	// TODO: not sure what all the possible status codes are across these endpoints.
-	// 	// 	// We can start with this, but should try to identify other conditions that would warrent a retry.
-	// 	// 	//
-	// 	// 	// The following docs may be helpful for this: https://developer.salesforce.com/docs/atlas.en-us.chatterapi.meta/chatterapi/connect_error_responses.htm
-	// 	// 	//
-	// 	// 	// There is also a special `Sforce-Limit-Info` header that indicates the current API usage/limit.
-	// 	// 	// See: https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/headers_api_usage.htm
-	// 	// 	if err != nil {
-	// 	// 		return true
-	// 	// 	}
-	// 	// 	return resp.StatusCode() == 429 || resp.StatusCode() >= 500
-	// 	// })
-	// }
-
-	c.http.
-		SetDebug(false). // TODO: toggle as needed
-		// OnDebugLog(func(dl *resty.DebugLog) {
-		// 	c.logger.Debug(
-		// 		"http",
-		// 		slog.Any("request", dl.Request),
-		// 		slog.Any("response", dl.Response),
-		// 		slog.Any("trace-info", dl.TraceInfo),
-		// 	)
-		// }).
-		SetHeader("X-Salesforce-Partner-Name", "dbt_labs"). // TODO: make configurable
-		SetHeader("User-Agent", "sf-d360-api/dev (go)")     // TODO: this could be more canonical
 
 	return c, nil
 }

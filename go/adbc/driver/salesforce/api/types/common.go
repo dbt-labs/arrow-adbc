@@ -116,8 +116,8 @@ type BackoffConfig struct {
 
 func DefaultBackoffConfig() BackoffConfig {
 	return BackoffConfig{
-		InitialInterval: 5 * time.Second,
-		MaxInterval:     60 * time.Second,
+		InitialInterval: 30 * time.Second,
+		MaxInterval:     600 * time.Second,
 		MaxElapsedTime:  0,
 		Multiplier:      1.5,
 		RandomFactor:    0.5,

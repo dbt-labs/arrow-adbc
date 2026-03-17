@@ -252,7 +252,7 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 
 	// use catalog as data space
 	metadataResp, err := c.client.GetMetadata(ctx, &sftypes.MetadataRequest{
-		Dataspace:  *catalog,
+		Dataspace:  *catalog, // TODO: after discussing with Salesforce, Dataspace != Catalog. We will treat D360 as a DWH with no catalog or schema. Maybe we can revisit this in the future.
 		EntityName: tableName,
 	})
 	if err != nil {
