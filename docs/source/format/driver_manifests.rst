@@ -460,10 +460,10 @@ the given order:
    * On Linux (and other Unix-like platforms), the ``XDG_CONFIG_HOME`` environment variable is checked first. If it is set, the driver manager
      will search ``$XDG_CONFIG_HOME/adbc/drivers``, otherwise it will search ``~/.config/adbc/drivers``
 
-#. If the ``LOAD_FLAG_SEARCH_SYSTEM`` load option is set, then a system-level configuration directory will be searched
+#. If the ``LOAD_FLAG_SEARCH_SYSTEM`` load option is set, then a system-level configuration directory will be searched, followed by well-known system library directories
 
-   * On macOS, this will be ``/Library/Application Support/ADBC/Drivers`` if it exists
-   * On Linux (and other Unix-like platforms), this will be ``/etc/adbc/drivers`` if it exists
+   * On macOS, this will be ``/Library/Application Support/ADBC/Drivers`` if it exists, then ``/opt/homebrew/lib`` (if it exists) and ``/usr/local/lib`` (if it exists)
+   * On Linux (and other Unix-like platforms), this will be ``/etc/adbc/drivers`` if it exists, then ``/usr/lib``, the architecture-specific multiarch path (e.g. ``/usr/lib/x86_64-linux-gnu``), and ``/usr/local/lib`` (each if they exist)
 
 Windows
 ^^^^^^^

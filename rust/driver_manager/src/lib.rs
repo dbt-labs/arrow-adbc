@@ -492,7 +492,29 @@ impl ManagedDriver {
             }
 
             full_path.set_extension(""); // Remove the extension to try loading as a dynamic library.
-            if let Ok(result) = Self::load_dynamic_from_filename(full_path, entrypoint, version) {
+            if let Ok(result) =
+                Self::load_dynamic_from_filename(&full_path, entrypoint, version)
+            {
+                return Ok(result);
+            }
+
+            // Try the platform-aware filename (e.g. "duckdb" -> "libduckdb.dylib").
+            //
+            // This is required for system library directories (e.g. /opt/homebrew/lib)
+            // that store libraries under their canonical platform names rather than the
+            // bare driver name.  On macOS in particular, preferring a system-installed
+            // library over a CDN-bundled one is important for code-signing: macOS
+            // enforces that every shared library loaded into a process shares the same
+            // Team ID.  A CDN-bundled DuckDB driver signed with one key will prevent
+            // user-installed DuckDB extensions (signed with the DuckDB key) from loading.
+            // Using the system library avoids this mismatch.
+            //
+            // See: docs/source/format/driver_manifests.rst, LOAD_FLAG_SEARCH_SYSTEM section.
+            let lib_filename = libloading::library_filename(driver_path);
+            let platform_path = path.join(&lib_filename);
+            if let Ok(result) =
+                Self::load_dynamic_from_filename(&platform_path, entrypoint, version)
+            {
                 return Ok(result);
             }
         }
@@ -1849,6 +1871,53 @@ fn system_config_dir() -> Option<PathBuf> {
     }
 }
 
+fn system_lib_dirs() -> Vec<PathBuf> {
+    let mut result = Vec::new();
+
+    #[cfg(target_os = "macos")]
+    {
+        let homebrew = PathBuf::from("/opt/homebrew/lib");
+        if homebrew.is_dir() {
+            result.push(homebrew);
+        }
+        let usr_local = PathBuf::from("/usr/local/lib");
+        if usr_local.is_dir() {
+            result.push(usr_local);
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let usr_lib = PathBuf::from("/usr/lib");
+        if usr_lib.is_dir() {
+            result.push(usr_lib);
+        }
+
+        // Architecture-specific multiarch path
+        #[cfg(target_arch = "x86_64")]
+        {
+            let multiarch = PathBuf::from("/usr/lib/x86_64-linux-gnu");
+            if multiarch.is_dir() {
+                result.push(multiarch);
+            }
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            let multiarch = PathBuf::from("/usr/lib/aarch64-linux-gnu");
+            if multiarch.is_dir() {
+                result.push(multiarch);
+            }
+        }
+
+        let usr_local = PathBuf::from("/usr/local/lib");
+        if usr_local.is_dir() {
+            result.push(usr_local);
+        }
+    }
+
+    result
+}
+
 fn get_search_paths(lvls: LoadFlags) -> Vec<PathBuf> {
     let mut result = Vec::new();
     if lvls & LOAD_FLAG_SEARCH_ENV != 0 {
@@ -1875,6 +1944,7 @@ fn get_search_paths(lvls: LoadFlags) -> Vec<PathBuf> {
                 result.push(path);
             }
         }
+        result.extend(system_lib_dirs());
     }
 
     result
@@ -2368,15 +2438,84 @@ mod tests {
     #[cfg_attr(not(windows), ignore)]
     fn test_get_search_paths() {
         #[cfg(target_os = "macos")]
-        let system_path = PathBuf::from("/Library/Application Support/ADBC/Drivers");
+        let system_config = PathBuf::from("/Library/Application Support/ADBC/Drivers");
         #[cfg(not(target_os = "macos"))]
-        let system_path = PathBuf::from("/etc/adbc/drivers");
+        let system_config = PathBuf::from("/etc/adbc/drivers");
 
         let search_paths = get_search_paths(LOAD_FLAG_SEARCH_SYSTEM);
-        if system_path.exists() {
-            assert_eq!(search_paths, vec![system_path]);
-        } else {
-            assert_eq!(search_paths, Vec::<PathBuf>::new());
+
+        // The config dir is included only when it exists; system lib dirs follow.
+        if system_config.exists() {
+            assert!(search_paths.contains(&system_config));
         }
+
+        // All returned paths must exist.
+        for p in &search_paths {
+            assert!(p.is_dir(), "search path does not exist: {}", p.display());
+        }
+
+        // system lib dirs should be a subset of the returned paths.
+        for p in system_lib_dirs() {
+            assert!(
+                search_paths.contains(&p),
+                "expected system lib dir in search paths: {}",
+                p.display()
+            );
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn test_system_lib_dirs_returns_expected_paths() {
+        let dirs = system_lib_dirs();
+
+        // Every returned path must exist and be a directory.
+        for p in &dirs {
+            assert!(p.is_dir(), "system_lib_dirs returned non-existent path: {}", p.display());
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS the only candidates are /opt/homebrew/lib and /usr/local/lib.
+            let candidates = [
+                PathBuf::from("/opt/homebrew/lib"),
+                PathBuf::from("/usr/local/lib"),
+            ];
+            for p in &dirs {
+                assert!(candidates.contains(p), "unexpected path on macOS: {}", p.display());
+            }
+        }
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            // On Linux /usr/lib is almost always present.
+            if PathBuf::from("/usr/lib").is_dir() {
+                assert!(
+                    dirs.contains(&PathBuf::from("/usr/lib")),
+                    "/usr/lib exists but was not returned"
+                );
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn test_search_path_list_uses_platform_filename() {
+        // Verify that library_filename produces a platform-aware name.
+        // We just check the naming convention rather than loading a real library.
+        let name = libloading::library_filename("duckdb");
+        let name_str = name.to_string_lossy();
+
+        #[cfg(target_os = "macos")]
+        assert!(
+            name_str.starts_with("lib") && name_str.ends_with(".dylib"),
+            "unexpected library filename on macOS: {name_str}"
+        );
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        assert!(
+            name_str.starts_with("lib") && name_str.contains(".so"),
+            "unexpected library filename on Linux: {name_str}"
+        );
     }
 }
