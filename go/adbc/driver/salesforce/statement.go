@@ -18,8 +18,11 @@
 package salesforce
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -42,6 +45,7 @@ type statement struct {
 	// Create DLO options
 	dloCategory   string
 	dloPrimaryKey string
+	dloWriteMode  string
 
 	// Data Transform options
 	targetDLO            string
@@ -84,8 +88,12 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 		}
 	}
 
+	logger := s.cnxn.Logger.With("operation", "executeSQLQuery")
+
 	// This is supposed to be equivalent to `CREATE OR REPLACE TABLE`
 	if s.dloCategory != "" && s.dloPrimaryKey != "" && s.targetDLO != "" {
+		logger := logger.With(slog.Group("opt", "dloCategory", s.dloCategory, "dloPrimaryKey", s.dloPrimaryKey, "targetDLO", s.targetDLO, "dataSpace", s.cnxn.dataSpace))
+
 		if s.cnxn.dataSpace == "" {
 			return nil, 0, adbc.Error{
 				Code: adbc.StatusInvalidState,
@@ -93,36 +101,86 @@ func (s *statement) executeSQLQuery(ctx context.Context) (array.RecordReader, in
 			}
 		}
 
-		// Delete the existing DLO
-		err := s.cnxn.client.DeleteIfDloExists(ctx, s.targetDLO)
+		logger.DebugContext(ctx, "Writing sql to DT...")
+		// Creates a data transform
+		req := api.NewBatchDataTransformRequest(
+			s.targetDLO,
+			s.targetDLO,
+			map[string]api.DbtDataTransformNode{
+				"node": api.NewDbtDataTransformNode(
+					"node",
+					s.targetDLO,
+					s.query,
+					"TABLE",
+					s.dloWriteMode,
+					nil,
+				),
+			},
+		)
+
+		logger.DebugContext(ctx, "Validating batch DT", "req", req)
+
+		valid, err := s.cnxn.client.ValidateDataTransform(ctx, req)
 		if err != nil {
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInternal,
-				Msg:  err.Error(),
-			}
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to validate the data transform for create/update: %v", err)
+		}
+		logger.DebugContext(ctx, "Validated", "issues", valid.Issues, "odo", valid.OutputDataObjects)
+
+		odo := slices.Clone(valid.OutputDataObjects[req.Name])
+
+		for i := range odo[0].Fields {
+			f := &odo[0].Fields[i]
+			f.IsPrimaryKey = f.Name == s.dloPrimaryKey
+			f.Label = cmp.Or(f.Label, f.Name) // default label
 		}
 
-		// Creates the DLO
-		dataLakeObject, err := s.cnxn.client.CreateDataLakeObjectWithInferredSchema(ctx, s.query, s.cnxn.dataSpace, s.targetDLO, s.dloPrimaryKey, api.DataLakeObjectCategory(s.dloCategory))
+		odo[0].Category = "Profile"                      // TODO
+		odo[0].Label = cmp.Or(odo[0].Label, odo[0].Name) // default label
+		req.Definition.OutputDataObjects = odo
+
+		logger.DebugContext(ctx, "Creating batch DT", "req", req)
+		dt, err := s.cnxn.client.CreateOrUpdateDataTransform(ctx, req)
 		if err != nil {
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInternal,
-				Msg:  err.Error(),
-			}
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to create/update the data transform: %v", err)
 		}
 
-		// Inserts data
-		_, err = s.cnxn.client.TriggerDbtBatchDataTransform(ctx, dataLakeObject, s.query, true, s.dataTransformTimeout)
+		logger.DebugContext(ctx, "Created batch DT. Waiting...", "dt", dt)
+
+		dt, err = s.cnxn.client.WaitForDataTransform(ctx, dt)
 		if err != nil {
-			return nil, 0, adbc.Error{
-				Code: adbc.StatusInternal,
-				Msg:  err.Error(),
-			}
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed while wating for data transform: %v", err)
+		}
+		if !dt.Status.IsActive() {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform is not active, current status: %v", dt.Status)
+		}
+
+		logger.DebugContext(ctx, "Running batch DT.", "dt", dt)
+
+		err = s.cnxn.client.MustRunDataTransform(ctx, dt.Name)
+		if err != nil {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to run data transform: %v", err)
+		}
+
+		logger.DebugContext(ctx, "Run started. Waiting...", "dt", dt)
+
+		dt, err = s.cnxn.client.WaitForDataTransformRun(ctx, dt, s.dataTransformTimeout)
+		if err != nil {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed while wating for data transform run: %v", err)
+		}
+		if !dt.LastRunStatus.IsSuccess() {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "data transform run was unsuccessful: last run status: %v", dt.LastRunStatus)
+		}
+
+		logger.DebugContext(ctx, "Run complete. Associating with dataspace.")
+
+		_, err = s.cnxn.client.UpsertDataSpaceMembers(ctx, s.cnxn.dataSpace, []api.DataSpaceMember{{Name: s.targetDLO}})
+		if err != nil {
+			return nil, 0, s.cnxn.ErrorHelper.Errorf(adbc.StatusInternal, "failed to associate with dataspace: %v", err)
 		}
 
 		// Returns empty
-		emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
-		reader, err := array.NewRecordReader(emptySchema, []arrow.Record{})
+		emptySchema := arrow.NewSchema([]arrow.Field{}, nil) // TODO
+		reader, err := array.NewRecordReader(emptySchema, []arrow.RecordBatch{})
 		if err != nil {
 			err = fmt.Errorf("failed to create empty record reader: %w", err)
 			return nil, 0, adbc.Error{
@@ -167,7 +225,7 @@ func (s *statement) convertSqlQueryResponseToArrow(response *api.SqlQueryRespons
 	if len(response.Data) == 0 {
 		// Return empty reader with schema if available
 		schema := s.buildArrowSchema(response.Metadata)
-		reader, err := array.NewRecordReader(schema, []arrow.Record{})
+		reader, err := array.NewRecordReader(schema, []arrow.RecordBatch{})
 		return reader, 0, err
 	}
 
@@ -218,6 +276,10 @@ func (s *statement) GetOption(key string) (string, error) {
 		return s.dloCategory, nil
 	case OptionStringDLOPrimaryKey:
 		return s.dloPrimaryKey, nil
+	case OptionStringDLOWriteMode:
+		return s.dloWriteMode, nil
+	case OptionStringDLOMaterialized: // TODO
+		return "table", nil
 	case OptionsStringTargetDLO:
 		return s.targetDLO, nil
 	}
@@ -258,6 +320,10 @@ func (s *statement) SetOption(key, value string) error {
 		s.dloCategory = value
 	case OptionStringDLOPrimaryKey:
 		s.dloPrimaryKey = value
+	case OptionStringDLOWriteMode:
+		s.dloWriteMode = value // TODO validate
+	case OptionStringDLOMaterialized: // TODO
+		// TODO: noop for now
 	case OptionsStringTargetDLO:
 		s.targetDLO = value
 	default:
