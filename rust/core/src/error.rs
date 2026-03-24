@@ -106,7 +106,7 @@ impl Display for Error {
         let safe_ascii = |c: c_char| -> char {
             if c == 0 {
                 '0'
-            } else if c >= 32 && c <= 126 {
+            } else if (32..=126).contains(&c) {
                 char::from(c as u8)
             } else {
                 '\u{FFFD}'
