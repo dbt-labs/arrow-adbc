@@ -1082,7 +1082,7 @@ func arrowFieldToBigQueryField(f arrow.Field) (*bigquery.FieldSchema, error) {
 	}
 
 	// Use metadata field in ipc to convey extra differentation information about timestamps
-	if v, ok := f.Metadata.GetValue("bq_type"); ok {
+	if v, ok := f.Metadata.GetValue("BIGQUERY:type"); ok {
 		switch t := strings.ToUpper(strings.TrimSpace(v)); t {
 		case "DATE":
 			bq.Type = bigquery.DateFieldType
