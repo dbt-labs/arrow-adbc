@@ -1120,8 +1120,18 @@ func arrowFieldToBigQueryField(f arrow.Field) (*bigquery.FieldSchema, error) {
 	case *arrow.Date32Type, *arrow.Date64Type:
 		bq.Type = bigquery.DateFieldType
 
+
+	// Follow upstream ADBC BigQuery heuristic for Arrow timestamps:
+	// tz == "" -> DATETIME, tz != "" -> TIMESTAMP.
+	// See: https://github.com/adbc-drivers/bigquery/blob/bf36f2da447d1c51221556be18e7aa95bb75e17a/go/statement.go#L556-L565
+	//
+	// Treat only as a fallback since it's intent lossy.
 	case *arrow.TimestampType:
-		bq.Type = bigquery.TimestampFieldType
+		if dt.TimeZone == "" {
+			bq.Type = bigquery.DateTimeFieldType
+		} else {
+			bq.Type = bigquery.TimestampFieldType
+		}
 
 	//
 	// DECIMAL
