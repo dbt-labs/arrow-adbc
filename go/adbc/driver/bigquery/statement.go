@@ -122,6 +122,10 @@ type statement struct {
 
 	// Wrap errors with a link to failed job
 	linkFailedJob bool
+
+	// Post-execution statistics populated by ExecuteUpdate
+	lastBytesProcessed int64
+	lastBytesBilled    int64
 }
 
 func (st *statement) GetOptionBytes(key string) ([]byte, error) {
@@ -279,6 +283,10 @@ func (st *statement) GetOption(key string) (string, error) {
 
 func (st *statement) GetOptionInt(key string) (int64, error) {
 	switch key {
+	case OptionIntStatBytesProcessed:
+		return st.lastBytesProcessed, nil
+	case OptionIntStatBytesBilled:
+		return st.lastBytesBilled, nil
 	case OptionIntQueryMaxBillingTier:
 		return int64(st.queryConfig.MaxBillingTier), nil
 	case OptionIntQueryMaxBytesBilled:
@@ -580,17 +588,25 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 
 // ExecuteUpdate executes a statement that does not generate a result
 // set. It returns the number of rows affected if known, otherwise -1.
+// After a successful call, bytes processed are available via GetOptionInt
+// with OptionIntStatBytesProcessed and OptionIntStatBytesBilled.
 func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 	boundParameters, err := st.getBoundParameterReader()
 	if err != nil {
 		return -1, err
 	}
 
+	st.lastBytesProcessed = 0
+	st.lastBytesBilled = 0
+
 	if boundParameters == nil {
-		_, totalRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
+		var stats jobStats
+		_, totalRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc, &stats)
 		if err != nil {
 			return -1, err
 		}
+		st.lastBytesProcessed = stats.BytesProcessed
+		st.lastBytesBilled = stats.BytesBilled
 		return totalRows, nil
 	} else {
 		totalRows := int64(0)
@@ -605,11 +621,14 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 					st.queryConfig.Parameters = parameters
 				}
 
-				_, currentRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
+				var stats jobStats
+				_, currentRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc, &stats)
 				if err != nil {
 					return -1, err
 				}
 				totalRows += currentRows
+				st.lastBytesProcessed += stats.BytesProcessed
+				st.lastBytesBilled += stats.BytesBilled
 			}
 		}
 		return totalRows, nil

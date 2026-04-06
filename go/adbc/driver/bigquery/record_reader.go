@@ -42,6 +42,12 @@ const (
 	MetadataKeyBigqueryQueryID = "BIGQUERY:query_id"
 )
 
+// jobStats holds post-execution statistics from a BigQuery job.
+type jobStats struct {
+	BytesProcessed int64
+	BytesBilled    int64
+}
+
 type reader struct {
 	refCount   int64
 	schema     *arrow.Schema
@@ -64,12 +70,22 @@ func checkContext(ctx context.Context, maybeErr error) error {
 	return ctx.Err()
 }
 
-func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool, linkFailedJob bool, alloc memory.Allocator) (bigquery.ArrowIterator, int64, error) {
+func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool, linkFailedJob bool, alloc memory.Allocator, outStats *jobStats) (bigquery.ArrowIterator, int64, error) {
 	job, err := query.Run(ctx)
 	if err != nil {
 		return nil, -1, err
 	}
 	if executeUpdate {
+		status, waitErr := job.Wait(ctx)
+		if waitErr != nil {
+			return nil, -1, waitErr
+		}
+		if outStats != nil && status != nil && status.Statistics != nil {
+			outStats.BytesProcessed = status.Statistics.TotalBytesProcessed
+			if qs, ok := status.Statistics.Details.(*bigquery.QueryStatistics); ok {
+				outStats.BytesBilled = qs.TotalBytesBilled
+			}
+		}
 		return nil, 0, nil
 	}
 
@@ -135,7 +151,7 @@ func getQueryParameter(values arrow.RecordBatch, row int, parameterMode string) 
 }
 
 func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allocator, resultRecordBufferSize int, linkFailedJob bool) (bigqueryRdr *reader, totalRows int64, err error) {
-	arrowIterator, totalRows, err := runQuery(ctx, query, false, linkFailedJob, alloc)
+	arrowIterator, totalRows, err := runQuery(ctx, query, false, linkFailedJob, alloc, nil)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -192,7 +208,7 @@ func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, q
 			query.Parameters = parameters
 		}
 
-		arrowIterator, rows, err := runQuery(ctx, query, false, linkFailedJob, alloc)
+		arrowIterator, rows, err := runQuery(ctx, query, false, linkFailedJob, alloc, nil)
 		if err != nil {
 			return -1, err
 		}

@@ -123,6 +123,13 @@ const (
 	OptionJsonAuthorizeViewToDatasets       = "adbc.bigquery.dataset.authorize_view_to_datasets"
 	OptionStringUpdateTableDescriptionValue = "adbc.bigquery.table.update_description"
 
+	// OptionIntStatBytesProcessed is a read-only post-execution option that returns the
+	// total bytes processed by the last ExecuteUpdate call (e.g. CREATE TABLE AS SELECT).
+	OptionIntStatBytesProcessed = "adbc.bigquery.sql.stat.bytes_processed"
+	// OptionIntStatBytesBilled is a read-only post-execution option that returns the
+	// total bytes billed for the last ExecuteUpdate call.
+	OptionIntStatBytesBilled = "adbc.bigquery.sql.stat.bytes_billed"
+
 	// WithAppDefaultCredentials instructs the driver to authenticate using
 	// Application Default Credentials (ADC).
 	OptionValueAuthTypeAppDefaultCredentials = "adbc.bigquery.sql.auth_type.app_default_credentials"
