@@ -209,6 +209,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return strconv.FormatBool(st.queryConfig.AllowLargeResults), nil
 	case OptionStringQueryPriority:
 		return string(st.queryConfig.Priority), nil
+	case OptionStringQueryReservation:
+		return st.queryConfig.Reservation, nil
 	case OptionBoolQueryUseLegacySQL:
 		return strconv.FormatBool(st.queryConfig.UseLegacySQL), nil
 	case OptionBoolQueryDryRun:
@@ -383,6 +385,8 @@ func (st *statement) SetOption(key string, v string) error {
 		} else {
 			return err
 		}
+	case OptionStringQueryReservation:
+		st.queryConfig.Reservation = v
 	case OptionBoolQueryUseLegacySQL:
 		val, err := strconv.ParseBool(v)
 		if err == nil {

@@ -77,6 +77,7 @@ const (
 	OptionBoolQueryDryRun              = "adbc.bigquery.sql.query.dry_run"
 	OptionBoolQueryCreateSession       = "adbc.bigquery.sql.query.create_session"
 	OptionIntQueryJobTimeout           = "adbc.bigquery.sql.query.job_timeout"
+	OptionStringQueryReservation       = "adbc.bigquery.sql.query.reservation"
 
 	OptionIntQueryResultBufferSize    = "adbc.bigquery.sql.query.result_buffer_size"
 	OptionIntQueryPrefetchConcurrency = "adbc.bigquery.sql.query.prefetch_concurrency"

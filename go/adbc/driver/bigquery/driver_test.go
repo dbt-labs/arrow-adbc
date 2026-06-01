@@ -688,6 +688,21 @@ func (suite *BigQueryTests) TestNewDatabaseGetSetOptions() {
 	suite.Equal(optVal2, val2)
 }
 
+func (suite *BigQueryTests) TestSetQueryReservation() {
+	const reservation = "projects/example-project/locations/US/reservations/example-reservation"
+
+	// Default is empty
+	val, err := suite.stmt.(adbc.GetSetOptions).GetOption(driver.OptionStringQueryReservation)
+	suite.NoError(err)
+	suite.Equal("", val)
+
+	// Round-trips via SetOption / GetOption
+	suite.Require().NoError(suite.stmt.SetOption(driver.OptionStringQueryReservation, reservation))
+	val, err = suite.stmt.(adbc.GetSetOptions).GetOption(driver.OptionStringQueryReservation)
+	suite.NoError(err)
+	suite.Equal(reservation, val)
+}
+
 func (suite *BigQueryTests) TestEmptyResultSet() {
 	suite.Require().NoError(suite.stmt.SetSqlQuery("SELECT * FROM UNNEST([])"))
 	rdr, n, err := suite.stmt.ExecuteQuery(suite.ctx)
