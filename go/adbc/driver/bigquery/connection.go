@@ -44,6 +44,7 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	"github.com/apache/arrow-go/v18/arrow"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google/externalaccount"
 	"google.golang.org/api/impersonate"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -62,6 +63,12 @@ type connectionImpl struct {
 	accessTokenEndpoint   string
 	accessTokenServerName string
 	apiEndpoint           string
+
+	// External-account (Workload Identity Federation) options.
+	externalAccountAudience         string
+	externalAccountImpersonationURL string
+	externalAccountRequestURL       string
+	externalAccountRequestData      string
 
 	quotaProject string
 
@@ -280,6 +287,61 @@ type bigQueryTokenResponse struct {
 	TokenType   string `json:"token_type"`
 }
 
+// idpHTTPClient is shared across all IdP token requests; the timeout guards
+// against a hung identity provider when the caller's context has no deadline.
+var idpHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// idpTokenSupplier implements externalaccount.SubjectTokenSupplier by POSTing
+// request_data to request_url and returning the access_token.
+type idpTokenSupplier struct {
+	requestURL  string
+	requestData string
+}
+
+func (s *idpTokenSupplier) SubjectToken(ctx context.Context, _ externalaccount.SupplierOptions) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.requestURL, strings.NewReader(s.requestData))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := idpHTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", adbc.Error{
+			Code: adbc.StatusIO,
+			Msg:  "identity provider rate-limited the token request (429); reduce concurrency or raise the provider's token rate limit",
+		}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", adbc.Error{
+			Code: adbc.StatusIO,
+			Msg:  fmt.Sprintf("identity provider token request failed with status %d: %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	var tokenResponse bigQueryTokenResponse
+	if err := json.Unmarshal(body, &tokenResponse); err != nil {
+		return "", err
+	}
+	if tokenResponse.AccessToken == "" {
+		return "", adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  "access_token missing from identity provider token response; check the token_endpoint request_url and request_data and that the provider issues an OIDC access token",
+		}
+	}
+	return tokenResponse.AccessToken, nil
+}
+
 // GetCurrentCatalog implements driverbase.CurrentNamespacer.
 func (c *connectionImpl) GetCurrentCatalog() (string, error) {
 	return c.catalog, nil
@@ -495,6 +557,14 @@ func (c *connectionImpl) GetOption(key string) (string, error) {
 		return c.refreshToken, nil
 	case OptionStringAuthQuotaProject:
 		return c.quotaProject, nil
+	case OptionStringAuthExternalAccountAudience:
+		return c.externalAccountAudience, nil
+	case OptionStringAuthExternalAccountImpersonationURL:
+		return c.externalAccountImpersonationURL, nil
+	case OptionStringAuthExternalAccountRequestURL:
+		return c.externalAccountRequestURL, nil
+	case OptionStringAuthExternalAccountRequestData:
+		return c.externalAccountRequestData, nil
 	case OptionStringProjectID:
 		return c.catalog, nil
 	case OptionStringDatasetID:
@@ -531,6 +601,14 @@ func (c *connectionImpl) SetOption(key string, value string) error {
 		c.refreshToken = value
 	case OptionStringAuthQuotaProject:
 		c.quotaProject = value
+	case OptionStringAuthExternalAccountAudience:
+		c.externalAccountAudience = value
+	case OptionStringAuthExternalAccountImpersonationURL:
+		c.externalAccountImpersonationURL = value
+	case OptionStringAuthExternalAccountRequestURL:
+		c.externalAccountRequestURL = value
+	case OptionStringAuthExternalAccountRequestData:
+		c.externalAccountRequestData = value
 	case OptionStringProjectID:
 		c.catalog = value
 	case OptionStringDatasetID:
@@ -634,6 +712,35 @@ func (c *connectionImpl) authOptions(ctx context.Context) ([]option.ClientOption
 				TokenType:   "Bearer",
 			}),
 		))
+	case OptionValueAuthTypeExternalAccount:
+		if c.externalAccountAudience == "" {
+			return nil, adbc.Error{Code: adbc.StatusInvalidArgument, Msg: fmt.Sprintf("The `%s` parameter is empty", OptionStringAuthExternalAccountAudience)}
+		}
+		if c.externalAccountRequestURL == "" {
+			return nil, adbc.Error{Code: adbc.StatusInvalidArgument, Msg: fmt.Sprintf("The `%s` parameter is empty", OptionStringAuthExternalAccountRequestURL)}
+		}
+		if c.externalAccountRequestData == "" {
+			return nil, adbc.Error{Code: adbc.StatusInvalidArgument, Msg: fmt.Sprintf("The `%s` parameter is empty", OptionStringAuthExternalAccountRequestData)}
+		}
+		cfg := externalaccount.Config{
+			Audience:                       c.externalAccountAudience,
+			SubjectTokenType:               DefaultSubjectTokenType,
+			TokenURL:                       DefaultSTSTokenURL,
+			ServiceAccountImpersonationURL: c.externalAccountImpersonationURL,
+			Scopes:                         c.impersonateScopes,
+			SubjectTokenSupplier: &idpTokenSupplier{
+				requestURL:  c.externalAccountRequestURL,
+				requestData: c.externalAccountRequestData,
+			},
+		}
+		ts, err := externalaccount.NewTokenSource(ctx, cfg)
+		if err != nil {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("failed to create external-account token source: %s", err.Error()),
+			}
+		}
+		authOptions = append(authOptions, option.WithTokenSource(ts))
 	case OptionValueAuthTypeAppDefaultCredentials, OptionValueAuthTypeDefault, "":
 		// Use Application Default Credentials (default behavior)
 		// No additional options needed - ADC is used by default

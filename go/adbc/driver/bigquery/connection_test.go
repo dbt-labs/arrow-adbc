@@ -19,10 +19,14 @@ package bigquery
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"cloud.google.com/go/bigquery"
+	"golang.org/x/oauth2/google/externalaccount"
 )
 
 func TestDatabaseAPIEndpointOption(t *testing.T) {
@@ -147,6 +151,98 @@ func TestTemporaryAccessToken_MissingToken(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "adbc.bigquery.sql.auth.access_token") {
 		t.Errorf("Expected error message to mention missing access token, got: %v", err)
+	}
+}
+
+// --- External-account (Workload Identity Federation) -----------------------
+
+const testWIFAudience = "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/prov"
+
+func TestExternalAccountAuthTypeAccepted(t *testing.T) {
+	db := &databaseImpl{}
+	if err := db.SetOption(OptionStringAuthType, OptionValueAuthTypeExternalAccount); err != nil {
+		t.Fatalf("external_account auth type should be accepted: %v", err)
+	}
+	if err := db.SetOption(OptionStringAuthExternalAccountRequestData, "grant_type=client_credentials"); err != nil {
+		t.Fatalf("SetOption request_data: %v", err)
+	}
+	if got, _ := db.GetOption(OptionStringAuthExternalAccountRequestData); got != "grant_type=client_credentials" {
+		t.Errorf("request_data should round-trip, got %q", got)
+	}
+}
+
+func TestExternalAccount_AuthOptions_Valid(t *testing.T) {
+	conn := &connectionImpl{
+		authType:                   OptionValueAuthTypeExternalAccount,
+		catalog:                    "test-project",
+		dbSchema:                   "test-dataset",
+		externalAccountAudience:    testWIFAudience,
+		externalAccountRequestURL:  "https://idp.example.com/oauth2/v1/token",
+		externalAccountRequestData: "grant_type=client_credentials&client_id=abc&client_secret=secret&scope=s",
+	}
+	opts, err := conn.authOptions(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error building external-account options, got: %v", err)
+	}
+	if len(opts) == 0 {
+		t.Fatal("expected at least one client option (the token source)")
+	}
+}
+
+func TestExternalAccount_MissingFields(t *testing.T) {
+	base := func() *connectionImpl {
+		return &connectionImpl{
+			authType:                   OptionValueAuthTypeExternalAccount,
+			externalAccountAudience:    testWIFAudience,
+			externalAccountRequestURL:  "https://idp/token",
+			externalAccountRequestData: "grant_type=client_credentials",
+		}
+	}
+	cases := []struct {
+		name   string
+		mutate func(*connectionImpl)
+		want   string
+	}{
+		{"audience", func(c *connectionImpl) { c.externalAccountAudience = "" }, OptionStringAuthExternalAccountAudience},
+		{"request_url", func(c *connectionImpl) { c.externalAccountRequestURL = "" }, OptionStringAuthExternalAccountRequestURL},
+		{"request_data", func(c *connectionImpl) { c.externalAccountRequestData = "" }, OptionStringAuthExternalAccountRequestData},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := base()
+			tt.mutate(conn)
+			_, err := conn.authOptions(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected error mentioning %q, got: %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func TestIdpTokenSupplier_SubjectToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+			t.Errorf("unexpected Content-Type: %s", got)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != "grant_type=client_credentials&scope=s" {
+			t.Errorf("request body not sent verbatim: %q", string(body))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"tok-123","expires_in":3600}`))
+	}))
+	defer srv.Close()
+
+	s := &idpTokenSupplier{requestURL: srv.URL, requestData: "grant_type=client_credentials&scope=s"}
+	tok, err := s.SubjectToken(context.Background(), externalaccount.SupplierOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tok != "tok-123" {
+		t.Fatalf("expected tok-123, got %q", tok)
 	}
 }
 
