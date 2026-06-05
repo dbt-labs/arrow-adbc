@@ -49,6 +49,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/transport"
+	"resty.dev/v3"
 )
 
 type connectionImpl struct {
@@ -287,9 +288,29 @@ type bigQueryTokenResponse struct {
 	TokenType   string `json:"token_type"`
 }
 
-// idpHTTPClient is shared across all IdP token requests; the timeout guards
-// against a hung identity provider when the caller's context has no deadline.
-var idpHTTPClient = &http.Client{Timeout: 30 * time.Second}
+// oauthErrorResponse is the OAuth 2.0 error body an IdP returns on a rejected token request.
+type oauthErrorResponse struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+}
+
+const (
+	idpMaxRetries     = 5
+	idpRetryWaitMin   = 500 * time.Millisecond
+	idpRetryWaitMax   = 8 * time.Second
+	idpRequestTimeout = 30 * time.Second
+)
+
+// idpHTTPClient is shared across all IdP token requests. Retries use resty's
+// default capped exponential backoff with jitter. SetAllowNonIdempotentRetry is
+// required because the token request is a POST (resty skips POST retries by
+// default), and re-requesting a token is safe.
+var idpHTTPClient = resty.New().
+	SetTimeout(idpRequestTimeout).
+	SetRetryCount(idpMaxRetries).
+	SetRetryWaitTime(idpRetryWaitMin).
+	SetRetryMaxWaitTime(idpRetryWaitMax).
+	SetAllowNonIdempotentRetry(true)
 
 // idpTokenSupplier implements externalaccount.SubjectTokenSupplier by POSTing
 // request_data to request_url and returning the access_token.
@@ -299,39 +320,56 @@ type idpTokenSupplier struct {
 }
 
 func (s *idpTokenSupplier) SubjectToken(ctx context.Context, _ externalaccount.SupplierOptions) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.requestURL, strings.NewReader(s.requestData))
+	resp, err := idpHTTPClient.R().
+		SetContext(ctx).
+		SetHeader("Accept", "application/json").
+		SetHeader("Content-Type", "application/x-www-form-urlencoded").
+		SetBody(s.requestData).
+		Post(s.requestURL)
 	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := idpHTTPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
 		return "", adbc.Error{
 			Code: adbc.StatusIO,
-			Msg:  "identity provider rate-limited the token request (429); reduce concurrency or raise the provider's token rate limit",
+			Msg:  fmt.Sprintf("network error communicating with identity provider: %v", err),
 		}
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	body := resp.Bytes()
+
+	if resp.StatusCode() == http.StatusTooManyRequests {
 		return "", adbc.Error{
 			Code: adbc.StatusIO,
-			Msg:  fmt.Sprintf("identity provider token request failed with status %d: %s", resp.StatusCode, string(body)),
+			Msg:  "identity provider is rate-limiting token requests (HTTP 429); reduce concurrency or raise the provider's token rate limit",
+		}
+	}
+	if !resp.IsSuccess() {
+		// Prefer the standard OAuth 2.0 error body; fall back to a truncated raw body.
+		var oauthErr oauthErrorResponse
+		if json.Unmarshal(body, &oauthErr) == nil && oauthErr.Error != "" {
+			desc := oauthErr.ErrorDescription
+			if desc == "" {
+				desc = "no description provided"
+			}
+			return "", adbc.Error{
+				Code: adbc.StatusIO,
+				Msg:  fmt.Sprintf("identity provider rejected the token request (HTTP %d): %s - %s", resp.StatusCode(), oauthErr.Error, desc),
+			}
+		}
+		// Cap the raw body so a large HTML error page doesn't flood the message.
+		raw := string(body)
+		if len(raw) > 256 {
+			raw = raw[:253] + "..."
+		}
+		return "", adbc.Error{
+			Code: adbc.StatusIO,
+			Msg:  fmt.Sprintf("identity provider token request failed (HTTP %d): %s", resp.StatusCode(), raw),
 		}
 	}
 
 	var tokenResponse bigQueryTokenResponse
 	if err := json.Unmarshal(body, &tokenResponse); err != nil {
-		return "", err
+		return "", adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("could not parse identity provider token response as JSON (%v); the token_endpoint request_url may be returning an HTML proxy or error page instead of a token", err),
+		}
 	}
 	if tokenResponse.AccessToken == "" {
 		return "", adbc.Error{

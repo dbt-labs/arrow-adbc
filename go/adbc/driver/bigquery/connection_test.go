@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"cloud.google.com/go/bigquery"
@@ -220,29 +221,91 @@ func TestExternalAccount_MissingFields(t *testing.T) {
 }
 
 func TestIdpTokenSupplier_SubjectToken(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
-			t.Errorf("unexpected Content-Type: %s", got)
-		}
-		body, _ := io.ReadAll(r.Body)
-		if string(body) != "grant_type=client_credentials&scope=s" {
-			t.Errorf("request body not sent verbatim: %q", string(body))
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"tok-123","expires_in":3600}`))
-	}))
-	defer srv.Close()
+	const reqData = "grant_type=client_credentials&scope=s"
 
-	s := &idpTokenSupplier{requestURL: srv.URL, requestData: "grant_type=client_credentials&scope=s"}
-	tok, err := s.SubjectToken(context.Background(), externalaccount.SupplierOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	cases := []struct {
+		name      string
+		handler   func(w http.ResponseWriter, r *http.Request, attempt int32)
+		wantToken string
+		wantErr   string // expected error substring; empty means success
+		wantCalls int32  // 0 means don't assert
+	}{
+		{
+			name: "returns token on success",
+			handler: func(w http.ResponseWriter, r *http.Request, _ int32) {
+				if r.Method != http.MethodPost {
+					t.Errorf("expected POST, got %s", r.Method)
+				}
+				if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+					t.Errorf("unexpected Content-Type: %s", got)
+				}
+				if body, _ := io.ReadAll(r.Body); string(body) != reqData {
+					t.Errorf("request body was modified before sending: %q", string(body))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"access_token":"tok-123","expires_in":3600}`))
+			},
+			wantToken: "tok-123",
+			wantCalls: 1,
+		},
+		{
+			name: "retries on 500 then succeeds",
+			handler: func(w http.ResponseWriter, r *http.Request, attempt int32) {
+				if attempt == 1 {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"access_token":"tok-after-retry"}`))
+			},
+			wantToken: "tok-after-retry",
+			wantCalls: 2,
+		},
+		{
+			name: "no retry on 4xx, surfaces oauth error",
+			handler: func(w http.ResponseWriter, r *http.Request, _ int32) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"bad secret"}`))
+			},
+			wantErr:   "invalid_client",
+			wantCalls: 1,
+		},
+		{
+			name: "non-json body reports parse error",
+			handler: func(w http.ResponseWriter, r *http.Request, _ int32) {
+				w.Header().Set("Content-Type", "text/html")
+				_, _ = w.Write([]byte("<html>proxy login page</html>"))
+			},
+			wantErr: "as JSON",
+		},
 	}
-	if tok != "tok-123" {
-		t.Fatalf("expected tok-123, got %q", tok)
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tt.handler(w, r, atomic.AddInt32(&calls, 1))
+			}))
+			defer srv.Close()
+
+			s := &idpTokenSupplier{requestURL: srv.URL, requestData: reqData}
+			tok, err := s.SubjectToken(context.Background(), externalaccount.SupplierOptions{})
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got: %v", tt.wantErr, err)
+			}
+			if tok != tt.wantToken {
+				t.Fatalf("expected token %q, got %q", tt.wantToken, tok)
+			}
+			if tt.wantCalls != 0 && atomic.LoadInt32(&calls) != tt.wantCalls {
+				t.Fatalf("expected %d call(s), got %d", tt.wantCalls, atomic.LoadInt32(&calls))
+			}
+		})
 	}
 }
 
