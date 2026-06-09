@@ -319,6 +319,9 @@ type idpTokenSupplier struct {
 	requestData string
 }
 
+// SubjectToken implements externalaccount.SubjectTokenSupplier and is invoked by
+// the externalaccount token source to fetch the IdP subject token.
+// See https://pkg.go.dev/golang.org/x/oauth2/google/externalaccount#SubjectTokenSupplier
 func (s *idpTokenSupplier) SubjectToken(ctx context.Context, _ externalaccount.SupplierOptions) (string, error) {
 	resp, err := idpHTTPClient.R().
 		SetContext(ctx).
