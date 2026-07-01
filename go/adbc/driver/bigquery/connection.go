@@ -1387,6 +1387,12 @@ func (c *connectionImpl) getAccessToken() (*bigQueryTokenResponse, error) {
 	req.Header.Set("Accept", "application/json")
 
 	tr := &http.Transport{
+		// Honor HTTPS_PROXY / NO_PROXY like the rest of the driver's HTTP
+		// traffic. A custom http.Transport defaults Proxy to nil (no proxy),
+		// unlike http.DefaultTransport; without this, the token-exchange request
+		// bypasses a configured proxy entirely and, conversely, cannot be
+		// excluded via NO_PROXY. See dbt-labs/dbt-core#14470.
+		Proxy:           http.ProxyFromEnvironment,
 		TLSClientConfig: &tls.Config{ServerName: c.accessTokenServerName},
 	}
 	client := &http.Client{
