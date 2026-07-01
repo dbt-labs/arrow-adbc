@@ -43,6 +43,7 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	"github.com/apache/arrow-go/v18/arrow"
+	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google/externalaccount"
 	"google.golang.org/api/impersonate"
@@ -1370,6 +1371,26 @@ func (c *connectionImpl) Token() (*oauth2.Token, error) {
 	}, nil
 }
 
+// newAccessTokenTransport builds the HTTP transport used to fetch access
+// tokens from a custom token endpoint (the refresh-token / token-server auth
+// path).
+//
+// A bare &http.Transport{} leaves Proxy nil, which makes it ignore the standard
+// proxy environment variables entirely. We wire up proxy handling from the
+// environment so that HTTP(S)_PROXY is honored *and* the NO_PROXY/no_proxy
+// bypass list is respected. httpproxy.FromEnvironment is read per call (rather
+// than the process-cached http.ProxyFromEnvironment) so the transport reflects
+// the current environment. See dbt-labs/dbt-core#14470.
+func newAccessTokenTransport(serverName string) *http.Transport {
+	proxyFunc := httpproxy.FromEnvironment().ProxyFunc()
+	return &http.Transport{
+		Proxy: func(req *http.Request) (*url.URL, error) {
+			return proxyFunc(req.URL)
+		},
+		TLSClientConfig: &tls.Config{ServerName: serverName},
+	}
+}
+
 func (c *connectionImpl) getAccessToken() (*bigQueryTokenResponse, error) {
 	params := url.Values{}
 	params.Add("grant_type", "refresh_token")
@@ -1386,11 +1407,8 @@ func (c *connectionImpl) getAccessToken() (*bigQueryTokenResponse, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{ServerName: c.accessTokenServerName},
-	}
 	client := &http.Client{
-		Transport: tr,
+		Transport: newAccessTokenTransport(c.accessTokenServerName),
 	}
 	resp, err := client.Do(req)
 	if err != nil {

@@ -424,3 +424,47 @@ func TestBuildField(t *testing.T) {
 		})
 	}
 }
+
+// TestAccessTokenTransportHonorsNoProxy verifies that the transport used to
+// fetch access tokens honors the standard proxy environment variables,
+// including the NO_PROXY bypass list. A bare &http.Transport{} leaves Proxy
+// nil and would route (or fail to route) regardless of NO_PROXY. Regression
+// for dbt-labs/dbt-core#14470.
+func TestAccessTokenTransportHonorsNoProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://proxy.internal:3128")
+	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
+	t.Setenv("NO_PROXY", "token-server.example")
+
+	tr := newAccessTokenTransport("token-server.example")
+	if tr.Proxy == nil {
+		t.Fatal("access-token transport must set Proxy so proxy env vars are honored")
+	}
+
+	// A host on the NO_PROXY list must bypass the proxy (nil proxy URL).
+	bypassReq, err := http.NewRequest(http.MethodPost, "https://token-server.example/token", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	if u, err := tr.Proxy(bypassReq); err != nil {
+		t.Fatalf("unexpected error resolving proxy for NO_PROXY host: %v", err)
+	} else if u != nil {
+		t.Fatalf("NO_PROXY host should bypass proxy, got %q", u)
+	}
+
+	// A host not on the list must route through the configured proxy.
+	proxiedReq, err := http.NewRequest(http.MethodPost, "https://oauth2.googleapis.com/token", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	u, err := tr.Proxy(proxiedReq)
+	if err != nil {
+		t.Fatalf("unexpected error resolving proxy: %v", err)
+	}
+	if u == nil || u.Host != "proxy.internal:3128" {
+		t.Fatalf("non-excluded host should use proxy proxy.internal:3128, got %v", u)
+	}
+
+	if tr.TLSClientConfig == nil || tr.TLSClientConfig.ServerName != "token-server.example" {
+		t.Fatalf("expected TLS ServerName to be preserved, got %+v", tr.TLSClientConfig)
+	}
+}
