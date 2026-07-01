@@ -47,6 +47,33 @@ func TestDatabaseAPIEndpointOption(t *testing.T) {
 	}
 }
 
+// TestNewStatementStorageApiDisabledDefault verifies that statements created on
+// a connection with a custom api_endpoint default to the Storage-API-disabled
+// (REST) result path, so a proxy/emulator that lacks the gRPC Storage Read API
+// does not fail with "Storage API is not available". Regression for
+// dbt-core#14617.
+func TestNewStatementStorageApiDisabledDefault(t *testing.T) {
+	// No custom endpoint: Storage Read API path stays enabled.
+	plain := &connectionImpl{}
+	stmt, err := plain.NewStatement()
+	if err != nil {
+		t.Fatalf("NewStatement: %v", err)
+	}
+	if st := stmt.(*statement); st.useStorageApiDisabledClient {
+		t.Fatalf("expected Storage API enabled by default without api_endpoint")
+	}
+
+	// Custom endpoint: default to the disabled (REST) client.
+	custom := &connectionImpl{apiEndpoint: "http://localhost:9050"}
+	stmt2, err := custom.NewStatement()
+	if err != nil {
+		t.Fatalf("NewStatement: %v", err)
+	}
+	if st := stmt2.(*statement); !st.useStorageApiDisabledClient {
+		t.Fatalf("expected Storage-API-disabled client default when api_endpoint is set")
+	}
+}
+
 func TestCustomAccessTokenEndpointAndServerName(t *testing.T) {
 	accessTokenEndpoint := "https://example.com/oauth2/token"
 	accessTokenServerName := "example.com"

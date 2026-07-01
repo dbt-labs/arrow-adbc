@@ -575,6 +575,14 @@ func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
 		parameterMode:          OptionValueQueryParameterModePositional,
 		resultRecordBufferSize: c.resultRecordBufferSize,
 		prefetchConcurrency:    c.prefetchConcurrency,
+		// When a custom api_endpoint is configured (e.g. a proxy or the
+		// BigQuery emulator), the BigQuery Storage Read API (gRPC) is generally
+		// not reachable at that host, so results must be fetched over the REST
+		// jobs API instead. Default to the Storage-API-disabled client in that
+		// case to avoid "Storage API is not available for query" failures. The
+		// caller can still override this per statement via
+		// OptionBoolUseStorageApiDisabledClient. See dbt-core#14617.
+		useStorageApiDisabledClient: c.apiEndpoint != "",
 		queryConfig: bigquery.QueryConfig{
 			DefaultProjectID: c.catalog,
 			DefaultDatasetID: c.dbSchema,
