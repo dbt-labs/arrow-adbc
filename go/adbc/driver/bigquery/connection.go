@@ -838,6 +838,37 @@ func (c *connectionImpl) authOptions(ctx context.Context) ([]option.ClientOption
 	return authOptions, nil
 }
 
+// bigQueryRESTPath is the API path segment the google-cloud-go BigQuery REST
+// client (google.golang.org/api/bigquery/v2) appends to its default endpoint
+// (https://bigquery.googleapis.com/bigquery/v2/).
+const bigQueryRESTPath = "/bigquery/v2/"
+
+// normalizeBigQueryAPIEndpoint ensures a user-supplied api_endpoint carries the
+// "/bigquery/v2/" REST path.
+//
+// option.WithEndpoint replaces the client's entire BasePath, not just the host.
+// The default BasePath already includes "/bigquery/v2/", so a bare host such as
+// "https://proxy.example.com" (e.g. an Alvin proxy) would otherwise route
+// requests to "https://proxy.example.com/projects/..." instead of
+// "https://proxy.example.com/bigquery/v2/projects/...", which the proxy rejects.
+// dbt-core (Python) appends this path itself; mirror that behavior. An endpoint
+// that already specifies a non-root path is left untouched, so emulators or
+// callers that intentionally point at a custom path keep working.
+// See dbt-core#14615.
+func normalizeBigQueryAPIEndpoint(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		// Not a parseable absolute URL (e.g. a bare "host:port" gRPC-style
+		// endpoint); leave it as-is.
+		return endpoint
+	}
+	if u.Path == "" || u.Path == "/" {
+		u.Path = bigQueryRESTPath
+		return u.String()
+	}
+	return endpoint
+}
+
 func (c *connectionImpl) newClient(ctx context.Context) error {
 	if c.catalog == "" {
 		return adbc.Error{
@@ -852,7 +883,7 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 	}
 	if c.apiEndpoint != "" {
 		// Safe to append: the default endpoint is already assumed by the client, so this only adds a user-specified override.
-		authOptions = append(authOptions, option.WithEndpoint(c.apiEndpoint))
+		authOptions = append(authOptions, option.WithEndpoint(normalizeBigQueryAPIEndpoint(c.apiEndpoint)))
 	}
 
 	storageReadClient, err := bigquery.NewClient(ctx, c.catalog, authOptions...)

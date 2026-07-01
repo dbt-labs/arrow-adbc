@@ -28,6 +28,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"golang.org/x/oauth2/google/externalaccount"
+	"google.golang.org/api/option"
 )
 
 func TestDatabaseAPIEndpointOption(t *testing.T) {
@@ -44,6 +45,67 @@ func TestDatabaseAPIEndpointOption(t *testing.T) {
 	}
 	if got != "https://bigquery.googleapis.com/bigquery/v2/" {
 		t.Fatalf("expected endpoint to round-trip, got %q", got)
+	}
+}
+
+func TestNormalizeBigQueryAPIEndpoint(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"bare host gets /bigquery/v2/ appended", "https://dbtlabs-com.opti.alvin.ai", "https://dbtlabs-com.opti.alvin.ai/bigquery/v2/"},
+		{"root path gets /bigquery/v2/ appended", "https://proxy.example.com/", "https://proxy.example.com/bigquery/v2/"},
+		{"host with port gets path appended", "http://localhost:9050", "http://localhost:9050/bigquery/v2/"},
+		{"already-correct endpoint is unchanged", "https://bigquery.googleapis.com/bigquery/v2/", "https://bigquery.googleapis.com/bigquery/v2/"},
+		{"explicit custom path is left untouched", "http://localhost:9050/custom/path", "http://localhost:9050/custom/path"},
+		{"non-URL endpoint is left untouched", "localhost:9060", "localhost:9060"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeBigQueryAPIEndpoint(tc.in); got != tc.want {
+				t.Fatalf("normalizeBigQueryAPIEndpoint(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAPIEndpointRoutesToBigQueryV2Path confirms end-to-end (through the real
+// google-cloud-go BigQuery client) that a bare api_endpoint host now routes
+// requests to the "/bigquery/v2/..." path a real BigQuery proxy expects, rather
+// than dropping the path. Regression for dbt-core#14615.
+func TestAPIEndpointRoutesToBigQueryV2Path(t *testing.T) {
+	paths := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case paths <- r.URL.Path:
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jobComplete":true,"jobReference":{"jobId":"x"},"schema":{"fields":[]},"rows":[]}`))
+	}))
+	defer srv.Close()
+
+	// srv.URL is a bare host (http://127.0.0.1:PORT), like a user-supplied
+	// api_endpoint; after normalization the request must carry /bigquery/v2/.
+	client, err := bigquery.NewClient(context.Background(), "test-proj",
+		option.WithEndpoint(normalizeBigQueryAPIEndpoint(srv.URL)),
+		option.WithoutAuthentication(),
+	)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+	_, _ = client.Query("SELECT 1").Read(context.Background())
+
+	var got string
+	select {
+	case got = <-paths:
+	default:
+		t.Fatal("no request reached the test server")
+	}
+	if !strings.HasPrefix(got, "/bigquery/v2/") {
+		t.Fatalf("expected request path to start with /bigquery/v2/, got %q", got)
 	}
 }
 
