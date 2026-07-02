@@ -854,28 +854,15 @@ const bigQueryRESTPath = "/bigquery/v2/"
 // This matches dbt-core (v1), where the Python client library appends the REST
 // path to the api_endpoint passed via ClientOptions:
 // https://github.com/dbt-labs/dbt-adapters/blob/e008d8f6f7a7d76a6a63084512f4862f9bd41090/dbt-bigquery/src/dbt/adapters/bigquery/clients.py#L66-L76
-// An endpoint that already specifies any other non-root path is left untouched,
-// so emulators or callers that intentionally point at a custom path keep
-// working. See dbt-labs/dbt-core#14615.
+// See dbt-labs/dbt-core#14615.
 func normalizeBigQueryAPIEndpoint(endpoint string) string {
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" {
-		// Not a parseable absolute URL (e.g. a bare "host:port" gRPC-style
-		// endpoint); leave it as-is.
-		return endpoint
+	trimmed := strings.TrimRight(endpoint, "/")
+	// Idempotent: an endpoint that already carries the REST path (e.g. a copy
+	// of the default) must not have it appended twice.
+	if strings.HasSuffix(trimmed, strings.TrimSuffix(bigQueryRESTPath, "/")) {
+		return trimmed + "/"
 	}
-	switch u.Path {
-	case "", "/":
-		u.Path = bigQueryRESTPath
-		return u.String()
-	case strings.TrimSuffix(bigQueryRESTPath, "/"):
-		// The REST client resolves relative paths against BasePath, so
-		// "/bigquery/v2" without the trailing slash would resolve
-		// "projects/..." to "/bigquery/projects/...".
-		u.Path = bigQueryRESTPath
-		return u.String()
-	}
-	return endpoint
+	return trimmed + bigQueryRESTPath
 }
 
 func (c *connectionImpl) newClient(ctx context.Context) error {

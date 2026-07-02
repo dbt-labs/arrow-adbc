@@ -59,8 +59,7 @@ func TestNormalizeBigQueryAPIEndpoint(t *testing.T) {
 		{"host with port gets path appended", "http://localhost:9050", "http://localhost:9050/bigquery/v2/"},
 		{"already-correct endpoint is unchanged", "https://bigquery.googleapis.com/bigquery/v2/", "https://bigquery.googleapis.com/bigquery/v2/"},
 		{"REST path missing trailing slash gets it added", "https://proxy.example.com/bigquery/v2", "https://proxy.example.com/bigquery/v2/"},
-		{"explicit custom path is left untouched", "http://localhost:9050/custom/path", "http://localhost:9050/custom/path"},
-		{"non-URL endpoint is left untouched", "localhost:9060", "localhost:9060"},
+		{"schemeless host:port gets path appended", "localhost:9060", "localhost:9060/bigquery/v2/"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
