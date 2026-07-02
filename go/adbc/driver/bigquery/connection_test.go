@@ -58,6 +58,7 @@ func TestNormalizeBigQueryAPIEndpoint(t *testing.T) {
 		{"root path gets /bigquery/v2/ appended", "https://proxy.example.com/", "https://proxy.example.com/bigquery/v2/"},
 		{"host with port gets path appended", "http://localhost:9050", "http://localhost:9050/bigquery/v2/"},
 		{"already-correct endpoint is unchanged", "https://bigquery.googleapis.com/bigquery/v2/", "https://bigquery.googleapis.com/bigquery/v2/"},
+		{"REST path missing trailing slash gets it added", "https://proxy.example.com/bigquery/v2", "https://proxy.example.com/bigquery/v2/"},
 		{"explicit custom path is left untouched", "http://localhost:9050/custom/path", "http://localhost:9050/custom/path"},
 		{"non-URL endpoint is left untouched", "localhost:9060", "localhost:9060"},
 	}
@@ -73,7 +74,7 @@ func TestNormalizeBigQueryAPIEndpoint(t *testing.T) {
 // TestAPIEndpointRoutesToBigQueryV2Path confirms end-to-end (through the real
 // google-cloud-go BigQuery client) that a bare api_endpoint host now routes
 // requests to the "/bigquery/v2/..." path a real BigQuery proxy expects, rather
-// than dropping the path. Regression for dbt-core#14615.
+// than dropping the path. Regression for dbt-labs/dbt-core#14615.
 func TestAPIEndpointRoutesToBigQueryV2Path(t *testing.T) {
 	paths := make(chan string, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
