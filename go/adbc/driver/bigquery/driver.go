@@ -92,7 +92,9 @@ const (
 
 	// OptionBoolUseStorageApiDisabledClient instructs the driver to use the legacy RowIterator API
 	// instead of the Storage Read API. This is required for queries that reference
-	// pseudo-columns like _PARTITIONDATE and _PARTITIONTIME.
+	// pseudo-columns like _PARTITIONDATE and _PARTITIONTIME. Settable on a
+	// statement, or on a connection to set the default for its new statements
+	// (overriding the api_endpoint-based default).
 	OptionBoolUseStorageApiDisabledClient = "adbc.bigquery.sql.query.use_storage_api_disabled_client"
 
 	defaultQueryResultBufferSize    = 200

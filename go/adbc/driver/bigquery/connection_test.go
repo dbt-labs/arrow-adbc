@@ -72,6 +72,34 @@ func TestNewStatementStorageApiDisabledDefault(t *testing.T) {
 	if st := stmt2.(*statement); !st.useStorageApiDisabledClient {
 		t.Fatalf("expected Storage-API-disabled client default when api_endpoint is set")
 	}
+
+	// The connection-level option overrides the endpoint-based default in
+	// both directions (e.g. a PSC endpoint where Storage Read is reachable).
+	if err := custom.SetOption(OptionBoolUseStorageApiDisabledClient, "false"); err != nil {
+		t.Fatalf("SetOption: %v", err)
+	}
+	stmt3, err := custom.NewStatement()
+	if err != nil {
+		t.Fatalf("NewStatement: %v", err)
+	}
+	if st := stmt3.(*statement); st.useStorageApiDisabledClient {
+		t.Fatalf("expected connection option false to keep Storage API enabled despite api_endpoint")
+	}
+
+	if err := plain.SetOption(OptionBoolUseStorageApiDisabledClient, "true"); err != nil {
+		t.Fatalf("SetOption: %v", err)
+	}
+	stmt4, err := plain.NewStatement()
+	if err != nil {
+		t.Fatalf("NewStatement: %v", err)
+	}
+	if st := stmt4.(*statement); !st.useStorageApiDisabledClient {
+		t.Fatalf("expected connection option true to disable Storage API without api_endpoint")
+	}
+
+	if got, err := custom.GetOption(OptionBoolUseStorageApiDisabledClient); err != nil || got != "false" {
+		t.Fatalf("GetOption = %q, %v; want \"false\"", got, err)
+	}
 }
 
 func TestCustomAccessTokenEndpointAndServerName(t *testing.T) {

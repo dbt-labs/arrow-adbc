@@ -90,6 +90,11 @@ type connectionImpl struct {
 	resultRecordBufferSize int
 	prefetchConcurrency    int
 
+	// Connection-level override for OptionBoolUseStorageApiDisabledClient;
+	// when nil, new statements default to REST result fetching iff a custom
+	// apiEndpoint is set.
+	useStorageApiDisabledClient *bool
+
 	client                   *bigquery.Client
 	clientStorageApiDisabled *bigquery.Client // Client without Storage API for queries that use pseudo-columns like _PARTITIONDATE and _PARTITIONTIME
 }
@@ -569,17 +574,22 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 
 // NewStatement initializes a new statement object tied to this connection
 func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
+	// The Storage Read API (gRPC) is generally unreachable at a custom
+	// api_endpoint (proxy/emulator), so default to REST result fetching
+	// unless the connection option says otherwise; also overridable per
+	// statement via OptionBoolUseStorageApiDisabledClient.
+	// See dbt-labs/dbt-core#14617.
+	useStorageApiDisabledClient := c.apiEndpoint != ""
+	if c.useStorageApiDisabledClient != nil {
+		useStorageApiDisabledClient = *c.useStorageApiDisabledClient
+	}
 	return &statement{
-		alloc:                  c.Alloc,
-		cnxn:                   c,
-		parameterMode:          OptionValueQueryParameterModePositional,
-		resultRecordBufferSize: c.resultRecordBufferSize,
-		prefetchConcurrency:    c.prefetchConcurrency,
-		// The Storage Read API (gRPC) is generally unreachable at a custom
-		// api_endpoint (proxy/emulator), so default to REST result fetching;
-		// overridable per statement via OptionBoolUseStorageApiDisabledClient.
-		// See dbt-labs/dbt-core#14617.
-		useStorageApiDisabledClient: c.apiEndpoint != "",
+		alloc:                       c.Alloc,
+		cnxn:                        c,
+		parameterMode:               OptionValueQueryParameterModePositional,
+		resultRecordBufferSize:      c.resultRecordBufferSize,
+		prefetchConcurrency:         c.prefetchConcurrency,
+		useStorageApiDisabledClient: useStorageApiDisabledClient,
 		queryConfig: bigquery.QueryConfig{
 			DefaultProjectID: c.catalog,
 			DefaultDatasetID: c.dbSchema,
@@ -626,6 +636,11 @@ func (c *connectionImpl) GetOption(key string) (string, error) {
 			return "", nil
 		}
 		return c.impersonateLifetime.String(), nil
+	case OptionBoolUseStorageApiDisabledClient:
+		if c.useStorageApiDisabledClient != nil {
+			return strconv.FormatBool(*c.useStorageApiDisabledClient), nil
+		}
+		return strconv.FormatBool(c.apiEndpoint != ""), nil
 	default:
 		return c.ConnectionImplBase.GetOption(key)
 	}
@@ -680,6 +695,15 @@ func (c *connectionImpl) SetOption(key string, value string) error {
 			}
 		}
 		c.impersonateLifetime = dur
+	case OptionBoolUseStorageApiDisabledClient:
+		val, err := strconv.ParseBool(value)
+		if err != nil {
+			return adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("Invalid boolean string for %s: %s", OptionBoolUseStorageApiDisabledClient, err.Error()),
+			}
+		}
+		c.useStorageApiDisabledClient = &val
 	default:
 		return c.ConnectionImplBase.SetOption(key, value)
 	}
