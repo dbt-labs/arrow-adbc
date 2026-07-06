@@ -30,10 +30,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"net/http"
+	neturl "net/url"
 	"os"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
+	sdkconfig "github.com/databricks/databricks-sdk-go/config"
 	dbsql "github.com/databricks/databricks-sql-go"
 	"github.com/databricks/databricks-sql-go/auth/oauth/m2m"
 	"github.com/databricks/databricks-sql-go/auth/oauth/u2m"
@@ -82,6 +84,11 @@ type databaseImpl struct {
 	oauthClientSecret string
 	oauthRefreshToken string
 	oauthU2MTimeout   time.Duration
+
+	// Azure service principal (Microsoft Entra ID) auth
+	azureClientID     string
+	azureClientSecret string
+	azureTenantID     string
 
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Keys are parameter names (e.g. "QUERY_TAGS"), values are parameter values.
@@ -149,6 +156,24 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 				Code: adbc.StatusInvalidState,
 				Msg:  fmt.Sprintf("failed to initialize authenticator: %v", err),
 			}
+		}
+		opts = append(opts, dbsql.WithAuthenticator(authenticator))
+	case OptionValueAuthTypeAzureClientSecret:
+		if d.azureClientID == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("azure client ID is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeAzureClientSecret, OptionAzureClientID),
+			}
+		}
+		if d.azureClientSecret == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("azure client secret is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeAzureClientSecret, OptionAzureClientSecret),
+			}
+		}
+		authenticator, err := d.newAzureClientSecretAuthenticator()
+		if err != nil {
+			return nil, err
 		}
 		opts = append(opts, dbsql.WithAuthenticator(authenticator))
 	default:
@@ -361,6 +386,87 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 	}
 }
 
+// newAzureClientSecretAuthenticator builds a databricks-sdk-go Config configured
+// for Azure service-principal (Microsoft Entra ID) authentication. *config.Config
+// implements databricks-sql-go's auth.Authenticator via its Authenticate method, so
+// the returned value is passed directly to dbsql.WithAuthenticator. On each request
+// the SDK attaches the AAD access token (Authorization) and the service-management
+// token (X-Databricks-Azure-SP-Management-Token), matching dbt-databricks/databricks-sdk.
+func (d *databaseImpl) newAzureClientSecretAuthenticator() (*sdkconfig.Config, error) {
+	tenantID := d.azureTenantID
+	if tenantID == "" {
+		discovered, err := discoverAzureTenantID(d.serverHostname)
+		if err != nil {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("could not resolve azure tenant id (set it explicitly via '%s'): %v", OptionAzureTenantID, err),
+			}
+		}
+		tenantID = discovered
+	}
+
+	cfg := &sdkconfig.Config{
+		Host:              "https://" + d.serverHostname,
+		AzureClientID:     d.azureClientID,
+		AzureClientSecret: d.azureClientSecret,
+		AzureTenantID:     tenantID,
+		Credentials:       sdkconfig.AzureClientSecretCredentials{},
+	}
+	if err := cfg.EnsureResolved(); err != nil {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("failed to configure '%s' auth: %v", OptionValueAuthTypeAzureClientSecret, err),
+		}
+	}
+	return cfg, nil
+}
+
+// discoverAzureTenantID resolves the Microsoft Entra ID tenant for an Azure
+// Databricks workspace from the unauthenticated <host>/aad/auth redirect, mirroring
+// databricks-sdk's tenant discovery. Only used when azure_tenant_id is not supplied.
+func discoverAzureTenantID(serverHostname string) (string, error) {
+	loginURL := fmt.Sprintf("https://%s/aad/auth", serverHostname)
+	req, err := http.NewRequest(http.MethodGet, loginURL, nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{
+		// The tenant is in the 3xx Location header; do not follow the redirect.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Timeout: 30 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 3 {
+		return "", fmt.Errorf("expected a 3xx redirect from %s, got status %d", loginURL, resp.StatusCode)
+	}
+	location := resp.Header.Get("Location")
+	if location == "" {
+		return "", fmt.Errorf("no Location header in response from %s", loginURL)
+	}
+	return parseAzureTenantFromLocation(location)
+}
+
+// parseAzureTenantFromLocation extracts the tenant id from an Entra ID authorize
+// URL of the form https://login.microsoftonline.com/<tenant-id>/oauth2/authorize?...
+// (the login domain varies by Azure cloud, e.g. login.microsoftonline.us).
+func parseAzureTenantFromLocation(location string) (string, error) {
+	u, err := neturl.Parse(location)
+	if err != nil {
+		return "", fmt.Errorf("could not parse Location header %q: %w", location, err)
+	}
+	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(segments) == 0 || segments[0] == "" {
+		return "", fmt.Errorf("could not extract tenant id from Location %q", location)
+	}
+	return segments[0], nil
+}
+
 func (d *databaseImpl) SetOptions(options map[string]string) error {
 	for k, v := range options {
 		if err := d.SetOption(k, v); err != nil {
@@ -495,6 +601,12 @@ func (d *databaseImpl) SetOption(key, value string) error {
 		d.oauthClientID = value
 	case OptionOAuthClientSecret:
 		d.oauthClientSecret = value
+	case OptionAzureClientID:
+		d.azureClientID = value
+	case OptionAzureClientSecret:
+		d.azureClientSecret = value
+	case OptionAzureTenantID:
+		d.azureTenantID = value
 	case OptionOAuthRefreshToken:
 		d.oauthRefreshToken = value
 	case OptionExternalBrowserTimeout:

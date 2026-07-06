@@ -61,10 +61,11 @@ const (
 	OptionSSLRootCert = "databricks.ssl_root_cert"
 
 	// Auth: Type
-	OptionAuthType                     = "databricks.auth_type"
-	OptionValueAuthTypeOAuthM2M        = "oauth-m2m"
-	OptionValueAuthTypeExternalBrowser = "external-browser"
-	OptionValueAuthTypePAT             = "pat"
+	OptionAuthType                       = "databricks.auth_type"
+	OptionValueAuthTypeOAuthM2M          = "oauth-m2m"
+	OptionValueAuthTypeExternalBrowser   = "external-browser"
+	OptionValueAuthTypePAT               = "pat"
+	OptionValueAuthTypeAzureClientSecret = "azure-client-secret"
 
 	// Auth: OAuth
 	OptionOAuthClientID          = "databricks.oauth.client_id"
@@ -74,6 +75,12 @@ const (
 
 	// Auth: PAT
 	OptionAccessToken = "databricks.access_token"
+
+	// Auth: Azure service principal (Microsoft Entra ID), auth_type "azure-client-secret".
+	// azure_tenant_id is optional; when absent it is discovered from the workspace.
+	OptionAzureClientID     = "databricks.azure.client_id"
+	OptionAzureClientSecret = "databricks.azure.client_secret"
+	OptionAzureTenantID     = "databricks.azure.tenant_id"
 
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Use with a parameter name suffix, e.g. "databricks.session_param.QUERY_TAGS".
