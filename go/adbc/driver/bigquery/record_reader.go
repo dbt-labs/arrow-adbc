@@ -30,10 +30,12 @@ import (
 	"cloud.google.com/go/civil"
 
 	"github.com/apache/arrow-adbc/go/adbc"
+	"github.com/apache/arrow-adbc/go/adbc/driver/bigquery/backoff"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/googleapis/gax-go"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
 )
@@ -65,6 +67,15 @@ func checkContext(ctx context.Context, maybeErr error) error {
 }
 
 func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool, linkFailedJob bool, alloc memory.Allocator) (bigquery.ArrowIterator, int64, error) {
+	// use the global backoff sleep time for these requests
+	bo := gax.Backoff{
+		Initial: backoff.CurrentSleepTime(),
+		Multiplier: 1.3,
+		Max: 60 * time.Second,
+	}
+	ctx = context.WithValue(ctx, bigquery.ContextKeyBackoff, bo)
+	defer backoff.Update()
+
 	job, err := query.Run(ctx)
 	if err != nil {
 		return nil, -1, err
