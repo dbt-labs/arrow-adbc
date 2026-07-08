@@ -65,50 +65,17 @@ func TestResolveConnectionOptionsAzureMissingFields(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), OptionAzureClientSecret)
 	})
-}
 
-// TestParseAzureTenantFromLocation covers tenant extraction from the /aad/auth
-// redirect Location header across Azure clouds and malformed inputs.
-func TestParseAzureTenantFromLocation(t *testing.T) {
-	const tenant = "11111111-2222-3333-4444-555555555555"
+	// Tenant id is required by the driver (no discovery here — the caller resolves it).
+	t.Run("missing tenant id", func(t *testing.T) {
+		db := newTestDatabase(t)
+		db.authType = OptionValueAuthTypeAzureClientSecret
+		db.accessToken = ""
+		db.azureClientID = "id"
+		db.azureClientSecret = "secret"
 
-	cases := []struct {
-		name     string
-		location string
-		want     string
-		wantErr  bool
-	}{
-		{
-			name:     "public cloud",
-			location: "https://login.microsoftonline.com/" + tenant + "/oauth2/authorize?response_type=code",
-			want:     tenant,
-		},
-		{
-			name:     "us gov cloud",
-			location: "https://login.microsoftonline.us/" + tenant + "/oauth2/v2.0/authorize",
-			want:     tenant,
-		},
-		{
-			name:     "no path",
-			location: "https://login.microsoftonline.com/",
-			wantErr:  true,
-		},
-		{
-			name:     "empty",
-			location: "",
-			wantErr:  true,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseAzureTenantFromLocation(tc.location)
-			if tc.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
-		})
-	}
+		_, err := db.resolveConnectionOptions()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), OptionAzureTenantID)
+	})
 }

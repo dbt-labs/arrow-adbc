@@ -30,7 +30,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"net/http"
-	neturl "net/url"
 	"os"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -386,30 +385,23 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 	}
 }
 
-// newAzureClientSecretAuthenticator builds a databricks-sdk-go Config configured
-// for Azure service-principal (Microsoft Entra ID) authentication. *config.Config
-// implements databricks-sql-go's auth.Authenticator via its Authenticate method, so
-// the returned value is passed directly to dbsql.WithAuthenticator. On each request
-// the SDK attaches the AAD access token (Authorization) and the service-management
-// token (X-Databricks-Azure-SP-Management-Token), matching dbt-databricks/databricks-sdk.
+// newAzureClientSecretAuthenticator builds a databricks-sdk-go Config for Azure SP auth.
+// The SDK attaches the AAD token + the X-Databricks-Azure-SP-Management-Token header per
+// request. Tenant id is required (the SDK's client-secret creds won't activate without it);
+// the caller (dbt-auth) resolves it.
 func (d *databaseImpl) newAzureClientSecretAuthenticator() (*sdkconfig.Config, error) {
-	tenantID := d.azureTenantID
-	if tenantID == "" {
-		discovered, err := discoverAzureTenantID(d.serverHostname)
-		if err != nil {
-			return nil, adbc.Error{
-				Code: adbc.StatusInvalidArgument,
-				Msg:  fmt.Sprintf("could not resolve azure tenant id (set it explicitly via '%s'): %v", OptionAzureTenantID, err),
-			}
+	if d.azureTenantID == "" {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("'%s' is required for auth type '%s'", OptionAzureTenantID, OptionValueAuthTypeAzureClientSecret),
 		}
-		tenantID = discovered
 	}
 
 	cfg := &sdkconfig.Config{
 		Host:              "https://" + d.serverHostname,
 		AzureClientID:     d.azureClientID,
 		AzureClientSecret: d.azureClientSecret,
-		AzureTenantID:     tenantID,
+		AzureTenantID:     d.azureTenantID,
 		Credentials:       sdkconfig.AzureClientSecretCredentials{},
 	}
 	if err := cfg.EnsureResolved(); err != nil {
@@ -419,52 +411,6 @@ func (d *databaseImpl) newAzureClientSecretAuthenticator() (*sdkconfig.Config, e
 		}
 	}
 	return cfg, nil
-}
-
-// discoverAzureTenantID resolves the Microsoft Entra ID tenant for an Azure
-// Databricks workspace from the unauthenticated <host>/aad/auth redirect, mirroring
-// databricks-sdk's tenant discovery. Only used when azure_tenant_id is not supplied.
-func discoverAzureTenantID(serverHostname string) (string, error) {
-	loginURL := fmt.Sprintf("https://%s/aad/auth", serverHostname)
-	req, err := http.NewRequest(http.MethodGet, loginURL, nil)
-	if err != nil {
-		return "", err
-	}
-	client := &http.Client{
-		// The tenant is in the 3xx Location header; do not follow the redirect.
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Timeout: 30 * time.Second,
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 3 {
-		return "", fmt.Errorf("expected a 3xx redirect from %s, got status %d", loginURL, resp.StatusCode)
-	}
-	location := resp.Header.Get("Location")
-	if location == "" {
-		return "", fmt.Errorf("no Location header in response from %s", loginURL)
-	}
-	return parseAzureTenantFromLocation(location)
-}
-
-// parseAzureTenantFromLocation extracts the tenant id from an Entra ID authorize
-// URL of the form https://login.microsoftonline.com/<tenant-id>/oauth2/authorize?...
-// (the login domain varies by Azure cloud, e.g. login.microsoftonline.us).
-func parseAzureTenantFromLocation(location string) (string, error) {
-	u, err := neturl.Parse(location)
-	if err != nil {
-		return "", fmt.Errorf("could not parse Location header %q: %w", location, err)
-	}
-	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(segments) == 0 || segments[0] == "" {
-		return "", fmt.Errorf("could not extract tenant id from Location %q", location)
-	}
-	return segments[0], nil
 }
 
 func (d *databaseImpl) SetOptions(options map[string]string) error {
