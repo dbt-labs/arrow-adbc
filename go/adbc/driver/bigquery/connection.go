@@ -65,6 +65,8 @@ type connectionImpl struct {
 	accessTokenServerName string
 	apiEndpoint           string
 
+	endpointUsesReadStorageAPI *bool
+
 	// External-account (Workload Identity Federation) options.
 	externalAccountAudience         string
 	externalAccountImpersonationURL string
@@ -569,12 +571,17 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 
 // NewStatement initializes a new statement object tied to this connection
 func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
+	storageRead := c.apiEndpoint == ""
+	if c.endpointUsesReadStorageAPI != nil {
+		storageRead = *c.endpointUsesReadStorageAPI
+	}
 	return &statement{
-		alloc:                  c.Alloc,
-		cnxn:                   c,
-		parameterMode:          OptionValueQueryParameterModePositional,
-		resultRecordBufferSize: c.resultRecordBufferSize,
-		prefetchConcurrency:    c.prefetchConcurrency,
+		alloc:                       c.Alloc,
+		cnxn:                        c,
+		parameterMode:               OptionValueQueryParameterModePositional,
+		resultRecordBufferSize:      c.resultRecordBufferSize,
+		prefetchConcurrency:         c.prefetchConcurrency,
+		useStorageApiDisabledClient: !storageRead,
 		queryConfig: bigquery.QueryConfig{
 			DefaultProjectID: c.catalog,
 			DefaultDatasetID: c.dbSchema,

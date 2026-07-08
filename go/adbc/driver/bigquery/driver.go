@@ -95,6 +95,8 @@ const (
 	// pseudo-columns like _PARTITIONDATE and _PARTITIONTIME.
 	OptionBoolUseStorageApiDisabledClient = "adbc.bigquery.sql.query.use_storage_api_disabled_client"
 
+	OptionBoolEndpointUsesReadStorageAPI = "adbc.bigquery.sql.query.endpoint_uses_read_storage_api"
+
 	defaultQueryResultBufferSize    = 200
 	defaultQueryPrefetchConcurrency = 10
 
