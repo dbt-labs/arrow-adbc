@@ -55,17 +55,16 @@ import (
 type connectionImpl struct {
 	driverbase.ConnectionImplBase
 
-	authType              string
-	accessToken           string
-	credentials           string
-	clientID              string
-	clientSecret          string
-	refreshToken          string
-	accessTokenEndpoint   string
-	accessTokenServerName string
-	apiEndpoint           string
-
-	endpointUsesReadStorageAPI *bool
+	authType               string
+	accessToken            string
+	credentials            string
+	clientID               string
+	clientSecret           string
+	refreshToken           string
+	accessTokenEndpoint    string
+	accessTokenServerName  string
+	apiEndpoint            string
+	storageReadAPIEndpoint string
 
 	// External-account (Workload Identity Federation) options.
 	externalAccountAudience         string
@@ -94,6 +93,7 @@ type connectionImpl struct {
 
 	client                   *bigquery.Client
 	clientStorageApiDisabled *bigquery.Client // Client without Storage API for queries that use pseudo-columns like _PARTITIONDATE and _PARTITIONTIME
+	storageReadEnabled       bool             // whether EnableStorageReadClient was called on client
 }
 
 func (c *connectionImpl) datasetInProject(projectID, datasetID string) *bigquery.Dataset {
@@ -571,17 +571,14 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 
 // NewStatement initializes a new statement object tied to this connection
 func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
-	storageRead := c.apiEndpoint == ""
-	if c.endpointUsesReadStorageAPI != nil {
-		storageRead = *c.endpointUsesReadStorageAPI
-	}
+	useStorageApiDisabledClient := c.apiEndpoint != "" || !c.storageReadEnabled
 	return &statement{
 		alloc:                       c.Alloc,
 		cnxn:                        c,
 		parameterMode:               OptionValueQueryParameterModePositional,
 		resultRecordBufferSize:      c.resultRecordBufferSize,
 		prefetchConcurrency:         c.prefetchConcurrency,
-		useStorageApiDisabledClient: !storageRead,
+		useStorageApiDisabledClient: useStorageApiDisabledClient,
 		queryConfig: bigquery.QueryConfig{
 			DefaultProjectID: c.catalog,
 			DefaultDatasetID: c.dbSchema,
@@ -857,12 +854,16 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Cloned rather than reused: WithEndpoint(apiEndpoint) must not leak into the
+	// Storage Read gRPC options built below, since REST and Storage Read have
+	// distinct base URLs.
+	restOptions := authOptions
 	if c.apiEndpoint != "" {
-		// Safe to append: the default endpoint is already assumed by the client, so this only adds a user-specified override.
-		authOptions = append(authOptions, option.WithEndpoint(c.apiEndpoint))
+		restOptions = append(append([]option.ClientOption{}, authOptions...), option.WithEndpoint(c.apiEndpoint))
 	}
 
-	storageReadClient, err := bigquery.NewClient(ctx, c.catalog, authOptions...)
+	storageReadClient, err := bigquery.NewClient(ctx, c.catalog, restOptions...)
 	if err != nil {
 		return err
 	}
@@ -871,16 +872,22 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 		storageReadClient.Location = c.location
 	}
 
-	err = storageReadClient.EnableStorageReadClient(ctx, authOptions...)
-	if err != nil {
-		return err
+	if c.apiEndpoint == "" {
+		storageOptions := authOptions
+		if c.storageReadAPIEndpoint != "" {
+			storageOptions = append(append([]option.ClientOption{}, authOptions...), option.WithEndpoint(c.storageReadAPIEndpoint))
+		}
+		if err := storageReadClient.EnableStorageReadClient(ctx, storageOptions...); err != nil {
+			return err
+		}
+		c.storageReadEnabled = true
 	}
 	c.client = storageReadClient
 
 	// Create a second client without the Storage API enabled
 	// since the Storage API returns null values for pseudo columns, for example _PARTITIONDATE
 	// EnableStorageReadClient should not be invoked for this client
-	client, err := bigquery.NewClient(ctx, c.catalog, authOptions...)
+	client, err := bigquery.NewClient(ctx, c.catalog, restOptions...)
 	if err != nil {
 		return err
 	}

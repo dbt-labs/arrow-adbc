@@ -88,11 +88,7 @@ func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool, li
 	var arrowIterator bigquery.ArrowIterator
 	useLegacyAPI := ctx.Value(ContextKeyUseStorageApiDisabledClient).(bool)
 	if iter.TotalRows > 0 {
-		if !useLegacyAPI {
-			if !iter.IsAccelerated() {
-				return nil, -1, fmt.Errorf("Storage API is not available for query: %s", jobLink)
-			}
-			// Storage API is available, use it
+		if !useLegacyAPI && iter.IsAccelerated() {
 			if arrowIterator, err = iter.ArrowIterator(); err != nil {
 				if linkFailedJob {
 					return nil, -1, fmt.Errorf("%w (Query: %s)", err, jobLink)
@@ -100,6 +96,9 @@ func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool, li
 				return nil, -1, err
 			}
 		} else {
+			// !IsAccelerated() also covers a Storage Read attempt that silently
+			// fell back within the SDK (job.Read never errors on this), not just
+			// the explicit legacy-client case.
 			arrowIterator = newRowBasedArrowIterator(iter, alloc)
 		}
 	} else {

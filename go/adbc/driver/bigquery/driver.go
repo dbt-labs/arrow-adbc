@@ -30,12 +30,17 @@ import (
 )
 
 const (
-	OptionStringAuthType    = "adbc.bigquery.sql.auth_type"
-	OptionStringAPIEndpoint = "adbc.bigquery.sql.api_endpoint"
-	OptionStringLocation    = "adbc.bigquery.sql.location"
-	OptionStringProjectID   = "adbc.bigquery.sql.project_id"
-	OptionStringDatasetID   = "adbc.bigquery.sql.dataset_id"
-	OptionStringTableID     = "adbc.bigquery.sql.table_id"
+	OptionStringAuthType = "adbc.bigquery.sql.auth_type"
+
+	// Mutually exclusive with OptionStringStorageReadAPIEndpoint: REST and Storage Read
+	// use different base URLs, so a single field can't address both.
+	OptionStringAPIEndpoint            = "adbc.bigquery.sql.api_endpoint"
+	OptionStringStorageReadAPIEndpoint = "adbc.bigquery.sql.storage_read_api_endpoint"
+
+	OptionStringLocation  = "adbc.bigquery.sql.location"
+	OptionStringProjectID = "adbc.bigquery.sql.project_id"
+	OptionStringDatasetID = "adbc.bigquery.sql.dataset_id"
+	OptionStringTableID   = "adbc.bigquery.sql.table_id"
 
 	OptionValueAuthTypeDefault = "adbc.bigquery.sql.auth_type.auth_bigquery"
 
@@ -94,8 +99,6 @@ const (
 	// instead of the Storage Read API. This is required for queries that reference
 	// pseudo-columns like _PARTITIONDATE and _PARTITIONTIME.
 	OptionBoolUseStorageApiDisabledClient = "adbc.bigquery.sql.query.use_storage_api_disabled_client"
-
-	OptionBoolEndpointUsesReadStorageAPI = "adbc.bigquery.sql.query.endpoint_uses_read_storage_api"
 
 	defaultQueryResultBufferSize    = 200
 	defaultQueryPrefetchConcurrency = 10

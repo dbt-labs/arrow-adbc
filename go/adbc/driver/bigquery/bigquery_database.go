@@ -20,7 +20,6 @@ package bigquery
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,18 +30,18 @@ import (
 type databaseImpl struct {
 	driverbase.DatabaseImplBase
 
-	authType                   string
-	accessToken                string
-	credentials                string
-	clientID                   string
-	clientSecret               string
-	refreshToken               string
-	accessTokenEndpoint        string
-	accessTokenServerName      string
-	apiEndpoint                string
-	endpointUsesReadStorageAPI *bool
-	location                   string
-	quotaProject               string
+	authType               string
+	accessToken            string
+	credentials            string
+	clientID               string
+	clientSecret           string
+	refreshToken           string
+	accessTokenEndpoint    string
+	accessTokenServerName  string
+	apiEndpoint            string
+	storageReadAPIEndpoint string
+	location               string
+	quotaProject           string
 
 	// External-account (Workload Identity Federation) options.
 	externalAccountAudience         string
@@ -63,6 +62,13 @@ type databaseImpl struct {
 }
 
 func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
+	if d.apiEndpoint != "" && d.storageReadAPIEndpoint != "" {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("only one of %s or %s may be set", OptionStringAPIEndpoint, OptionStringStorageReadAPIEndpoint),
+		}
+	}
+
 	conn := &connectionImpl{
 		ConnectionImplBase:              driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 		authType:                        d.authType,
@@ -78,7 +84,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		accessTokenEndpoint:             d.accessTokenEndpoint,
 		accessTokenServerName:           d.accessTokenServerName,
 		apiEndpoint:                     d.apiEndpoint,
-		endpointUsesReadStorageAPI:      d.endpointUsesReadStorageAPI,
+		storageReadAPIEndpoint:          d.storageReadAPIEndpoint,
 		externalAccountAudience:         d.externalAccountAudience,
 		externalAccountImpersonationURL: d.externalAccountImpersonationURL,
 		externalAccountRequestURL:       d.externalAccountRequestURL,
@@ -133,11 +139,8 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		return d.externalAccountRequestData, nil
 	case OptionStringAPIEndpoint:
 		return d.apiEndpoint, nil
-	case OptionBoolEndpointUsesReadStorageAPI:
-		if d.endpointUsesReadStorageAPI != nil {
-			return strconv.FormatBool(*d.endpointUsesReadStorageAPI), nil
-		}
-		return "", nil
+	case OptionStringStorageReadAPIEndpoint:
+		return d.storageReadAPIEndpoint, nil
 	case OptionStringLocation:
 		return d.location, nil
 	case OptionStringProjectID:
@@ -223,15 +226,8 @@ func (d *databaseImpl) SetOption(key string, value string) error {
 		d.externalAccountRequestData = value
 	case OptionStringAPIEndpoint:
 		d.apiEndpoint = value
-	case OptionBoolEndpointUsesReadStorageAPI:
-		val, err := strconv.ParseBool(value)
-		if err != nil {
-			return adbc.Error{
-				Code: adbc.StatusInvalidArgument,
-				Msg:  fmt.Sprintf("invalid boolean value for %s: %s", OptionBoolEndpointUsesReadStorageAPI, err.Error()),
-			}
-		}
-		d.endpointUsesReadStorageAPI = &val
+	case OptionStringStorageReadAPIEndpoint:
+		d.storageReadAPIEndpoint = value
 	case OptionStringLocation:
 		d.location = value
 	case OptionStringImpersonateTargetPrincipal:
