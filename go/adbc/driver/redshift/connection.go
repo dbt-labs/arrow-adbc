@@ -50,6 +50,9 @@ type connectionImpl struct {
 	// For static auth
 	awsStaticCredentials *StaticAuth
 
+	// For IAM Identity Center external OAuth (trusted identity propagation)
+	idcAuth *IdentityCenterAuth
+
 	clusterId string
 	database  string
 
@@ -72,6 +75,12 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 				c.awsStaticCredentials.secret_access_key,
 				*aws.String(c.awsStaticCredentials.session_token),
 			))
+	case OptionValueAWSAuthTypeIdentityCenterToken:
+		provider, err := c.identityCenterCredentialsProvider(ctx)
+		if err != nil {
+			return err
+		}
+		authOption = config.WithCredentialsProvider(provider)
 	}
 	cfg, err := config.LoadDefaultConfig(
 		ctx,

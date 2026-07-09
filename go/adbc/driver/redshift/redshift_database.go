@@ -30,6 +30,18 @@ type StaticAuth struct {
 	session_token     string
 }
 
+// IdentityCenterAuth holds the parameters for the IAM Identity Center external
+// OAuth (trusted identity propagation) flow. The external IdP JWT (`token`,
+// token_type=EXT_JWT) is exchanged for identity-enhanced AWS credentials that
+// are then used for the Redshift Data API.
+type IdentityCenterAuth struct {
+	token     string
+	tokenType string
+	clientID  string
+	region    string
+	roleArn   string
+}
+
 // make this better, we need to set too much stuff
 type databaseImpl struct {
 	driverbase.DatabaseImplBase
@@ -51,6 +63,9 @@ type databaseImpl struct {
 	// For static auth
 	awsStaticCredentials *StaticAuth
 
+	// For IAM Identity Center external OAuth (trusted identity propagation)
+	idcAuth *IdentityCenterAuth
+
 	clusterId string
 	database  string
 }
@@ -64,6 +79,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		awsCredentials:       d.awsCredentials,
 		awsRegion:            d.awsRegion,
 		awsStaticCredentials: d.awsStaticCredentials,
+		idcAuth:              d.idcAuth,
 		secretArn:            d.secretArn,
 		username:             d.username,
 		clusterId:            d.clusterId,
@@ -82,6 +98,14 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		Connection(), nil
 }
 
+// ensureIdCAuth lazily initializes and returns the Identity Center auth config.
+func (d *databaseImpl) ensureIdCAuth() *IdentityCenterAuth {
+	if d.idcAuth == nil {
+		d.idcAuth = &IdentityCenterAuth{}
+	}
+	return d.idcAuth
+}
+
 func (d *databaseImpl) SetOption(key string, value string) error {
 	if d.awsStaticCredentials == nil {
 		d.awsStaticCredentials = &StaticAuth{}
@@ -98,6 +122,8 @@ func (d *databaseImpl) SetOption(key string, value string) error {
 		case OptionValueAWSAuthTypeSharedCredentialsFile:
 			d.awsAuthType = value
 		case OptionValueAWSAuthTypeStaticCredentials:
+			d.awsAuthType = value
+		case OptionValueAWSAuthTypeIdentityCenterToken:
 			d.awsAuthType = value
 		default:
 			return adbc.Error{
@@ -125,6 +151,24 @@ func (d *databaseImpl) SetOption(key string, value string) error {
 		d.awsStaticCredentials.secret_access_key = value
 	case OptionStringAWSAuthSessionToken:
 		d.awsStaticCredentials.session_token = value
+	case OptionStringIdCToken:
+		d.ensureIdCAuth().token = value
+	case OptionStringIdCTokenType:
+		if value != OptionValueIdCTokenTypeExtJWT {
+			return adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg: fmt.Sprintf(
+					"unsupported IdC token type `%s`; only `%s` is supported",
+					value, OptionValueIdCTokenTypeExtJWT),
+			}
+		}
+		d.ensureIdCAuth().tokenType = value
+	case OptionStringIdCClientId:
+		d.ensureIdCAuth().clientID = value
+	case OptionStringIdCRegion:
+		d.ensureIdCAuth().region = value
+	case OptionStringIdCRoleArn:
+		d.ensureIdCAuth().roleArn = value
 	case OptionStringAWSRegion:
 		d.awsRegion = value
 	case OptionStringUsername:
