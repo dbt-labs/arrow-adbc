@@ -503,3 +503,45 @@ func TestBuildField(t *testing.T) {
 		})
 	}
 }
+
+func TestStatementSetGetOptionReservation(t *testing.T) {
+	cnxn := &connectionImpl{}
+	st := &statement{cnxn: cnxn}
+
+	const reservation = "projects/my-project/locations/US/reservations/my-reservation"
+
+	// Initially empty
+	got, err := st.GetOption(OptionStringQueryReservation)
+	if err != nil {
+		t.Fatalf("GetOption returned error: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty reservation by default, got %q", got)
+	}
+
+	// Set the reservation
+	if err := st.SetOption(OptionStringQueryReservation, reservation); err != nil {
+		t.Fatalf("SetOption returned error: %v", err)
+	}
+
+	// Round-trip via GetOption
+	got, err = st.GetOption(OptionStringQueryReservation)
+	if err != nil {
+		t.Fatalf("GetOption returned error: %v", err)
+	}
+	if got != reservation {
+		t.Fatalf("expected %q, got %q", reservation, got)
+	}
+
+	// Clear the reservation
+	if err := st.SetOption(OptionStringQueryReservation, ""); err != nil {
+		t.Fatalf("SetOption(empty) returned error: %v", err)
+	}
+	got, err = st.GetOption(OptionStringQueryReservation)
+	if err != nil {
+		t.Fatalf("GetOption returned error: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty after clear, got %q", got)
+	}
+}
