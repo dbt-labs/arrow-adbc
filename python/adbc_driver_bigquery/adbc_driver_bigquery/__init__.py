@@ -211,6 +211,16 @@ class StatementOptions(enum.Enum):
     #: This deadline cannot be adjusted or removed once the job is created.
     JOB_TIMEOUT = "adbc.bigquery.sql.query.job_timeout"
 
+    #: RESERVATION specifies the BigQuery reservation to use for query execution.
+    #: The value must be a full reservation resource path of the form
+    #: ``projects/<project>/locations/<location>/reservations/<reservation>``.
+    #: When set, the query job is submitted under the specified reservation.
+    #: Set to an empty string to clear and use the project default.
+    #:
+    #: For more information, see:
+    #: https://cloud.google.com/bigquery/docs/reservations-intro
+    RESERVATION = "adbc.bigquery.sql.query.reservation"
+
 
 def connect(
     db_kwargs: typing.Optional[typing.Dict[str, str]] = None,
