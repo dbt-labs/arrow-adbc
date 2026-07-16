@@ -174,6 +174,12 @@ const (
 	// query job if it fails to run.
 	OptionBoolQueryLinkFailedJob = "adbc.bigquery.sql.query.link_failed_job"
 
+	// OptionBoolStatementFetchJobStats instructs the driver to fetch full
+	// BigQuery job statistics
+	//
+	// Since these stats costs extra API calls, it is disabled by default.
+	OptionBoolStatementFetchJobStats = "adbc.bigquery.statement.fetch_job_stats"
+
 	OptionStringCopyTableSource           = "adbc.bigquery.copy_table.source"
 	OptionStringCopyTableDestination      = "adbc.bigquery.copy_table.destination"
 	OptionStringCopyTableWriteDisposition = "adbc.bigquery.copy_table.write_disposition"

@@ -125,6 +125,9 @@ type statement struct {
 
 	// Wrap errors with a link to failed job
 	linkFailedJob bool
+
+	// Fetch BigQuery job statistics. Off by default.
+	fetchJobStats bool
 }
 
 func (st *statement) GetOptionBytes(key string) ([]byte, error) {
@@ -217,6 +220,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return strconv.FormatBool(st.queryConfig.CreateSession), nil
 	case OptionBoolQueryLinkFailedJob:
 		return strconv.FormatBool(st.linkFailedJob), nil
+	case OptionBoolStatementFetchJobStats:
+		return strconv.FormatBool(st.fetchJobStats), nil
 	case OptionBoolUseStorageApiDisabledClient:
 		return strconv.FormatBool(st.useStorageApiDisabledClient), nil
 	case OptionStringIngestFileDelimiter:
@@ -458,6 +463,13 @@ func (st *statement) SetOption(key string, v string) error {
 		} else {
 			return err
 		}
+	case OptionBoolStatementFetchJobStats:
+		val, err := strconv.ParseBool(v)
+		if err == nil {
+			st.fetchJobStats = val
+		} else {
+			return err
+		}
 	case OptionStringNotebookExecuteJobGscPath:
 		st.createNotebookExecuteJobGscPath = v
 	case OptionStringNotebookExecuteJobModelFileName:
@@ -582,13 +594,11 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 	}
 
 	ctx = context.WithValue(ctx, ContextKeyUseStorageApiDisabledClient, st.useStorageApiDisabledClient)
-	return newRecordReader(ctx, st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob)
+	return newRecordReader(ctx, st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob, st.fetchJobStats)
 }
 
-// ExecuteUpdate executes a statement that does not generate a result set.
-// Fire-and-forget: the driver submits the job and returns 0 without waiting
-// for completion. Consumers that need row counts or job statistics should
-// use ExecuteQuery instead.
+// ExecuteUpdate executes a statement that does not generate a result
+// set. It returns the number of rows affected if known, otherwise -1.
 func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 	boundParameters, err := st.getBoundParameterReader()
 	if err != nil {

@@ -38,10 +38,6 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-const (
-	MetadataKeyBigqueryQueryID = "BIGQUERY:query_id"
-)
-
 type reader struct {
 	refCount   int64
 	schema     *arrow.Schema
@@ -64,10 +60,6 @@ func checkContext(ctx context.Context, maybeErr error) error {
 	return ctx.Err()
 }
 
-// runUpdate submits a query as an ExecuteUpdate: fire-and-forget, no wait
-// on completion. Returns 0 as the "rows affected" count since the driver
-// doesn't block long enough to know it. Consumers that need row counts or
-// job statistics should use ExecuteQuery instead.
 func runUpdate(ctx context.Context, query *bigquery.Query) (int64, error) {
 	if _, err := query.Run(ctx); err != nil {
 		return -1, err
@@ -75,7 +67,7 @@ func runUpdate(ctx context.Context, query *bigquery.Query) (int64, error) {
 	return 0, nil
 }
 
-func runQuery(ctx context.Context, query *bigquery.Query, linkFailedJob bool, alloc memory.Allocator) (bigquery.ArrowIterator, int64, error) {
+func runQuery(ctx context.Context, query *bigquery.Query, linkFailedJob bool, alloc memory.Allocator, outStats *jobStats) (bigquery.ArrowIterator, int64, error) {
 	job, err := query.Run(ctx)
 	if err != nil {
 		return nil, -1, err
@@ -117,6 +109,10 @@ func runQuery(ctx context.Context, query *bigquery.Query, linkFailedJob bool, al
 
 	// Store job ID in query for adding to metadata
 	query.JobID = job.ID()
+	if outStats != nil {
+		*outStats = newJobStats(job)
+		outStats.fetch(ctx, job)
+	}
 	return arrowIterator, totalRows, nil
 }
 
@@ -142,8 +138,15 @@ func getQueryParameter(values arrow.RecordBatch, row int, parameterMode string) 
 	return parameters, nil
 }
 
-func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allocator, resultRecordBufferSize int, linkFailedJob bool) (bigqueryRdr *reader, totalRows int64, err error) {
-	arrowIterator, totalRows, err := runQuery(ctx, query, linkFailedJob, alloc)
+func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allocator, resultRecordBufferSize int, linkFailedJob bool, fetchJobStats bool) (bigqueryRdr *reader, totalRows int64, err error) {
+	// Only allocate a stats struct (which triggers job.Status in runQuery) if
+	// the caller opted in. Otherwise runQuery skips the extra API call and the
+	// schema is returned without BIGQUERY:* stats metadata.
+	var statsPtr *jobStats
+	if fetchJobStats {
+		statsPtr = &jobStats{}
+	}
+	arrowIterator, totalRows, err := runQuery(ctx, query, linkFailedJob, alloc, statsPtr)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -164,7 +167,7 @@ func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allo
 		}
 	}()
 
-	schema := schemaWithQueryId(rdr.Schema(), query)
+	schema := statsPtr.attachToSchema(rdr.Schema())
 
 	bigqueryRdr = &reader{
 		refCount:   1,
@@ -189,7 +192,7 @@ func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allo
 	return bigqueryRdr, totalRows, nil
 }
 
-func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, query *bigquery.Query, rec arrow.RecordBatch, ch chan arrow.RecordBatch, parameterMode string, alloc memory.Allocator, rdrSchema func(schema *arrow.Schema), linkFailedJob bool) (int64, error) {
+func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, query *bigquery.Query, rec arrow.RecordBatch, ch chan arrow.RecordBatch, parameterMode string, alloc memory.Allocator, rdrSchema func(schema *arrow.Schema), linkFailedJob bool, fetchJobStats bool) (int64, error) {
 	totalRows := int64(-1)
 	for i := 0; i < int(rec.NumRows()); i++ {
 		parameters, err := getQueryParameter(rec, i, parameterMode)
@@ -200,7 +203,11 @@ func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, q
 			query.Parameters = parameters
 		}
 
-		arrowIterator, rows, err := runQuery(ctx, query, linkFailedJob, alloc)
+		var statsPtr *jobStats
+		if fetchJobStats {
+			statsPtr = &jobStats{}
+		}
+		arrowIterator, rows, err := runQuery(ctx, query, linkFailedJob, alloc, statsPtr)
 		if err != nil {
 			return -1, err
 		}
@@ -209,7 +216,7 @@ func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, q
 		if err != nil {
 			return -1, err
 		}
-		schema := schemaWithQueryId(rdr.Schema(), query)
+		schema := statsPtr.attachToSchema(rdr.Schema())
 		rdrSchema(schema)
 		group.Go(func() error {
 			defer rdr.Release()
@@ -226,9 +233,9 @@ func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, q
 
 // kicks off a goroutine for each endpoint and returns a reader which
 // gathers all of the records as they come in.
-func newRecordReader(ctx context.Context, query *bigquery.Query, boundParameters array.RecordReader, parameterMode string, alloc memory.Allocator, resultRecordBufferSize, prefetchConcurrency int, linkFailedJob bool) (bigqueryRdr *reader, totalRows int64, err error) {
+func newRecordReader(ctx context.Context, query *bigquery.Query, boundParameters array.RecordReader, parameterMode string, alloc memory.Allocator, resultRecordBufferSize, prefetchConcurrency int, linkFailedJob bool, fetchJobStats bool) (bigqueryRdr *reader, totalRows int64, err error) {
 	if boundParameters == nil {
-		return runPlainQuery(ctx, query, alloc, resultRecordBufferSize, linkFailedJob)
+		return runPlainQuery(ctx, query, alloc, resultRecordBufferSize, linkFailedJob, fetchJobStats)
 	}
 	defer boundParameters.Release()
 
@@ -266,7 +273,7 @@ func newRecordReader(ctx context.Context, query *bigquery.Query, boundParameters
 		// we don't need to call rec.Retain() here and call call rec.Release() in queryRecordWithSchemaCallback
 		batchRows, err := queryRecordWithSchemaCallback(ctx, group, query, rec, ch, parameterMode, alloc, func(schema *arrow.Schema) {
 			bigqueryRdr.schema = schema
-		}, linkFailedJob)
+		}, linkFailedJob, fetchJobStats)
 		if err != nil {
 			return nil, -1, err
 		}
@@ -275,14 +282,6 @@ func newRecordReader(ctx context.Context, query *bigquery.Query, boundParameters
 	bigqueryRdr.err = group.Wait()
 	defer close(ch)
 	return bigqueryRdr, totalRows, nil
-}
-
-func schemaWithQueryId(schema *arrow.Schema, query *bigquery.Query) *arrow.Schema {
-	meta := schema.Metadata().ToMap()
-	meta[MetadataKeyBigqueryQueryID] = query.JobID
-	finalMeta := arrow.MetadataFrom(meta)
-
-	return arrow.NewSchema(schema.Fields(), &finalMeta)
 }
 
 func (r *reader) Retain() {
