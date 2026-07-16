@@ -64,13 +64,21 @@ func checkContext(ctx context.Context, maybeErr error) error {
 	return ctx.Err()
 }
 
-func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool, linkFailedJob bool, alloc memory.Allocator) (bigquery.ArrowIterator, int64, error) {
+// runUpdate submits a query as an ExecuteUpdate: fire-and-forget, no wait
+// on completion. Returns 0 as the "rows affected" count since the driver
+// doesn't block long enough to know it. Consumers that need row counts or
+// job statistics should use ExecuteQuery instead.
+func runUpdate(ctx context.Context, query *bigquery.Query) (int64, error) {
+	if _, err := query.Run(ctx); err != nil {
+		return -1, err
+	}
+	return 0, nil
+}
+
+func runQuery(ctx context.Context, query *bigquery.Query, linkFailedJob bool, alloc memory.Allocator) (bigquery.ArrowIterator, int64, error) {
 	job, err := query.Run(ctx)
 	if err != nil {
 		return nil, -1, err
-	}
-	if executeUpdate {
-		return nil, 0, nil
 	}
 
 	// The project id, location, and job id are all URL-safe:
@@ -135,7 +143,7 @@ func getQueryParameter(values arrow.RecordBatch, row int, parameterMode string) 
 }
 
 func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allocator, resultRecordBufferSize int, linkFailedJob bool) (bigqueryRdr *reader, totalRows int64, err error) {
-	arrowIterator, totalRows, err := runQuery(ctx, query, false, linkFailedJob, alloc)
+	arrowIterator, totalRows, err := runQuery(ctx, query, linkFailedJob, alloc)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -192,7 +200,7 @@ func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, q
 			query.Parameters = parameters
 		}
 
-		arrowIterator, rows, err := runQuery(ctx, query, false, linkFailedJob, alloc)
+		arrowIterator, rows, err := runQuery(ctx, query, linkFailedJob, alloc)
 		if err != nil {
 			return -1, err
 		}

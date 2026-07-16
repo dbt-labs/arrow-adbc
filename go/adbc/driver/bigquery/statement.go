@@ -585,8 +585,10 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 	return newRecordReader(ctx, st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob)
 }
 
-// ExecuteUpdate executes a statement that does not generate a result
-// set. It returns the number of rows affected if known, otherwise -1.
+// ExecuteUpdate executes a statement that does not generate a result set.
+// Fire-and-forget: the driver submits the job and returns 0 without waiting
+// for completion. Consumers that need row counts or job statistics should
+// use ExecuteQuery instead.
 func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 	boundParameters, err := st.getBoundParameterReader()
 	if err != nil {
@@ -594,33 +596,27 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 	}
 
 	if boundParameters == nil {
-		_, totalRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
-		if err != nil {
-			return -1, err
-		}
-		return totalRows, nil
-	} else {
-		totalRows := int64(0)
-		for boundParameters.Next() {
-			values := boundParameters.RecordBatch()
-			for i := 0; i < int(values.NumRows()); i++ {
-				parameters, err := getQueryParameter(values, i, st.parameterMode)
-				if err != nil {
-					return -1, err
-				}
-				if parameters != nil {
-					st.queryConfig.Parameters = parameters
-				}
-
-				_, currentRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
-				if err != nil {
-					return -1, err
-				}
-				totalRows += currentRows
-			}
-		}
-		return totalRows, nil
+		return runUpdate(ctx, st.query())
 	}
+	totalRows := int64(0)
+	for boundParameters.Next() {
+		values := boundParameters.RecordBatch()
+		for i := 0; i < int(values.NumRows()); i++ {
+			parameters, err := getQueryParameter(values, i, st.parameterMode)
+			if err != nil {
+				return -1, err
+			}
+			if parameters != nil {
+				st.queryConfig.Parameters = parameters
+			}
+			currentRows, err := runUpdate(ctx, st.query())
+			if err != nil {
+				return -1, err
+			}
+			totalRows += currentRows
+		}
+	}
+	return totalRows, nil
 }
 
 // ExecuteSchema gets the schema of the result set of a query without executing it.
