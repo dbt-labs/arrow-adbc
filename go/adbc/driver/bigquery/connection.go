@@ -39,6 +39,7 @@ import (
 	dataproc "cloud.google.com/go/dataproc/v2/apiv1"
 	"cloud.google.com/go/storage"
 	"github.com/apache/arrow-adbc/go/adbc"
+	"github.com/apache/arrow-adbc/go/adbc/driver/bigquery/backoff"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	"github.com/apache/arrow-go/v18/arrow"
@@ -891,6 +892,8 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 		client.Location = c.location
 	}
 	c.clientStorageApiDisabled = client
+
+	backoff.Setup(bigquery.RateLimitEvents)
 
 	return nil
 }
