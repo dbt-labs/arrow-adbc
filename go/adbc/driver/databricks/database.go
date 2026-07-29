@@ -34,6 +34,7 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
+	sdkconfig "github.com/databricks/databricks-sdk-go/config"
 	dbsql "github.com/databricks/databricks-sql-go"
 	"github.com/databricks/databricks-sql-go/auth/oauth/m2m"
 	"github.com/databricks/databricks-sql-go/auth/oauth/u2m"
@@ -82,6 +83,11 @@ type databaseImpl struct {
 	oauthClientSecret string
 	oauthRefreshToken string
 	oauthU2MTimeout   time.Duration
+
+	// Azure service principal (Microsoft Entra ID) auth
+	azureClientID     string
+	azureClientSecret string
+	azureTenantID     string
 
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Keys are parameter names (e.g. "QUERY_TAGS"), values are parameter values.
@@ -149,6 +155,24 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 				Code: adbc.StatusInvalidState,
 				Msg:  fmt.Sprintf("failed to initialize authenticator: %v", err),
 			}
+		}
+		opts = append(opts, dbsql.WithAuthenticator(authenticator))
+	case OptionValueAuthTypeAzureClientSecret:
+		if d.azureClientID == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("azure client ID is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeAzureClientSecret, OptionAzureClientID),
+			}
+		}
+		if d.azureClientSecret == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("azure client secret is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeAzureClientSecret, OptionAzureClientSecret),
+			}
+		}
+		authenticator, err := d.newAzureClientSecretAuthenticator()
+		if err != nil {
+			return nil, err
 		}
 		opts = append(opts, dbsql.WithAuthenticator(authenticator))
 	default:
@@ -361,6 +385,34 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 	}
 }
 
+// newAzureClientSecretAuthenticator builds a databricks-sdk-go Config for Azure SP auth.
+// The SDK attaches the AAD token + the X-Databricks-Azure-SP-Management-Token header per
+// request. Tenant id is required (the SDK's client-secret creds won't activate without it);
+// the caller (dbt-auth) resolves it.
+func (d *databaseImpl) newAzureClientSecretAuthenticator() (*sdkconfig.Config, error) {
+	if d.azureTenantID == "" {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("'%s' is required for auth type '%s'", OptionAzureTenantID, OptionValueAuthTypeAzureClientSecret),
+		}
+	}
+
+	cfg := &sdkconfig.Config{
+		Host:              "https://" + d.serverHostname,
+		AzureClientID:     d.azureClientID,
+		AzureClientSecret: d.azureClientSecret,
+		AzureTenantID:     d.azureTenantID,
+		Credentials:       sdkconfig.AzureClientSecretCredentials{},
+	}
+	if err := cfg.EnsureResolved(); err != nil {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("failed to configure '%s' auth: %v", OptionValueAuthTypeAzureClientSecret, err),
+		}
+	}
+	return cfg, nil
+}
+
 func (d *databaseImpl) SetOptions(options map[string]string) error {
 	for k, v := range options {
 		if err := d.SetOption(k, v); err != nil {
@@ -495,6 +547,12 @@ func (d *databaseImpl) SetOption(key, value string) error {
 		d.oauthClientID = value
 	case OptionOAuthClientSecret:
 		d.oauthClientSecret = value
+	case OptionAzureClientID:
+		d.azureClientID = value
+	case OptionAzureClientSecret:
+		d.azureClientSecret = value
+	case OptionAzureTenantID:
+		d.azureTenantID = value
 	case OptionOAuthRefreshToken:
 		d.oauthRefreshToken = value
 	case OptionExternalBrowserTimeout:
