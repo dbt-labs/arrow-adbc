@@ -1784,7 +1784,19 @@ func (st *statement) executeUpdateTableColumnsMetadata(ctx context.Context) (arr
 	tableUpdate := bigquery.TableMetadataToUpdate{
 		Schema: newSchema,
 	}
-	if _, err := table.Update(ctx, tableUpdate, tableMetadata.ETag); err != nil {
+	// For compatibility with dbt-core and google-cloud-bigquery Python libraries,
+	// do not provide an If-Match precondition on schema updates. This results in a blind-write
+	// which avoids race detection.
+	// See https://pkg.go.dev/cloud.google.com/go/bigquery#Table.Update
+	// See https://github.com/dbt-labs/dbt-adapters/blob/9fce78f44db248ba33832c0f65c884a5139c0169/dbt-bigquery/src/dbt/adapters/bigquery/impl.py#L788-L789
+	// Note: This update operates directly on a freshly instantiated table handle
+	// rather than a prefetched table object, meaning it does not ensure ETag consistency.
+	//
+	// Be aware: BigQuery table metadata is eventually consistent. Even if a Tables.Get
+	// request fetches an ETag immediately after a metadata-changing DDL (such as
+	// ALTER TABLE ... SET OPTIONS(...)), transient mismatches or update errors may still occur
+	// due to propagation delays—even if operations are sequential.
+	if _, err := table.Update(ctx, tableUpdate, ""); err != nil {
 		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to update table schema: %v", err))
 	}
 
