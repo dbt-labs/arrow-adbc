@@ -1784,15 +1784,19 @@ func (st *statement) executeUpdateTableColumnsMetadata(ctx context.Context) (arr
 	tableUpdate := bigquery.TableMetadataToUpdate{
 		Schema: newSchema,
 	}
-	// For compatibility with dbt-core and google-cloud-bigquery Python libraries,
-	// do not provide an If-Match precondition on schema updates. This results in a blind-write
-	// which avoids race detection.
-	// See https://pkg.go.dev/cloud.google.com/go/bigquery#Table.Update
-	// See https://github.com/dbt-labs/dbt-adapters/blob/9fce78f44db248ba33832c0f65c884a5139c0169/dbt-bigquery/src/dbt/adapters/bigquery/impl.py#L788-L789
-	// Note: This update operates directly on a freshly instantiated table handle
-	// rather than a prefetched table object, meaning it does not ensure ETag consistency.
+
+	// For compatibility with dbt-core, perform a blind write when updating the table.
+	// dbt-core uses Client.update_table on a new_table instance, which does not carry an ETag from an existing table fetch:
+	// https://github.com/dbt-labs/dbt-adapters/blob/9fce78f44db248ba33832c0f65c884a5139c0169/dbt-bigquery/src/dbt/adapters/bigquery/impl.py#L788-L789
 	//
-	// Be aware: BigQuery table metadata is eventually consistent. Even if a Tables.Get
+	// According to BigQuery documentation, if table.etag is set, updates will only succeed if the server table's ETag matches:
+	// https://docs.cloud.google.com/python/docs/reference/bigquery/latest/google.cloud.bigquery.client.Client#google_cloud_bigquery_client_Client_update_table
+	// Fetching a table, modifying its fields, and updating with the ETag ensures optimistic concurrency, i.e., changes only persist if there were no intervening updates.
+	//
+	// Passing an empty ETag string here conforms to dbt-core's expectation: it causes a blind write regardless of the server-side ETag.
+	// See also: https://pkg.go.dev/cloud.google.com/go/bigquery#Table.Update
+	//
+	// BigQuery table metadata is eventually consistent. Even if a Tables.Get
 	// request fetches an ETag immediately after a metadata-changing DDL (such as
 	// ALTER TABLE ... SET OPTIONS(...)), transient mismatches or update errors may still occur
 	// due to propagation delays—even if operations are sequential.
