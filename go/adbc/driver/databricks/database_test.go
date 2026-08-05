@@ -21,10 +21,13 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestDatabase(t *testing.T) *databaseImpl {
@@ -71,4 +74,54 @@ func TestConcurrentOpen(t *testing.T) {
 	for i, err := range errs {
 		assert.Error(t, err, "goroutine %d should fail (no real server)", i)
 	}
+}
+
+// TestSetOptionConnectTimeout verifies the connect-timeout option parses a Go
+// duration, is stored on the database impl and surfaced via GetOption, and that
+// an unparseable value is rejected.
+func TestSetOptionConnectTimeout(t *testing.T) {
+	db := newTestDatabase(t)
+
+	require.NoError(t, db.SetOption(OptionConnectTimeout, "600s"))
+	assert.Equal(t, 600*time.Second, db.connectTimeout)
+
+	got, err := db.GetOption(OptionConnectTimeout)
+	require.NoError(t, err)
+	assert.Equal(t, (600 * time.Second).String(), got)
+
+	err = db.SetOption(OptionConnectTimeout, "not-a-duration")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid connect timeout")
+}
+
+// TestResolveConnectionOptionsConnectTimeout verifies the connect-timeout option
+// is added to the databricks-sql-go connector options only when set. (The internal
+// config package can't be imported here, so we assert on the presence of the extra
+// ConnOption rather than its applied effect.)
+func TestResolveConnectionOptionsConnectTimeout(t *testing.T) {
+	base := newTestDatabase(t)
+	baseOpts, err := base.resolveConnectionOptions()
+	require.NoError(t, err)
+
+	withTimeout := newTestDatabase(t)
+	withTimeout.connectTimeout = 600 * time.Second
+	timeoutOpts, err := withTimeout.resolveConnectionOptions()
+	require.NoError(t, err)
+
+	assert.Equal(t, len(baseOpts)+1, len(timeoutOpts),
+		"setting connectTimeout should add exactly one connector option")
+}
+
+// TestDefaultConnectTimeout verifies a database constructed via the driver gets
+// the default connect timeout when the caller does not set OptionConnectTimeout.
+func TestDefaultConnectTimeout(t *testing.T) {
+	drv := NewDriver(memory.DefaultAllocator)
+	db, err := drv.NewDatabase(map[string]string{})
+	require.NoError(t, err)
+
+	gs, ok := db.(adbc.GetSetOptions)
+	require.True(t, ok)
+	got, err := gs.GetOption(OptionConnectTimeout)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultConnectTimeout.String(), got)
 }

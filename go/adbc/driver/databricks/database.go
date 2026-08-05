@@ -62,6 +62,10 @@ type databaseImpl struct {
 	schema         string
 	user_agent     string
 
+	// Connection establishment timeout: bounds OpenSession and retries a
+	// cold-starting warehouse until the deadline. 0 = single attempt (prior behavior).
+	connectTimeout time.Duration
+
 	// Query options
 	queryTimeout        time.Duration
 	maxRows             int
@@ -197,6 +201,10 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 
 	if d.queryTimeout > 0 {
 		opts = append(opts, dbsql.WithTimeout(d.queryTimeout))
+	}
+
+	if d.connectTimeout > 0 {
+		opts = append(opts, dbsql.WithConnectTimeout(d.connectTimeout))
 	}
 
 	if d.maxRows > 0 {
@@ -343,6 +351,11 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 			return d.queryTimeout.String(), nil
 		}
 		return "", nil
+	case OptionConnectTimeout:
+		if d.connectTimeout > 0 {
+			return d.connectTimeout.String(), nil
+		}
+		return "", nil
 	case OptionMaxRows:
 		if d.maxRows > 0 {
 			return strconv.Itoa(d.maxRows), nil
@@ -458,6 +471,17 @@ func (d *databaseImpl) SetOption(key, value string) error {
 				}
 			}
 			d.queryTimeout = timeout
+		}
+	case OptionConnectTimeout:
+		if value != "" {
+			timeout, err := time.ParseDuration(value)
+			if err != nil {
+				return adbc.Error{
+					Code: adbc.StatusInvalidArgument,
+					Msg:  fmt.Sprintf("invalid connect timeout: %v", err),
+				}
+			}
+			d.connectTimeout = timeout
 		}
 	case OptionMaxRows:
 		if value != "" {
