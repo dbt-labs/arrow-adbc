@@ -125,6 +125,9 @@ type statement struct {
 
 	// Wrap errors with a link to failed job
 	linkFailedJob bool
+
+	// Fetch BigQuery job statistics. Off by default.
+	fetchJobStats bool
 }
 
 func (st *statement) GetOptionBytes(key string) ([]byte, error) {
@@ -217,6 +220,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return strconv.FormatBool(st.queryConfig.CreateSession), nil
 	case OptionBoolQueryLinkFailedJob:
 		return strconv.FormatBool(st.linkFailedJob), nil
+	case OptionBoolStatementFetchJobStats:
+		return strconv.FormatBool(st.fetchJobStats), nil
 	case OptionBoolUseStorageApiDisabledClient:
 		return strconv.FormatBool(st.useStorageApiDisabledClient), nil
 	case OptionStringIngestFileDelimiter:
@@ -458,6 +463,13 @@ func (st *statement) SetOption(key string, v string) error {
 		} else {
 			return err
 		}
+	case OptionBoolStatementFetchJobStats:
+		val, err := strconv.ParseBool(v)
+		if err == nil {
+			st.fetchJobStats = val
+		} else {
+			return err
+		}
 	case OptionStringNotebookExecuteJobGscPath:
 		st.createNotebookExecuteJobGscPath = v
 	case OptionStringNotebookExecuteJobModelFileName:
@@ -582,7 +594,7 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 	}
 
 	ctx = context.WithValue(ctx, ContextKeyUseStorageApiDisabledClient, st.useStorageApiDisabledClient)
-	return newRecordReader(ctx, st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob)
+	return newRecordReader(ctx, st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob, st.fetchJobStats)
 }
 
 // ExecuteUpdate executes a statement that does not generate a result
@@ -594,33 +606,27 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 	}
 
 	if boundParameters == nil {
-		_, totalRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
-		if err != nil {
-			return -1, err
-		}
-		return totalRows, nil
-	} else {
-		totalRows := int64(0)
-		for boundParameters.Next() {
-			values := boundParameters.RecordBatch()
-			for i := 0; i < int(values.NumRows()); i++ {
-				parameters, err := getQueryParameter(values, i, st.parameterMode)
-				if err != nil {
-					return -1, err
-				}
-				if parameters != nil {
-					st.queryConfig.Parameters = parameters
-				}
-
-				_, currentRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
-				if err != nil {
-					return -1, err
-				}
-				totalRows += currentRows
-			}
-		}
-		return totalRows, nil
+		return runUpdate(ctx, st.query())
 	}
+	totalRows := int64(0)
+	for boundParameters.Next() {
+		values := boundParameters.RecordBatch()
+		for i := 0; i < int(values.NumRows()); i++ {
+			parameters, err := getQueryParameter(values, i, st.parameterMode)
+			if err != nil {
+				return -1, err
+			}
+			if parameters != nil {
+				st.queryConfig.Parameters = parameters
+			}
+			currentRows, err := runUpdate(ctx, st.query())
+			if err != nil {
+				return -1, err
+			}
+			totalRows += currentRows
+		}
+	}
+	return totalRows, nil
 }
 
 // ExecuteSchema gets the schema of the result set of a query without executing it.
