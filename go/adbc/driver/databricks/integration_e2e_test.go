@@ -703,3 +703,59 @@ func TestE2E_QueryWithTypes(t *testing.T) {
 
 	t.Log("✅ Successfully retrieved all data types")
 }
+
+// TestE2E_QueryTags tests that database-level query tags are applied and that
+// statement-level tags override them per tag name.
+func TestE2E_QueryTags(t *testing.T) {
+	host, token, httpPath, catalog, schema := getDatabricksConfig(t)
+
+	driver := databricks.NewDriver(memory.DefaultAllocator)
+	db, err := driver.NewDatabase(map[string]string{
+		databricks.OptionServerHostname:               host,
+		databricks.OptionHTTPPath:                     httpPath,
+		databricks.OptionAccessToken:                  token,
+		databricks.OptionCatalog:                      catalog,
+		databricks.OptionSchema:                       schema,
+		databricks.OptionQueryTagPrefix + "team":      "data-platform",
+		databricks.OptionQueryTagPrefix + "component": "adbc",
+	})
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := db.Open(ctx)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	stmt, err := conn.NewStatement()
+	require.NoError(t, err)
+	defer func() { _ = stmt.Close() }()
+
+	// Overrides "team", keeps the "component" default, adds "run_id"
+	require.NoError(t, stmt.SetOption(databricks.OptionQueryTagPrefix+"team", "adhoc"))
+	require.NoError(t, stmt.SetOption(databricks.OptionQueryTagPrefix+"run_id", "42"))
+
+	require.NoError(t, stmt.SetSqlQuery("SELECT 1 as tagged_query"))
+	reader, _, err := stmt.ExecuteQuery(ctx)
+	require.NoError(t, err)
+	defer reader.Release()
+
+	assert.True(t, reader.Next(), "Expected at least one record")
+	require.NoError(t, reader.Err())
+
+	t.Log("✅ Query with tags executed; expect team:adhoc,component:adbc,run_id:42 in query history")
+
+	// An update statement carries the same merged tags
+	updateStmt, err := conn.NewStatement()
+	require.NoError(t, err)
+	defer func() { _ = updateStmt.Close() }()
+
+	require.NoError(t, updateStmt.SetOption(databricks.OptionQueryTagPrefix+"team", ""))
+	require.NoError(t, updateStmt.SetSqlQuery("SELECT 1"))
+	_, err = updateStmt.ExecuteUpdate(ctx)
+	require.NoError(t, err)
+
+	t.Log("✅ Update with tags executed; expect component:adbc only (team default suppressed)")
+}

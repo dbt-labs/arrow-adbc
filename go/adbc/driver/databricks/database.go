@@ -22,6 +22,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,6 +97,10 @@ type databaseImpl struct {
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Keys are parameter names (e.g. "QUERY_TAGS"), values are parameter values.
 	sessionParams map[string]string
+
+	// Default query tags applied to every query on the session. Statement-level
+	// tags override these per tag name.
+	queryTags map[string]string
 }
 
 // hasConnectTimeout reports whether an explicit connect timeout is configured,
@@ -247,6 +252,12 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 		opts = append(opts, dbsql.WithSessionParams(d.sessionParams))
 	}
 
+	// Applied after the session params so that explicit query tag options win over a
+	// raw "databricks.session_param.QUERY_TAGS".
+	if len(d.queryTags) > 0 {
+		opts = append(opts, dbsql.WithQueryTags(d.queryTags))
+	}
+
 	return opts, nil
 }
 
@@ -313,6 +324,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 		ConnectionImplBase: driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 		catalog:            d.catalog,
 		dbSchema:           d.schema,
+		queryTags:          maps.Clone(d.queryTags),
 		conn:               c,
 	}
 
@@ -395,6 +407,16 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 			return "", adbc.Error{
 				Code: adbc.StatusNotFound,
 				Msg:  fmt.Sprintf("session parameter not set: %s", paramKey),
+			}
+		}
+		if strings.HasPrefix(key, OptionQueryTagPrefix) {
+			tagKey := strings.TrimPrefix(key, OptionQueryTagPrefix)
+			if v, ok := d.queryTags[tagKey]; ok {
+				return v, nil
+			}
+			return "", adbc.Error{
+				Code: adbc.StatusNotFound,
+				Msg:  fmt.Sprintf("query tag not set: %s", tagKey),
 			}
 		}
 		return d.DatabaseImplBase.GetOption(key)
@@ -606,6 +628,20 @@ func (d *databaseImpl) SetOption(key, value string) error {
 				d.sessionParams = make(map[string]string)
 			}
 			d.sessionParams[paramKey] = value
+			return nil
+		}
+		if strings.HasPrefix(key, OptionQueryTagPrefix) {
+			tagKey := strings.TrimPrefix(key, OptionQueryTagPrefix)
+			if tagKey == "" {
+				return adbc.Error{
+					Code: adbc.StatusInvalidArgument,
+					Msg:  fmt.Sprintf("query tag name is required, e.g. '%steam'", OptionQueryTagPrefix),
+				}
+			}
+			if d.queryTags == nil {
+				d.queryTags = make(map[string]string)
+			}
+			d.queryTags[tagKey] = value
 			return nil
 		}
 		return d.DatabaseImplBase.SetOption(key, value)

@@ -22,6 +22,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"maps"
+	"strings"
 	"sync/atomic"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -36,6 +38,9 @@ type statementImpl struct {
 	conn     *connectionImpl
 	query    string
 	prepared *sql.Stmt
+
+	// Query tag overrides for this statement, layered over the connection defaults
+	queryTags map[string]string
 }
 
 func (s *statementImpl) Close() error {
@@ -56,11 +61,78 @@ func (s *statementImpl) Close() error {
 }
 
 func (s *statementImpl) SetOption(key, val string) error {
-	// No statement-specific options are supported yet
+	if strings.HasPrefix(key, OptionQueryTagPrefix) {
+		tagKey := strings.TrimPrefix(key, OptionQueryTagPrefix)
+		if tagKey == "" {
+			return adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("query tag name is required, e.g. '%steam'", OptionQueryTagPrefix),
+			}
+		}
+		if s.queryTags == nil {
+			s.queryTags = make(map[string]string)
+		}
+		s.queryTags[tagKey] = val
+		return nil
+	}
+
 	return adbc.Error{
 		Code: adbc.StatusNotImplemented,
 		Msg:  fmt.Sprintf("unsupported statement option: %s", key),
 	}
+}
+
+func (s *statementImpl) GetOption(key string) (string, error) {
+	if strings.HasPrefix(key, OptionQueryTagPrefix) {
+		tagKey := strings.TrimPrefix(key, OptionQueryTagPrefix)
+		if v, ok := s.queryTags[tagKey]; ok {
+			return v, nil
+		}
+		if s.conn != nil {
+			if v, ok := s.conn.queryTags[tagKey]; ok {
+				return v, nil
+			}
+		}
+		return "", adbc.Error{
+			Code: adbc.StatusNotFound,
+			Msg:  fmt.Sprintf("query tag not set: %s", tagKey),
+		}
+	}
+
+	return "", adbc.Error{
+		Code: adbc.StatusNotFound,
+		Msg:  fmt.Sprintf("unknown statement option: %s", key),
+	}
+}
+
+// effectiveQueryTags merges the connection defaults with this statement's overrides.
+// An empty statement value suppresses an inherited default.
+func (s *statementImpl) effectiveQueryTags() map[string]string {
+	var tags map[string]string
+	if s.conn != nil {
+		tags = maps.Clone(s.conn.queryTags)
+	}
+	if len(s.queryTags) > 0 && tags == nil {
+		tags = make(map[string]string, len(s.queryTags))
+	}
+	for k, v := range s.queryTags {
+		if v == "" {
+			delete(tags, k)
+			continue
+		}
+		tags[k] = v
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	return tags
+}
+
+func withQueryTags(ctx context.Context, tags map[string]string) context.Context {
+	if len(tags) == 0 {
+		return ctx
+	}
+	return dbsqlctx.NewContextWithQueryTags(ctx, tags)
 }
 
 func (s *statementImpl) SetSqlQuery(query string) error {
@@ -118,7 +190,7 @@ func (s *statementImpl) ExecuteQuery(ctx context.Context) (array.RecordReader, i
 	qidCallback := func(id string) {
 		qidAtomic.Store(id)
 	}
-	ctxWithQid := dbsqlctx.NewContextWithQueryIdCallback(ctx, qidCallback)
+	ctxWithQid := dbsqlctx.NewContextWithQueryIdCallback(withQueryTags(ctx, s.effectiveQueryTags()), qidCallback)
 
 	// Execute query using raw driver interface to get Arrow batches
 	var driverRows driver.Rows
@@ -167,6 +239,8 @@ func (s *statementImpl) ExecuteQuery(ctx context.Context) (array.RecordReader, i
 func (s *statementImpl) ExecuteUpdate(ctx context.Context) (int64, error) {
 	var result sql.Result
 	var err error
+
+	ctx = withQueryTags(ctx, s.effectiveQueryTags())
 
 	if s.prepared != nil {
 		result, err = s.prepared.ExecContext(ctx)
