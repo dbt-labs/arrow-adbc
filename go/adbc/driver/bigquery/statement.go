@@ -582,7 +582,7 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 	}
 
 	ctx = context.WithValue(ctx, ContextKeyUseStorageApiDisabledClient, st.useStorageApiDisabledClient)
-	return newRecordReader(ctx, st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob)
+	return newRecordReader(ctx, st.queryClient(), st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob)
 }
 
 // ExecuteUpdate executes a statement that does not generate a result
@@ -594,7 +594,7 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 	}
 
 	if boundParameters == nil {
-		_, totalRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
+		_, totalRows, err := runQuery(ctx, st.queryClient(), st.query(), true, st.linkFailedJob, st.alloc)
 		if err != nil {
 			return -1, err
 		}
@@ -612,7 +612,7 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (int64, error) {
 					st.queryConfig.Parameters = parameters
 				}
 
-				_, currentRows, err := runQuery(ctx, st.query(), true, st.linkFailedJob, st.alloc)
+				_, currentRows, err := runQuery(ctx, st.queryClient(), st.query(), true, st.linkFailedJob, st.alloc)
 				if err != nil {
 					return -1, err
 				}
@@ -661,14 +661,16 @@ func (st *statement) SetSubstraitPlan(plan []byte) error {
 }
 
 func (st *statement) query() *bigquery.Query {
-	var query *bigquery.Query
-	if st.useStorageApiDisabledClient && st.cnxn.clientStorageApiDisabled != nil {
-		query = st.cnxn.clientStorageApiDisabled.Query("")
-	} else {
-		query = st.cnxn.client.Query("")
-	}
+	query := st.queryClient().Query("")
 	query.QueryConfig = st.queryConfig
 	return query
+}
+
+func (st *statement) queryClient() *bigquery.Client {
+	if st.useStorageApiDisabledClient && st.cnxn.clientStorageApiDisabled != nil {
+		return st.cnxn.clientStorageApiDisabled
+	}
+	return st.cnxn.client
 }
 
 func arrowDataTypeToTypeKind(field arrow.Field, value arrow.Array) (bigquery.StandardSQLDataType, error) {
