@@ -49,6 +49,7 @@ const (
 	OptionCatalog        = "databricks.catalog"
 	OptionSchema         = "databricks.schema"
 	OptionUserAgent      = "databricks.user_agent"
+
 	// OptionConnectTimeout bounds establishing a session and retries an
 	// unavailable (cold-starting) warehouse until the deadline. Duration string,
 	// e.g. "600s". Unset/0 keeps the prior single-attempt behavior.
@@ -94,6 +95,7 @@ const (
 	DefaultPort                   = 443
 	DefaultSSLMode                = "require"
 	DefaultExternalBrowserTimeout = 1 * time.Minute
+
 	// DefaultConnectTimeout bounds session establishment (and retries a
 	// cold-starting warehouse) when the caller does not set OptionConnectTimeout.
 	DefaultConnectTimeout = 200 * time.Second
