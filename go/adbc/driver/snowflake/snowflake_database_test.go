@@ -20,7 +20,7 @@ package snowflake
 import (
 	"testing"
 
-	"github.com/snowflakedb/gosnowflake"
+	"github.com/snowflakedb/gosnowflake/v2"
 	"github.com/stretchr/testify/require"
 )
 
