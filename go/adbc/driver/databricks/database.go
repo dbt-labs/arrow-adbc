@@ -98,6 +98,12 @@ type databaseImpl struct {
 	sessionParams map[string]string
 }
 
+// hasConnectTimeout reports whether an explicit connect timeout is configured,
+// so resolveConnectionOptions and GetOption agree on what "set" means.
+func (d *databaseImpl) hasConnectTimeout() bool {
+	return d.connectTimeout > 0
+}
+
 func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 	if d.serverHostname == "" {
 		return nil, adbc.Error{
@@ -203,7 +209,7 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 		opts = append(opts, dbsql.WithTimeout(d.queryTimeout))
 	}
 
-	if d.connectTimeout > 0 {
+	if d.hasConnectTimeout() {
 		opts = append(opts, dbsql.WithConnectTimeout(d.connectTimeout))
 	}
 
@@ -352,7 +358,7 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		}
 		return "", nil
 	case OptionConnectTimeout:
-		if d.connectTimeout > 0 {
+		if d.hasConnectTimeout() {
 			return d.connectTimeout.String(), nil
 		}
 		return "", nil
