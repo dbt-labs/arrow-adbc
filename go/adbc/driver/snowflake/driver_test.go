@@ -49,7 +49,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/decimal128"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/google/uuid"
-	"github.com/snowflakedb/gosnowflake"
+	"github.com/snowflakedb/gosnowflake/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -101,7 +101,7 @@ func (s *SnowflakeQuirks) getSqlTypeFromArrowType(dt arrow.DataType) string {
 	}
 }
 
-func getArr(arr arrow.Array) interface{} {
+func getArr(arr arrow.Array) (interface{}, error) {
 	switch arr := arr.(type) {
 	case *array.Int8:
 		v := arr.Int8Values()
@@ -183,7 +183,11 @@ func (s *SnowflakeQuirks) CreateSampleTable(tableName string, r arrow.RecordBatc
 
 	args := make([]interface{}, 0, r.NumCols())
 	for _, col := range r.Columns() {
-		args = append(args, getArr(col))
+		a, err := getArr(col)
+		if err != nil {
+			return err
+		}
+		args = append(args, a)
 	}
 
 	_, err = db.Exec(insertQuery, args...)
@@ -395,7 +399,7 @@ func (suite *SnowflakeTests) TestNewDatabaseWithOptions() {
 	drv := suite.Quirks.SetupDriver(t).(driver.Driver)
 
 	t.Run("WithTransporter", func(t *testing.T) {
-		transport := &customTransport{base: gosnowflake.SnowflakeTransport}
+		transport := &customTransport{base: &http.Transport{}}
 		dbOptions := suite.Quirks.DatabaseOptions()
 		// Add trace parent to the options.
 		dbOptions[adbc.OptionKeyTelemetryTraceParent] = generateTraceparent()

@@ -34,7 +34,8 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
-	"github.com/snowflakedb/gosnowflake"
+	"github.com/snowflakedb/gosnowflake/v2"
+	"github.com/snowflakedb/gosnowflake/v2/arrowbatches"
 	"github.com/youmark/pkcs8"
 )
 
@@ -143,7 +144,7 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		}
 		return adbc.OptionValueDisabled, nil
 	case OptionDisableTelemetry:
-		if d.cfg.DisableTelemetry {
+		if v, ok := d.cfg.Params["client_telemetry_enabled"]; ok && v != nil && strings.ToLower(*v) == "false" {
 			return adbc.OptionValueEnabled, nil
 		}
 		return adbc.OptionValueDisabled, nil
@@ -396,9 +397,9 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 	case OptionDisableTelemetry:
 		switch v {
 		case adbc.OptionValueEnabled:
-			d.cfg.DisableTelemetry = true
+			d.cfg.Params["client_telemetry_enabled"] = ptr("false")
 		case adbc.OptionValueDisabled:
-			d.cfg.DisableTelemetry = false
+			d.cfg.Params["client_telemetry_enabled"] = ptr("true")
 		default:
 			return adbc.Error{
 				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s'", OptionSSLSkipVerify, v),
@@ -574,7 +575,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbcConnection adbc.Connection
 	connector := gosnowflake.NewConnector(drv, cfgCopy)
 
 	ctx = gosnowflake.WithArrowAllocator(
-		gosnowflake.WithArrowBatches(ctx), d.Alloc)
+		arrowbatches.WithArrowBatches(ctx), d.Alloc)
 
 	var cn driver.Conn
 	cn, err = connector.Connect(ctx)
@@ -613,3 +614,7 @@ func (d *databaseImpl) Close() error {
 var (
 	_ adbc.PostInitOptions = (*databaseImpl)(nil)
 )
+
+func ptr[T any](v T) *T {
+	return &v
+}
