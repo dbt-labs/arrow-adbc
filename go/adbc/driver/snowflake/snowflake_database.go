@@ -259,6 +259,8 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 		d.cfg.Host = v
 	case OptionIdentityProvider:
 		d.cfg.WorkloadIdentityProvider = v
+	case OptionIdentityProviderEntraResource:
+		d.cfg.WorkloadIdentityEntraResource = v
 	case OptionPort:
 		d.cfg.Port, err = strconv.Atoi(v)
 		if err != nil {

@@ -35,3 +35,19 @@ func TestSetOptionInternal_NormalizesAccount(t *testing.T) {
 	require.NoError(t, err_b)
 	require.Equal(t, "my-account-name", db.cfg.Account)
 }
+
+func TestSetOptionInternal_WorkloadIdentity(t *testing.T) {
+	db := &databaseImpl{cfg: &gosnowflake.Config{}}
+
+	err := db.SetOptionInternal(OptionAuthType, OptionValueAuthWIF, nil)
+	require.NoError(t, err)
+	require.Equal(t, gosnowflake.AuthTypeWorkloadIdentityFederation, db.cfg.Authenticator)
+
+	err = db.SetOptionInternal(OptionIdentityProvider, "AZURE", nil)
+	require.NoError(t, err)
+	require.Equal(t, "AZURE", db.cfg.WorkloadIdentityProvider)
+
+	err = db.SetOptionInternal(OptionIdentityProviderEntraResource, "api://1111111-2222-3333-44444-55555555", nil)
+	require.NoError(t, err)
+	require.Equal(t, "api://1111111-2222-3333-44444-55555555", db.cfg.WorkloadIdentityEntraResource)
+}
