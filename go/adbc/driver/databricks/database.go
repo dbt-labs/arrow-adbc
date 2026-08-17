@@ -487,6 +487,12 @@ func (d *databaseImpl) SetOption(key, value string) error {
 					Msg:  fmt.Sprintf("invalid connect timeout: %v", err),
 				}
 			}
+			if timeout <= 0 {
+				return adbc.Error{
+					Code: adbc.StatusInvalidArgument,
+					Msg:  fmt.Sprintf("connect timeout must be positive: %v", timeout),
+				}
+			}
 			d.connectTimeout = timeout
 		}
 	case OptionMaxRows:
