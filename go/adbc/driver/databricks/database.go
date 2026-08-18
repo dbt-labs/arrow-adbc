@@ -358,10 +358,7 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		}
 		return "", nil
 	case OptionConnectTimeout:
-		if d.hasConnectTimeout() {
-			return d.connectTimeout.String(), nil
-		}
-		return "", nil
+		return d.connectTimeout.String(), nil
 	case OptionMaxRows:
 		if d.maxRows > 0 {
 			return strconv.Itoa(d.maxRows), nil
