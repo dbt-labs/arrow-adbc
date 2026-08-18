@@ -106,7 +106,6 @@ func (s *statementImpl) GetOption(key string) (string, error) {
 }
 
 // effectiveQueryTags merges the connection defaults with this statement's overrides.
-// An empty statement value suppresses an inherited default.
 func (s *statementImpl) effectiveQueryTags() map[string]string {
 	var tags map[string]string
 	if s.conn != nil {
@@ -115,13 +114,7 @@ func (s *statementImpl) effectiveQueryTags() map[string]string {
 	if len(s.queryTags) > 0 && tags == nil {
 		tags = make(map[string]string, len(s.queryTags))
 	}
-	for k, v := range s.queryTags {
-		if v == "" {
-			delete(tags, k)
-			continue
-		}
-		tags[k] = v
-	}
+	maps.Copy(tags, s.queryTags)
 	if len(tags) == 0 {
 		return nil
 	}
