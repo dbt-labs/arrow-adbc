@@ -50,6 +50,11 @@ const (
 	OptionSchema         = "databricks.schema"
 	OptionUserAgent      = "databricks.user_agent"
 
+	// OptionConnectTimeout bounds establishing a session and retries an
+	// unavailable (cold-starting) warehouse until the deadline. Duration string,
+	// e.g. "600s". Unset/0 keeps the prior single-attempt behavior.
+	OptionConnectTimeout = "databricks.connect_timeout"
+
 	// Query options
 	OptionQueryTimeout        = "databricks.query.timeout"
 	OptionMaxRows             = "databricks.query.max_rows"
@@ -90,6 +95,10 @@ const (
 	DefaultPort                   = 443
 	DefaultSSLMode                = "require"
 	DefaultExternalBrowserTimeout = 1 * time.Minute
+
+	// DefaultConnectTimeout bounds session establishment (and retries a
+	// cold-starting warehouse) when the caller does not set OptionConnectTimeout.
+	DefaultConnectTimeout = 200 * time.Second
 )
 
 var (
@@ -142,6 +151,7 @@ func (d *driverImpl) NewDatabaseWithContext(ctx context.Context, opts map[string
 		DatabaseImplBase: dbBase,
 		port:             DefaultPort,
 		sslMode:          DefaultSSLMode,
+		connectTimeout:   DefaultConnectTimeout,
 	}
 
 	if err := db.SetOptions(opts); err != nil {
