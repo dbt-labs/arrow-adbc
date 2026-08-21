@@ -25,7 +25,7 @@ require (
 	github.com/bluele/gcache v0.0.2
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/databricks/databricks-sdk-go v0.153.0
-	github.com/databricks/databricks-sql-go v1.14.0
+	github.com/databricks/databricks-sql-go v1.14.2
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
@@ -72,7 +72,7 @@ require (
 
 replace github.com/snowflakedb/gosnowflake => github.com/dbt-labs/gosnowflake v1.17.11
 
-replace github.com/databricks/databricks-sql-go => github.com/dbt-labs/databricks-sql-go v1.14.0
+replace github.com/databricks/databricks-sql-go => github.com/dbt-labs/databricks-sql-go v1.14.2
 
 require (
 	cloud.google.com/go v0.121.6
