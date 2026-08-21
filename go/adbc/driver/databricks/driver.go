@@ -91,6 +91,10 @@ const (
 	// Use with a parameter name suffix, e.g. "databricks.session_param.QUERY_TAGS".
 	OptionSessionParamPrefix = "databricks.session_param."
 
+	// Query tags attached to executed statements, e.g. "databricks.query_tag.team".
+	// Settable on the database (defaults) and on a statement (overrides the default per tag).
+	OptionQueryTagPrefix = "databricks.query_tag."
+
 	// Default values
 	DefaultPort                   = 443
 	DefaultSSLMode                = "require"
