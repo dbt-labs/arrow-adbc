@@ -21,6 +21,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 
 	dbsqlctx "github.com/databricks/databricks-sql-go/driverctx"
+	dbsqlerr "github.com/databricks/databricks-sql-go/errors"
 	dbsqlrows "github.com/databricks/databricks-sql-go/rows"
 )
 
@@ -41,6 +43,24 @@ type statementImpl struct {
 
 	// Query tag overrides for this statement, layered over the connection defaults
 	queryTags map[string]string
+}
+
+func classifyError(action string, err error) adbc.Error {
+	code := adbc.StatusInternal
+	var execErr dbsqlerr.DBExecutionError
+	var reqErr dbsqlerr.DBRequestError
+	var drvErr dbsqlerr.DBDriverError
+	switch {
+	case errors.Is(err, context.Canceled):
+		code = adbc.StatusCancelled
+	case errors.Is(err, context.DeadlineExceeded):
+		code = adbc.StatusTimeout
+	case errors.As(err, &execErr):
+		code = adbc.StatusInvalidData
+	case errors.As(err, &reqErr) || errors.As(err, &drvErr):
+		code = adbc.StatusIO
+	}
+	return adbc.Error{Code: code, Msg: fmt.Sprintf("%s: %v", action, err)}
 }
 
 func (s *statementImpl) Close() error {
@@ -198,10 +218,7 @@ func (s *statementImpl) ExecuteQuery(ctx context.Context) (array.RecordReader, i
 	})
 
 	if err != nil {
-		return nil, -1, adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to execute query: %v", err),
-		}
+		return nil, -1, classifyError("failed to execute query", err)
 	}
 
 	// Convert to databricks rows interface to get Arrow batches
@@ -247,10 +264,7 @@ func (s *statementImpl) ExecuteUpdate(ctx context.Context) (int64, error) {
 	}
 
 	if err != nil {
-		return -1, adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to execute update: %v", err),
-		}
+		return -1, classifyError("failed to execute update", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
