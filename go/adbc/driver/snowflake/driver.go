@@ -134,6 +134,9 @@ const (
 	// Specify the identity provider to utilize for generating a workload identity
 	// federation attestation. Must be set when using OptionValueAuthWIF.
 	OptionIdentityProvider = "adbc.snowflake.sql.client_option.identity_provider"
+	// Specify the Entra resource to request a token for when OptionIdentityProvider
+	// is "AZURE". Optional; Snowflake's default resource is used if unset.
+	OptionIdentityProviderEntraResource = "adbc.snowflake.sql.client_option.identity_provider_entra_resource"
 
 	OptionClientId     = "adbc.snowflake.sql.client_option.client_id"
 	OptionClientSecret = "adbc.snowflake.sql.client_option.client_secret"
