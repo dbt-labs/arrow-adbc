@@ -145,7 +145,7 @@ func TestRunQuerySkipsStorageReadForInsertWhenDestinationHasRows(t *testing.T) {
 			}`, projectID, location)
 		case r.Method == http.MethodGet && len(r.URL.Path) >= len("/bigquery/v2/projects/test-project/jobs/") && r.URL.Path[:len("/bigquery/v2/projects/test-project/jobs/")] == "/bigquery/v2/projects/test-project/jobs/":
 			_, _ = fmt.Fprintf(w, `{
-				"configuration":{"query":{"query":"INSERT INTO t VALUES (1)","useLegacySql":false,"destinationTable":{"projectId":%q,"datasetId":"elementary_data","tableId":"dbt_run_results"}}},
+				"configuration":{"query":{"query":"INSERT INTO t VALUES (1)","useLegacySql":false,"destinationTable":{"projectId":%q,"datasetId":"analytics","tableId":"events"}}},
 				"jobReference":{"projectId":%q,"location":%q,"jobId":"insert-job"},
 				"status":{"state":"DONE"},
 				"statistics":{"query":{"statementType":"INSERT","numDmlAffectedRows":"24"}}

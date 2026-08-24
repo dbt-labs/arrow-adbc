@@ -126,7 +126,7 @@ func runQuery(ctx context.Context, client *bigquery.Client, query *bigquery.Quer
 // queryJobReturnsRows reports whether the completed job produces a result set
 // that should be read via the Storage API. INSERT/UPDATE/DELETE/MERGE/DDL jobs
 // set Dst to the mutated table; using TotalRows>0 would Storage-Read that
-// entire table (Fusion OOM on Elementary dbt_run_results INSERT).
+// entire table instead of returning an empty DML result.
 func queryJobReturnsRows(job *bigquery.Job) bool {
 	status := job.LastStatus()
 	if status == nil || status.Statistics == nil {
