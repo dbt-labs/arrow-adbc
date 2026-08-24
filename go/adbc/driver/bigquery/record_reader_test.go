@@ -110,6 +110,86 @@ func TestRunQueryRecoversExistingJobAfterDuplicateInsert(t *testing.T) {
 	}
 }
 
+func TestBigqueryStatementTypeReturnsRows(t *testing.T) {
+	if !bigqueryStatementTypeReturnsRows("SELECT") {
+		t.Fatal("SELECT should return rows")
+	}
+	if !bigqueryStatementTypeReturnsRows("CALL") {
+		t.Fatal("CALL should return rows")
+	}
+	if !bigqueryStatementTypeReturnsRows("SCRIPT") {
+		t.Fatal("SCRIPT should return rows")
+	}
+	for _, st := range []string{"INSERT", "UPDATE", "DELETE", "MERGE", "ALTER_TABLE", "CREATE_TABLE_AS_SELECT"} {
+		if bigqueryStatementTypeReturnsRows(st) {
+			t.Fatalf("%s should not return rows", st)
+		}
+	}
+}
+
+func TestRunQuerySkipsStorageReadForInsertWhenDestinationHasRows(t *testing.T) {
+	const (
+		projectID = "test-project"
+		location  = "us-west1"
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/test-project/jobs":
+			_, _ = fmt.Fprintf(w, `{
+				"configuration":{"query":{"query":"INSERT INTO t VALUES (1)","useLegacySql":false}},
+				"jobReference":{"projectId":%q,"location":%q,"jobId":"insert-job"},
+				"status":{"state":"DONE"},
+				"statistics":{"query":{"statementType":"INSERT","numDmlAffectedRows":"24"}}
+			}`, projectID, location)
+		case r.Method == http.MethodGet && len(r.URL.Path) >= len("/bigquery/v2/projects/test-project/jobs/") && r.URL.Path[:len("/bigquery/v2/projects/test-project/jobs/")] == "/bigquery/v2/projects/test-project/jobs/":
+			_, _ = fmt.Fprintf(w, `{
+				"configuration":{"query":{"query":"INSERT INTO t VALUES (1)","useLegacySql":false,"destinationTable":{"projectId":%q,"datasetId":"elementary_data","tableId":"dbt_run_results"}}},
+				"jobReference":{"projectId":%q,"location":%q,"jobId":"insert-job"},
+				"status":{"state":"DONE"},
+				"statistics":{"query":{"statementType":"INSERT","numDmlAffectedRows":"24"}}
+			}`, projectID, projectID, location)
+		case r.Method == http.MethodGet && len(r.URL.Path) >= len("/bigquery/v2/projects/test-project/queries/") && r.URL.Path[:len("/bigquery/v2/projects/test-project/queries/")] == "/bigquery/v2/projects/test-project/queries/":
+			// Destination table has many historical rows. TotalRows>0 used to
+			// trigger Storage Read of the whole table.
+			_, _ = fmt.Fprintf(w, `{
+				"jobComplete":true,
+				"jobReference":{"projectId":%q,"location":%q,"jobId":"insert-job"},
+				"schema":{"fields":[{"name":"compiled_code","type":"STRING"}]},
+				"totalRows":"1000000"
+			}`, projectID, location)
+		default:
+			t.Fatalf("unexpected BigQuery request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := bigquery.NewClient(
+		context.Background(),
+		projectID,
+		option.WithEndpoint(srv.URL+"/bigquery/v2/"),
+		option.WithHTTPClient(srv.Client()),
+		option.WithoutAuthentication(),
+	)
+	if err != nil {
+		t.Fatalf("create BigQuery client: %v", err)
+	}
+	defer client.Close()
+
+	query := client.Query("INSERT INTO t VALUES (1)")
+	query.Location = location
+	ctx := context.WithValue(context.Background(), ContextKeyUseStorageApiDisabledClient, false)
+
+	iterator, _, err := runQuery(ctx, client, query, false, false, memory.DefaultAllocator)
+	if err != nil {
+		t.Fatalf("INSERT with destination TotalRows>0 should not require Storage Read: %v", err)
+	}
+	if _, ok := iterator.(emptyArrowIterator); !ok {
+		t.Fatalf("expected emptyArrowIterator for INSERT, got %T", iterator)
+	}
+}
+
 func TestEmptyArrowIteratorNext(t *testing.T) {
 	iter := emptyArrowIterator{}
 	res, err := iter.Next()

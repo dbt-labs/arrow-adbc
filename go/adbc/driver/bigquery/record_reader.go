@@ -98,7 +98,7 @@ func runQuery(ctx context.Context, client *bigquery.Client, query *bigquery.Quer
 
 	var arrowIterator bigquery.ArrowIterator
 	useLegacyAPI := ctx.Value(ContextKeyUseStorageApiDisabledClient).(bool)
-	if iter.TotalRows > 0 {
+	if queryJobReturnsRows(job) && iter.TotalRows > 0 {
 		if !useLegacyAPI {
 			if !iter.IsAccelerated() {
 				return nil, -1, fmt.Errorf("Storage API is not available for query: %s", jobLink)
@@ -121,6 +121,31 @@ func runQuery(ctx context.Context, client *bigquery.Client, query *bigquery.Quer
 	// Store job ID in query for adding to metadata
 	query.JobID = job.ID()
 	return arrowIterator, totalRows, nil
+}
+
+// queryJobReturnsRows reports whether the completed job produces a result set
+// that should be read via the Storage API. INSERT/UPDATE/DELETE/MERGE/DDL jobs
+// set Dst to the mutated table; using TotalRows>0 would Storage-Read that
+// entire table (Fusion OOM on Elementary dbt_run_results INSERT).
+func queryJobReturnsRows(job *bigquery.Job) bool {
+	status := job.LastStatus()
+	if status == nil || status.Statistics == nil {
+		return true
+	}
+	stats, ok := status.Statistics.Details.(*bigquery.QueryStatistics)
+	if !ok || stats.StatementType == "" {
+		return true
+	}
+	return bigqueryStatementTypeReturnsRows(stats.StatementType)
+}
+
+func bigqueryStatementTypeReturnsRows(statementType string) bool {
+	switch statementType {
+	case "SELECT", "CALL", "SCRIPT":
+		return true
+	default:
+		return false
+	}
 }
 
 func ipcReaderFromArrowIterator(arrowIterator bigquery.ArrowIterator, alloc memory.Allocator) (*ipc.Reader, error) {
