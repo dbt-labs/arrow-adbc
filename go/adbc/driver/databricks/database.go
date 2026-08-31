@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"crypto/tls"
@@ -34,6 +35,8 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	dbsql "github.com/databricks/databricks-sql-go"
+	"github.com/databricks/databricks-sql-go/auth/oauth/m2m"
+	"github.com/databricks/databricks-sql-go/auth/oauth/u2m"
 )
 
 const (
@@ -46,13 +49,13 @@ type databaseImpl struct {
 	driverbase.DatabaseImplBase
 
 	// Connection Pool
+	mu           sync.Mutex
 	db           *sql.DB
-	needsRefresh bool // Whether we need to re-initialize
+	needsRefresh bool
 
 	// Connection parameters
 	serverHostname string
 	httpPath       string
-	accessToken    string
 	port           int
 	catalog        string
 	schema         string
@@ -69,10 +72,15 @@ type databaseImpl struct {
 	sslCertPool *x509.CertPool
 	sslInsecure bool
 
-	// OAuth options (for future expansion)
+	// Auth
+	authType string
+
+	accessToken string
+
 	oauthClientID     string
 	oauthClientSecret string
 	oauthRefreshToken string
+	oauthU2MTimeout   time.Duration
 }
 
 func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
@@ -90,18 +98,58 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 		}
 	}
 
-	// FIXME: Support other auth methods
-	if d.accessToken == "" {
-		return nil, adbc.Error{
-			Code: adbc.StatusInvalidArgument,
-			Msg:  "access token is required",
-		}
-	}
-
 	opts := []dbsql.ConnOption{
-		dbsql.WithAccessToken(d.accessToken),
 		dbsql.WithServerHostname(d.serverHostname),
 		dbsql.WithHTTPPath(d.httpPath),
+	}
+
+	// Handle Auth configurations and validate based on user selected auth type
+	switch d.authType {
+	case OptionValueAuthTypePAT:
+		if d.accessToken == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("access token is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypePAT, OptionAccessToken),
+			}
+		}
+		opts = append(opts, dbsql.WithAccessToken(d.accessToken))
+	case OptionValueAuthTypeOAuthM2M:
+		if d.oauthClientID == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("client ID is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeOAuthM2M, OptionOAuthClientID),
+			}
+		}
+		if d.oauthClientSecret == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("client secret is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeOAuthM2M, OptionOAuthClientSecret),
+			}
+		}
+		authenticator := m2m.NewAuthenticator(
+			d.oauthClientID,
+			d.oauthClientSecret,
+			d.serverHostname,
+		)
+		opts = append(opts, dbsql.WithAuthenticator(authenticator))
+	case OptionValueAuthTypeExternalBrowser:
+		timeout := d.oauthU2MTimeout
+		if timeout == 0 {
+			timeout = DefaultExternalBrowserTimeout
+		}
+		authenticator, err := u2m.NewAuthenticator(d.serverHostname, timeout, 8020) // App Connection default
+		if err != nil {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidState,
+				Msg:  fmt.Sprintf("failed to initialize authenticator: %v", err),
+			}
+		}
+		opts = append(opts, dbsql.WithAuthenticator(authenticator))
+	default:
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("missing required option: '%s'", OptionAuthType),
+		}
 	}
 
 	// Validate and set custom port
@@ -181,29 +229,34 @@ func (d *databaseImpl) initializeConnectionPool(ctx context.Context) (*sql.DB, e
 	return db, nil
 }
 
-func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
-	// Re-initialize the connection pool and settings if anything
-	// has changed, or we have not initialized yet
-	if d.needsRefresh || d.db == nil {
-		db, err := d.initializeConnectionPool(ctx)
+func (d *databaseImpl) getOrCreatePool(ctx context.Context) (*sql.DB, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-		if err != nil {
-			return nil, err
-		}
-
-		// Close the existing connection pool
-		if d.db != nil {
-			err = d.db.Close()
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		d.db = db
+	if d.db != nil && !d.needsRefresh {
+		return d.db, nil
 	}
 
-	c, err := d.db.Conn(ctx)
+	db, err := d.initializeConnectionPool(ctx)
+	if err != nil {
+		return nil, err
+	}
 
+	if d.db != nil {
+		_ = d.db.Close()
+	}
+	d.db = db
+	d.needsRefresh = false
+	return d.db, nil
+}
+
+func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
+	db, err := d.getOrCreatePool(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := db.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -224,11 +277,15 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 }
 
 func (d *databaseImpl) Close() error {
-	defer func() {
-		d.needsRefresh = true
-		d.db = nil
-	}()
-	return d.db.Close()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.db == nil {
+		return nil
+	}
+	err := d.db.Close()
+	d.db = nil
+	return err
 }
 
 func (d *databaseImpl) GetOption(key string) (string, error) {
@@ -281,11 +338,8 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 }
 
 func (d *databaseImpl) SetOptions(options map[string]string) error {
-	// We need to re-initialize the db/connection pool if options change
-	d.needsRefresh = true
 	for k, v := range options {
-		err := d.SetOption(k, v)
-		if err != nil {
+		if err := d.SetOption(k, v); err != nil {
 			return err
 		}
 	}
@@ -293,9 +347,10 @@ func (d *databaseImpl) SetOptions(options map[string]string) error {
 }
 
 func (d *databaseImpl) SetOption(key, value string) error {
-	// We need to re-initialize the db/connection pool if options change
 	d.needsRefresh = true
 	switch key {
+	case OptionAuthType:
+		d.authType = value
 	case OptionServerHostname:
 		d.serverHostname = value
 	case OptionHTTPPath:
@@ -412,6 +467,17 @@ func (d *databaseImpl) SetOption(key, value string) error {
 		d.oauthClientSecret = value
 	case OptionOAuthRefreshToken:
 		d.oauthRefreshToken = value
+	case OptionExternalBrowserTimeout:
+		if value != "" {
+			timeout, err := time.ParseDuration(value)
+			if err != nil {
+				return adbc.Error{
+					Code: adbc.StatusInvalidArgument,
+					Msg:  fmt.Sprintf("invalid external browser auth timeout: %v", err),
+				}
+			}
+			d.oauthU2MTimeout = timeout
+		}
 	default:
 		return d.DatabaseImplBase.SetOption(key, value)
 	}
