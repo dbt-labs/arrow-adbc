@@ -558,6 +558,7 @@ type reader struct {
 	err        error
 
 	cancelFn context.CancelFunc
+	done     chan struct{} // signals all producer goroutines have finished
 }
 
 const defaultStreamMaxRetries = 3
@@ -856,31 +857,21 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 		return array.NewRecordReader(schema, results)
 	}
 
-	ch := make(chan arrow.RecordBatch, bufferSize)
-	group, ctx := errgroup.WithContext(compute.WithAllocator(ctx, alloc))
-	ctx, cancelFn := context.WithCancel(ctx)
-	group.SetLimit(prefetchConcurrency)
-
-	defer func() {
-		if err != nil {
-			close(ch)
-			cancelFn()
-		}
-	}()
-
-	chs := make([]chan arrow.RecordBatch, len(batches))
-	rdr := &reader{
-		refCount: 1,
-		chs:      chs,
-		err:      nil,
-		cancelFn: cancelFn,
-	}
-
+	// Handle empty batches case early
 	if len(batches) == 0 {
 		schema, err := rowTypesToArrowSchema(ctx, ld, useHighPrecision, maxTimestampPrecision)
 		if err != nil {
 			return nil, err
 		}
+		_, cancelFn := context.WithCancel(ctx)
+		rdr := &reader{
+			refCount: 1,
+			chs:      nil,
+			err:      nil,
+			cancelFn: cancelFn,
+			done:     make(chan struct{}),
+		}
+		close(rdr.done) // No goroutines to wait for
 		rdr.schema, _ = getTransformer(schema, ld, useHighPrecision, maxTimestampPrecision)
 		return rdr, nil
 	}
@@ -931,6 +922,32 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 		attribute.String("schema", rr.Schema().String()),
 	))
 
+	// Now setup concurrency primitives after error-prone operations
+	group, ctx := errgroup.WithContext(compute.WithAllocator(ctx, alloc))
+	ctx, cancelFn := context.WithCancel(ctx)
+	group.SetLimit(prefetchConcurrency)
+
+	// Allocate every batch's channel synchronously, before any producer
+	// goroutine starts. Next()/Release() index into chs[i] as soon as the
+	// caller gets rdr back; if chs[i] were created lazily inside a spawned
+	// goroutine instead, a fast caller could observe chs[i] as nil (its
+	// zero value) and block on it forever -- receiving from a nil channel
+	// never completes, so a later goroutine finally assigning a real
+	// channel into that slot doesn't unblock it.
+	// Port of https://github.com/adbc-drivers/snowflake/commit/269357fcd25fbcf0ebf156a1ad10ec36a7bd735c
+	chs := make([]chan arrow.RecordBatch, len(batches))
+	for i := range chs {
+		chs[i] = make(chan arrow.RecordBatch, bufferSize)
+	}
+
+	rdr := &reader{
+		refCount: 1,
+		chs:      chs,
+		err:      nil,
+		cancelFn: cancelFn,
+		done:     make(chan struct{}),
+	}
+
 	var recTransform recordTransformer
 	rdr.schema, recTransform = getTransformer(rr.Schema(), ld, useHighPrecision, maxTimestampPrecision)
 
@@ -940,7 +957,7 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 			err = errors.Join(err, r.Close())
 		}()
 		if len(batches) > 1 {
-			defer close(ch)
+			defer close(chs[0])
 		}
 
 		for rr.Next() && ctx.Err() == nil {
@@ -949,18 +966,24 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 			if err != nil {
 				return err
 			}
-			ch <- rec
+
+			// Use context-aware send to prevent deadlock
+			select {
+			case chs[0] <- rec:
+				// Successfully sent
+			case <-ctx.Done():
+				// Context cancelled, clean up and exit
+				rec.Release()
+				return ctx.Err()
+			}
 		}
 		return rr.Err()
 	})
-
-	chs[0] = ch
 
 	lastChannelIndex := len(chs) - 1
 	go func() {
 		for i := range batches[1:] {
 			batch, batchIdx := &batches[i+1], i+1
-			chs[batchIdx] = make(chan arrow.RecordBatch, bufferSize)
 			group.Go(func(batch batchStreamer, batchIdx int) func() error {
 				return func() (err error) {
 					// close channels (except the last) so that Next can move on to the next channel properly
@@ -1050,6 +1073,8 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 		// don't close the last channel until after the group is finished,
 		// so that Next() can only return after reader.err may have been set
 		close(chs[lastChannelIndex])
+		// Signal that all producer goroutines have finished
+		close(rdr.done)
 	}()
 
 	return rdr, nil
@@ -1101,7 +1126,17 @@ func (r *reader) Release() {
 			r.rec.Release()
 		}
 		r.cancelFn()
+
+		// Wait for all producer goroutines to finish before draining channels
+		// This prevents deadlock where producers are blocked on sends
+		<-r.done
+
+		// Now safely drain remaining data from channels
+		// All channels should be closed at this point
 		for _, ch := range r.chs {
+			if ch == nil {
+				continue
+			}
 			for rec := range ch {
 				rec.Release()
 			}
