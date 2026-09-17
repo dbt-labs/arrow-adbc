@@ -215,6 +215,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return strconv.FormatBool(st.queryConfig.DryRun), nil
 	case OptionBoolQueryCreateSession:
 		return strconv.FormatBool(st.queryConfig.CreateSession), nil
+	case OptionStringQueryReservation:
+		return st.queryConfig.Reservation, nil
 	case OptionBoolQueryLinkFailedJob:
 		return strconv.FormatBool(st.linkFailedJob), nil
 	case OptionBoolUseStorageApiDisabledClient:
@@ -404,6 +406,8 @@ func (st *statement) SetOption(key string, v string) error {
 		} else {
 			return err
 		}
+	case OptionStringQueryReservation:
+		st.queryConfig.Reservation = v
 	case OptionStringIngestPath:
 		st.ingestPath = v
 	case OptionStringIngestFileDelimiter:
@@ -751,7 +755,7 @@ func arrowDataTypeToTypeKind(field arrow.Field, value arrow.Array) (bigquery.Sta
 		}, nil
 	case arrow.INTERVAL_MONTHS, arrow.INTERVAL_DAY_TIME, arrow.INTERVAL_MONTH_DAY_NANO:
 		// "INTERVAL" is not yet documented in BigQuery docs, but it works in
-		// practice here for our puposes.
+		// practice here for our purposes.
 		return bigquery.StandardSQLDataType{
 			TypeKind: "INTERVAL",
 		}, nil
