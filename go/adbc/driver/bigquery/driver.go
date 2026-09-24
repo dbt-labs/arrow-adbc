@@ -90,7 +90,7 @@ const (
 	// execution. The value must be a full reservation resource path of the form
 	// "projects/<project>/locations/<location>/reservations/<reservation>".
 	// When set, the query job is submitted under the specified reservation.
-	OptionStringQueryReservation = "adbc.bigquery.sql.query.reservation"
+	OptionStringQueryReservation = "bigquery.query.reservation"
 
 	OptionIntQueryResultBufferSize    = "adbc.bigquery.sql.query.result_buffer_size"
 	OptionIntQueryPrefetchConcurrency = "adbc.bigquery.sql.query.prefetch_concurrency"
