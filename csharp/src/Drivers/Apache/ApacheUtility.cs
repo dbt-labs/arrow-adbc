@@ -173,6 +173,21 @@ namespace Apache.Arrow.Adbc.Drivers.Apache
 
         internal static string GetAssemblyName(Type type) => type.Assembly.GetName().Name!;
 
-        internal static string GetAssemblyVersion(Type type) => FileVersionInfo.GetVersionInfo(type.Assembly.Location).ProductVersion ?? string.Empty;
+        // Assembly.Location is always "" for a NativeAOT/single-file-published assembly (no
+        // DLL file on disk for the CLR to report a path to) -- FileVersionInfo.GetVersionInfo("")
+        // throws ArgumentException before this ever gets a chance to return, and since this runs
+        // from a couple of static constructors (HiveServer2Connection, etc.), that exception
+        // surfaces as an opaque TypeInitializationException the first time ANY connection of
+        // that type is created. Fall back to the assembly's own AssemblyVersion (embedded in
+        // the assembly itself, not file-path-dependent) whenever Location is empty.
+        internal static string GetAssemblyVersion(Type type)
+        {
+            string location = type.Assembly.Location;
+            if (string.IsNullOrEmpty(location))
+            {
+                return type.Assembly.GetName().Version?.ToString() ?? string.Empty;
+            }
+            return FileVersionInfo.GetVersionInfo(location).ProductVersion ?? string.Empty;
+        }
     }
 }
