@@ -42,11 +42,9 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
 	"github.com/apache/arrow-go/v18/arrow"
-	gax "github.com/googleapis/gax-go/v2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google/externalaccount"
 	bqv2 "google.golang.org/api/bigquery/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/impersonate"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -308,17 +306,9 @@ const tablesListPageSize = 1000
 // listTablesWithoutMetadata returns the tables from the catalog.schema with only
 // the table names and table types, the rest of the metadata is returned empty
 //
-// It calls tables.list through the REST service instead of iterating
-// bigquery.Client's DatasetInProject(...).Tables(ctx), because that iterator
-// does not return the table type, which GetObjects requires (table_type is
-// non-nullable). The tables.list response carries each table's type, but the
-// iterator converts every entry with bqToTable, which keeps only the project,
-// dataset and table IDs; bigquery.Table has no field for the type at all. The
-// only way to get the type through the iterator is a tables.get per table
-// (Table.Metadata), which is the per-table call this path exists to avoid.
-// See TableIterator.fetch and bqToTable:
+// Uses tables.list from the REST API directly because bigquery.Client's Tables iterator omits table type info.
+// The iterator returned from client.DatasetInProject(catalog, schema).Tables(ctx) only provides table/project/dataset IDs
 // https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/dataset.go#L677-L698
-// and the Table struct:
 // https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/table.go#L29-L39
 func (c *connectionImpl) listTablesWithoutMetadata(ctx context.Context, catalog string, schema string, tablePattern *regexp.Regexp) ([]driverbase.TableInfo, error) {
 	svc, err := c.getOrCreateTablesService(ctx)
@@ -334,7 +324,7 @@ func (c *connectionImpl) listTablesWithoutMetadata(ctx context.Context, catalog 
 			PageToken(pageToken).
 			Fields("nextPageToken", "tables(tableReference(tableId),type)").
 			Context(ctx)
-		page, err := doWithRetry(ctx, call.Do)
+		page, err := doWithRetry(ctx, call.Do, defaultRetryReasons)
 		if err != nil {
 			return nil, err
 		}
@@ -352,104 +342,6 @@ func (c *connectionImpl) listTablesWithoutMetadata(ctx context.Context, catalog 
 		}
 		pageToken = page.NextPageToken
 	}
-}
-
-// tablesListBackoff is the backoff bigquery.Client uses for its tables.list
-// calls (runWithRetryExplicit, which follows https://cloud.google.com/bigquery/sla):
-// https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/bigquery.go#L238-L252
-var tablesListBackoff = gax.Backoff{
-	Initial:    1 * time.Second,
-	Max:        32 * time.Second,
-	Multiplier: 2,
-}
-
-// doWithRetry runs a REST call with the retries bigquery.Client applies to its
-// own tables.list calls (listTables wraps call.Do in runWithRetry), since a
-// generated call's Do sends the request exactly once
-// (gensupport.SendRequest, no retry loop):
-// https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/dataset.go#L658-L675
-// https://github.com/googleapis/google-api-go-client/blob/v0.287.1/internal/gensupport/send.go#L85-L97
-//
-// Like runWithRetry there is no attempt limit; retries stop when the error is
-// not retryable or ctx is done.
-func doWithRetry[T any](ctx context.Context, do func(...googleapi.CallOption) (T, error)) (T, error) {
-	var res T
-	var lastErr error
-	err := gax.Invoke(ctx, func(context.Context, gax.CallSettings) error {
-		res, lastErr = do()
-		return lastErr
-	}, gax.WithRetry(func() gax.Retryer {
-		return gax.OnErrorFunc(tablesListBackoff, isRetryableTablesListError)
-	}))
-	if err != nil && lastErr != nil && !errors.Is(err, lastErr) {
-		// ctx was done while waiting to retry. Keep the API error as well, like
-		// cloud.google.com/go/internal.Retry does:
-		// https://github.com/googleapis/google-cloud-go/blob/v0.123.0/internal/retry.go#L35-L55
-		return res, errors.Join(err, lastErr)
-	}
-	// gax.Invoke wraps API errors in apierror.APIError, whose message drops the
-	// googleapi.Error reasons (e.g. accessDenied) that callers match on. Return
-	// the original error instead:
-	// https://github.com/googleapis/gax-go/blob/v2.15.0/v2/invoke.go#L95-L97
-	return res, lastErr
-}
-
-// isRetryableTablesListError is retryableError from cloud.google.com/go/bigquery
-// with the reasons bigquery.Client retries for tables.list (defaultRetryReasons).
-// Ported from v1.85.0, which also retries "http2: client connection lost" and
-// timeouts; the v1.72.0 client this module builds against predates those:
-// https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/bigquery.go#L254-L325
-func isRetryableTablesListError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if err == io.ErrUnexpectedEOF {
-		return true
-	}
-	// Special case due to http2: https://github.com/googleapis/google-cloud-go/issues/1793
-	// Due to Go's default being higher for streams-per-connection than is accepted by the
-	// BQ backend, it's possible to get streams refused immediately after a connection is
-	// started but before we receive SETTINGS frame from the backend.  This generally only
-	// happens when we try to enqueue > 100 requests onto a newly initiated connection.
-	if err.Error() == "http2: stream closed" {
-		return true
-	}
-	if err.Error() == "http2: client connection lost" {
-		return true
-	}
-
-	switch e := err.(type) {
-	case *googleapi.Error:
-		// We received a structured error from backend.
-		if len(e.Errors) > 0 {
-			reason := e.Errors[0].Reason
-			if reason == "backendError" || reason == "rateLimitExceeded" {
-				return true
-			}
-		}
-		switch e.Code {
-		case http.StatusInternalServerError, http.StatusBadGateway,
-			http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-			return true
-		}
-	case *url.Error:
-		retryable := []string{"connection refused", "connection reset"}
-		for _, s := range retryable {
-			if strings.Contains(e.Error(), s) {
-				return true
-			}
-		}
-	case interface{ Timeout() bool }:
-		if e.Timeout() {
-			return true
-		}
-	case interface{ Temporary() bool }:
-		if e.Temporary() {
-			return true
-		}
-	}
-	// Check wrapped error.
-	return isRetryableTablesListError(errors.Unwrap(err))
 }
 
 // getOrCreateTablesService lazily constructs (and caches) a REST BigQuery

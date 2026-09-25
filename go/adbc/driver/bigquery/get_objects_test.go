@@ -189,7 +189,7 @@ func TestGetTablesForDBSchemaSkipTableMetadataFilter(t *testing.T) {
 }
 
 func TestGetTablesForDBSchemaSkipTableMetadataRetries(t *testing.T) {
-	useShortTablesListBackoff(t)
+	useShortClientBackoff(t)
 	conn, api := newFakeTablesConnection(t, true)
 	api.failFirstList.Store(true)
 	got, err := conn.GetTablesForDBSchema(context.Background(), "p", "d", nil, nil, false)
@@ -231,12 +231,12 @@ func TestGetObjectsSkipTableMetadataOption(t *testing.T) {
 	}
 }
 
-// useShortTablesListBackoff keeps retry tests fast.
-func useShortTablesListBackoff(t *testing.T) {
+// useShortClientBackoff keeps retry tests fast.
+func useShortClientBackoff(t *testing.T) {
 	t.Helper()
-	old := tablesListBackoff
-	tablesListBackoff = gax.Backoff{Initial: time.Millisecond, Max: time.Millisecond, Multiplier: 1}
-	t.Cleanup(func() { tablesListBackoff = old })
+	old := clientBackoff
+	clientBackoff = gax.Backoff{Initial: time.Millisecond, Max: time.Millisecond, Multiplier: 1}
+	t.Cleanup(func() { clientBackoff = old })
 }
 
 // fakeCall returns the given errors in order, then succeeds.
@@ -252,23 +252,23 @@ func fakeCall(errs ...error) (func(...googleapi.CallOption) (string, error), *in
 }
 
 func TestDoWithRetryRetriesConnectionReset(t *testing.T) {
-	useShortTablesListBackoff(t)
+	useShortClientBackoff(t)
 	do, calls := fakeCall(&url.Error{Op: "Get", URL: "https://bigquery.googleapis.com", Err: errors.New("read: connection reset by peer")})
-	res, err := doWithRetry(context.Background(), do)
+	res, err := doWithRetry(context.Background(), do, defaultRetryReasons)
 	if err != nil || res != "ok" || *calls != 2 {
 		t.Fatalf("expected success on 2nd attempt, got res=%q err=%v calls=%d", res, err, *calls)
 	}
 }
 
 func TestDoWithRetryReturnsOriginalAPIError(t *testing.T) {
-	useShortTablesListBackoff(t)
+	useShortClientBackoff(t)
 	apiErr := &googleapi.Error{
 		Code:    http.StatusForbidden,
 		Message: "Access Denied: Dataset p:d",
 		Errors:  []googleapi.ErrorItem{{Reason: "accessDenied", Message: "Access Denied: Dataset p:d"}},
 	}
 	do, calls := fakeCall(apiErr)
-	_, err := doWithRetry(context.Background(), do)
+	_, err := doWithRetry(context.Background(), do, defaultRetryReasons)
 	if *calls != 1 {
 		t.Fatalf("expected no retry for accessDenied, got %d calls", *calls)
 	}
@@ -282,27 +282,27 @@ func TestDoWithRetryReturnsOriginalAPIError(t *testing.T) {
 
 // bigquery.Client retries rate limits by reason, not by status code.
 func TestDoWithRetryDoesNotRetryBare429(t *testing.T) {
-	useShortTablesListBackoff(t)
+	useShortClientBackoff(t)
 	do, calls := fakeCall(&googleapi.Error{Code: http.StatusTooManyRequests, Message: "slow down"})
-	if _, err := doWithRetry(context.Background(), do); err == nil || *calls != 1 {
+	if _, err := doWithRetry(context.Background(), do, defaultRetryReasons); err == nil || *calls != 1 {
 		t.Fatalf("expected a single failed attempt, got err=%v calls=%d", err, *calls)
 	}
 	do, calls = fakeCall(&googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "rateLimitExceeded"}}})
-	if _, err := doWithRetry(context.Background(), do); err != nil || *calls != 2 {
+	if _, err := doWithRetry(context.Background(), do, defaultRetryReasons); err != nil || *calls != 2 {
 		t.Fatalf("expected rateLimitExceeded to be retried, got err=%v calls=%d", err, *calls)
 	}
 }
 
 func TestDoWithRetryKeepsAPIErrorWhenContextDone(t *testing.T) {
-	old := tablesListBackoff
-	tablesListBackoff = gax.Backoff{Initial: time.Hour, Max: time.Hour, Multiplier: 1}
-	t.Cleanup(func() { tablesListBackoff = old })
+	old := clientBackoff
+	clientBackoff = gax.Backoff{Initial: time.Hour, Max: time.Hour, Multiplier: 1}
+	t.Cleanup(func() { clientBackoff = old })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	apiErr := &googleapi.Error{Code: http.StatusServiceUnavailable, Message: "backend unavailable"}
 	do, _ := fakeCall(apiErr, apiErr, apiErr)
-	_, err := doWithRetry(ctx, do)
+	_, err := doWithRetry(ctx, do, defaultRetryReasons)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context deadline error, got %v", err)
 	}
