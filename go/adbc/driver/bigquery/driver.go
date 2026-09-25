@@ -182,6 +182,13 @@ const (
 	OptionStringCopyTableSource           = "adbc.bigquery.copy_table.source"
 	OptionStringCopyTableDestination      = "adbc.bigquery.copy_table.destination"
 	OptionStringCopyTableWriteDisposition = "adbc.bigquery.copy_table.write_disposition"
+
+	// OptionBoolGetObjectsSkipTableMetadata, when true, makes GetObjects at
+	// ObjectDepthTables enumerate tables with tables.list alone instead of
+	// issuing an additional tables.get per table. table_type is taken from the
+	// list response and table_constraints is left null. Depths that include
+	// columns are unaffected. Default is false.
+	OptionBoolGetObjectsSkipTableMetadata = "bigquery.get_objects.skip_table_metadata"
 )
 
 var (
