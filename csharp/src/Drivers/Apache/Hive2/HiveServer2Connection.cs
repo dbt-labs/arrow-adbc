@@ -839,7 +839,15 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
         /// <returns></returns>
         protected internal string GetProductVersion()
         {
-            FileVersionInfo fileVersionInfo = FileVersionInfo.GetVersionInfo(Assembly.GetExecutingAssembly().Location);
+            // Assembly.Location is "" under NativeAOT/single-file publishing -- guard before
+            // calling FileVersionInfo.GetVersionInfo, which throws ArgumentException (not just
+            // returns a null version) on an empty path.
+            string location = Assembly.GetExecutingAssembly().Location;
+            if (string.IsNullOrEmpty(location))
+            {
+                return GetProductVersionDefault();
+            }
+            FileVersionInfo fileVersionInfo = FileVersionInfo.GetVersionInfo(location);
             return fileVersionInfo.ProductVersion ?? GetProductVersionDefault();
         }
 

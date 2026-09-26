@@ -1,0 +1,38 @@
+<!--
+ NativeAOT host that exports the Spark/Hive2 Thrift driver
+ (Apache.Arrow.Adbc.Drivers.Apache, Spark backend) as a native shared library
+ implementing the standard ADBC C API entrypoint ("AdbcDriverInit"), so it can
+ be dlopen'd by dbt-oss's Rust core (dbt-adbc, via `libloading`) as a drop-in
+ replacement for the closed-source, CDN-distributed `adbc_driver_spark` whose
+ KERBEROS auth type is an explicit "not implemented" stub. Not part of the
+ upstream apache/arrow-adbc project — nothing else in this repo builds a
+ native shared library via NativeAOT (no PublishAot usage anywhere else).
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Apache.Arrow.Adbc.Drivers.Apache.Spark.Native</RootNamespace>
+    <!-- Rust's libloading::library_filename("adbc_driver_spark") expects
+         "libadbc_driver_spark.so" on Linux — match that exactly so the output
+         of `dotnet publish` needs no renaming. -->
+    <AssemblyName>libadbc_driver_spark</AssemblyName>
+    <OutputType>Library</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Not a real NuGet-published assembly; suppress package-metadata warnings. -->
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Apache\Apache.Arrow.Adbc.Drivers.Apache.csproj" />
+  </ItemGroup>
+
+</Project>

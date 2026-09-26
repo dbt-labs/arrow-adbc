@@ -86,19 +86,37 @@ namespace Apache.Arrow.Adbc.Drivers.Apache
             // Send the SASL mechanism name
             await SendMechanismAsync(_saslMechanism.Name, cancellationToken).ConfigureAwait(false);
 
-            // Send the authentication message
+            // Send the initial authentication message (single-step mechanisms like PLAIN
+            // typically complete right after this).
             var authMessage = _saslMechanism.EvaluateChallenge(null);
             await SendSaslMessageAsync(NegotiationStatus.Ok, authMessage, cancellationToken).ConfigureAwait(false);
 
-            // Receive server's response (authentication status)
-            var serverResponse = await ReceiveSaslMessageAsync(cancellationToken).ConfigureAwait(false);
-
-            if (serverResponse.status == null || serverResponse.status != NegotiationStatus.Complete)
+            // Multi-step mechanisms (e.g. GSSAPI) require further challenge/response legs
+            // before the server reports COMPLETE — keep exchanging OK frames until it does.
+            // Bound the loop defensively; a real negotiation never needs more than a handful
+            // of legs (GSSAPI context establishment + one security-layer negotiation leg).
+            const int maxLegs = 16;
+            for (int leg = 0; leg < maxLegs; leg++)
             {
-                throw new AuthenticationException($"SASL {_saslMechanism.Name} authentication failed.");
+                var serverResponse = await ReceiveSaslMessageAsync(cancellationToken).ConfigureAwait(false);
+
+                if (serverResponse.status == NegotiationStatus.Complete)
+                {
+                    _saslMechanism.IsNegotiationCompleted = true;
+                    return;
+                }
+
+                if (serverResponse.status != NegotiationStatus.Ok)
+                {
+                    throw new AuthenticationException($"SASL {_saslMechanism.Name} authentication failed.");
+                }
+
+                var nextMessage = _saslMechanism.EvaluateChallenge(serverResponse.payload);
+                await SendSaslMessageAsync(NegotiationStatus.Ok, nextMessage, cancellationToken).ConfigureAwait(false);
             }
 
-            _saslMechanism.IsNegotiationCompleted = true;
+            throw new AuthenticationException(
+                $"SASL {_saslMechanism.Name} authentication failed: negotiation did not complete after {maxLegs} legs.");
         }
 
         private async Task SendMechanismAsync(string mechanismName, CancellationToken cancellationToken)

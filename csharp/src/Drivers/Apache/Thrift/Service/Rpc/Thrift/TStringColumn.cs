@@ -5,6 +5,7 @@
  * </auto-generated>
  */
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -51,9 +52,8 @@ namespace Apache.Hive.Service.Rpc.Thrift
         bool isset_nulls = false;
         TField field;
 
-        ArrowBuffer.Builder<byte> values = null;
+        var values = new List<byte[]>();
         byte[] nulls = null;
-        byte[] offsetBuffer = null;
         int length = -1;
         byte[] preAllocatedBuffer = new byte[65536];
 
@@ -75,17 +75,9 @@ namespace Apache.Hive.Service.Rpc.Thrift
                   var _list187 = await iprot.ReadListBeginAsync(cancellationToken);
                   length = _list187.Count;
 
-                  values = new ArrowBuffer.Builder<byte>();
-                  int offset = 0;
-                  offsetBuffer = new byte[(length + 1) * 4];
-                  var memory = offsetBuffer.AsMemory();
-
                   for(int _i188 = 0; _i188 < length; ++_i188)
                   {
-                    StreamExtensions.WriteInt32LittleEndian(offset, memory.Span, _i188 * 4);
-
                     var size = await iprot.ReadI32Async(cancellationToken);
-                    offset += size;
 
                     iprot.Transport.CheckReadBytesAvailable(size);
 
@@ -100,9 +92,9 @@ namespace Apache.Hive.Service.Rpc.Thrift
                     }
 
                     await iprot.Transport.ReadExactlyAsync(tmp.AsMemory(0, size), cancellationToken);
-                    values.Append(tmp.AsMemory(0, size).Span);
+                    // Keep each value independent of the reusable preallocated buffer.
+                    values.Add(tmp.AsMemory(0, size).ToArray());
                   }
-                  StreamExtensions.WriteInt32LittleEndian(offset, memory.Span, length * 4);
 
                   await iprot.ReadListEndAsync(cancellationToken);
                 }
@@ -141,8 +133,24 @@ namespace Apache.Hive.Service.Rpc.Thrift
         {
           throw new TProtocolException(TProtocolException.INVALID_DATA);
         }
-        ArrowBuffer validityBitmapBuffer = BitmapUtilities.GetValidityBitmapBuffer(ref nulls, length, out int nullCount);
-        Values = new StringArray(length, new ArrowBuffer(offsetBuffer), values.Build(), validityBitmapBuffer, nullCount);
+
+        // Build through Arrow's managed builder rather than manually constructing
+        // offsets and buffers. This avoids passing hand-built StringArray buffers
+        // through the NativeAOT C data stream path.
+        var builder = new StringArray.Builder();
+        for (int i = 0; i < length; i++)
+        {
+          bool isNull = (i >> 3) < nulls.Length && (nulls[i >> 3] & (1 << (i & 7))) != 0;
+          if (isNull)
+          {
+            builder.AppendNull();
+          }
+          else
+          {
+            builder.Append(Encoding.UTF8.GetString(values[i]));
+          }
+        }
+        Values = builder.Build();
       }
       finally
       {
