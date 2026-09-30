@@ -171,3 +171,34 @@ func TestNonEmptySchemaSerializes(t *testing.T) {
 	}
 
 }
+
+// A zero-row result with a RANGE column used to exit the process from
+// SerializedArrowSchema.
+func TestEmptyArrowIteratorRangeColumn(t *testing.T) {
+	schema := bigquery.Schema{
+		&bigquery.FieldSchema{
+			Name:             "range_date_column",
+			Type:             bigquery.RangeFieldType,
+			RangeElementType: &bigquery.RangeElementType{Type: bigquery.DateFieldType},
+		},
+	}
+	iter := emptyArrowIterator{schema}
+
+	alloc := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	rdr, err := ipcReaderFromArrowIterator(iter, alloc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer rdr.Release()
+
+	fields := rdr.Schema().Fields()
+	if len(fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(fields))
+	}
+	if got, want := fields[0].Type.String(), "struct<start: date32, end: date32>"; got != want {
+		t.Errorf("expected type %q, got %q", want, got)
+	}
+	if rdr.Next() {
+		t.Errorf("expected no records")
+	}
+}

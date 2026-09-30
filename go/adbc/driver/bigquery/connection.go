@@ -1442,9 +1442,28 @@ func buildField(schema *bigquery.FieldSchema, level uint) (arrow.Field, error) {
 		field.Type = arrow.BinaryTypes.String
 	case bigquery.IntervalFieldType:
 		field.Type = arrow.FixedWidthTypes.MonthDayNanoInterval
+	case bigquery.RangeFieldType:
+		var childType arrow.DataType
+		switch schema.RangeElementType.Type {
+		case bigquery.DateFieldType:
+			childType = arrow.FixedWidthTypes.Date32
+			richSqlType = "RANGE<DATE>"
+		case bigquery.DateTimeFieldType:
+			childType = &arrow.TimestampType{Unit: arrow.Microsecond}
+			richSqlType = "RANGE<DATETIME>"
+		case bigquery.TimestampFieldType:
+			childType = arrow.FixedWidthTypes.Timestamp_us
+			richSqlType = "RANGE<TIMESTAMP>"
+		default:
+			return arrow.Field{}, adbc.Error{
+				Code: adbc.StatusNotImplemented,
+				Msg:  fmt.Sprintf("[bq] %s is not supported in range", schema.RangeElementType.Type),
+			}
+		}
+		field.Type = arrow.StructOf(
+			arrow.Field{Name: "start", Type: childType, Nullable: true},
+			arrow.Field{Name: "end", Type: childType, Nullable: true})
 	default:
-		// TODO: unsupported ones are:
-		// - bigquery.RangeFieldType
 		return arrow.Field{}, adbc.Error{
 			Code: adbc.StatusInvalidArgument,
 			Msg:  fmt.Sprintf("Google SQL type `%s` is not supported yet", schema.Type),
