@@ -124,6 +124,8 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		return strconv.FormatFloat(d.cfg.ClientTimeout.Seconds(), 'f', -1, 64), nil
 	case OptionAuthClientTimeout:
 		return strconv.FormatFloat(d.cfg.AuthClientTimeout.Seconds(), 'f', -1, 64), nil
+	case OptionMaxRetryCount:
+		return strconv.Itoa(d.cfg.MaxRetryCount), nil
 	case OptionApplicationName:
 		return d.cfg.Application, nil
 	case OptionSSLSkipVerify:
@@ -345,6 +347,15 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 			dur = -dur
 		}
 		d.cfg.AuthClientTimeout = dur
+	case OptionMaxRetryCount:
+		count, err := strconv.Atoi(v)
+		if err != nil || count < 0 {
+			return adbc.Error{
+				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s' (expected a non-negative integer)", OptionMaxRetryCount, v),
+				Code: adbc.StatusInvalidArgument,
+			}
+		}
+		d.cfg.MaxRetryCount = count
 	case OptionApplicationName:
 		d.cfg.Application = v
 	case OptionSSLSkipVerify:

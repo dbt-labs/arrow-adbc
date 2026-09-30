@@ -73,6 +73,16 @@ const (
 	// but the absolute value will be used.
 	// Unlike OptionClientTimeout, this is only used for authentication requests that are not JWT.
 	OptionAuthClientTimeout = "adbc.snowflake.sql.client_option.auth_client_timeout"
+	// Maximum number of times a single HTTP request is retried (for example
+	// after an HTTP 503) before giving up. The count applies to each request
+	// separately and is not shared across a session. Must be a non-negative
+	// integer; 0 (or unset) keeps the gosnowflake default of 7.
+	//
+	// Retrying also stops once OptionRequestTimeout (or OptionLoginTimeout for
+	// login requests) expires, whichever limit is reached first. To keep
+	// retrying for a time budget instead of a fixed count, set a high value
+	// here together with OptionRequestTimeout.
+	OptionMaxRetryCount = "adbc.snowflake.sql.client_option.max_retry_count"
 	// OptionUseHighPrecision controls the data type used for NUMBER columns
 	// using a FIXED size data type. By default, this is enabled and NUMBER
 	// columns will be returned as Decimal128 types using the indicated
