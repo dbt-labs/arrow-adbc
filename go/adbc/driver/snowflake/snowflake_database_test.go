@@ -36,6 +36,27 @@ func TestSetOptionInternal_NormalizesAccount(t *testing.T) {
 	require.Equal(t, "my-account-name", db.cfg.Account)
 }
 
+func TestSetOptionInternal_MaxRetryCount(t *testing.T) {
+	db := &databaseImpl{cfg: &gosnowflake.Config{}}
+
+	// unset: 0 means "use the gosnowflake default"
+	v, err := db.GetOption(OptionMaxRetryCount)
+	require.NoError(t, err)
+	require.Equal(t, "0", v)
+
+	require.NoError(t, db.SetOptionInternal(OptionMaxRetryCount, "50", nil))
+	require.Equal(t, 50, db.cfg.MaxRetryCount)
+	v, err = db.GetOption(OptionMaxRetryCount)
+	require.NoError(t, err)
+	require.Equal(t, "50", v)
+
+	for _, bad := range []string{"-1", "abc", "1.5", ""} {
+		err := db.SetOptionInternal(OptionMaxRetryCount, bad, nil)
+		require.Error(t, err, "value %q", bad)
+		require.Equal(t, 50, db.cfg.MaxRetryCount, "invalid value %q must not change the setting", bad)
+	}
+}
+
 func TestSetOptionInternal_WorkloadIdentity(t *testing.T) {
 	db := &databaseImpl{cfg: &gosnowflake.Config{}}
 
