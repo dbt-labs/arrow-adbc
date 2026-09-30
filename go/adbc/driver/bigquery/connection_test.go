@@ -475,6 +475,33 @@ func TestBuildField(t *testing.T) {
 			expectedTypeStr: "struct<nested_string: utf8, nested_int: int64>",
 			expectError:     false,
 		},
+		{
+			name: "RangeDate",
+			schema: &bigquery.FieldSchema{
+				Name:             "range_date_field",
+				Type:             bigquery.RangeFieldType,
+				RangeElementType: &bigquery.RangeElementType{Type: bigquery.DateFieldType},
+			},
+			expectedTypeStr: "struct<start: date32, end: date32>",
+		},
+		{
+			name: "RangeDateTime",
+			schema: &bigquery.FieldSchema{
+				Name:             "range_datetime_field",
+				Type:             bigquery.RangeFieldType,
+				RangeElementType: &bigquery.RangeElementType{Type: bigquery.DateTimeFieldType},
+			},
+			expectedTypeStr: "struct<start: timestamp[us], end: timestamp[us]>",
+		},
+		{
+			name: "RangeTimestamp",
+			schema: &bigquery.FieldSchema{
+				Name:             "range_timestamp_field",
+				Type:             bigquery.RangeFieldType,
+				RangeElementType: &bigquery.RangeElementType{Type: bigquery.TimestampFieldType},
+			},
+			expectedTypeStr: "struct<start: timestamp[us, tz=UTC], end: timestamp[us, tz=UTC]>",
+		},
 	}
 
 	for _, tt := range tests {
