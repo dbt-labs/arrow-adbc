@@ -510,7 +510,9 @@ func rowsToArrowRecordBatch(schema bigquery.Schema, rows [][]bigquery.Value, all
 					builder.AppendNull()
 				}
 			case *array.TimestampBuilder:
-				if ts, ok := val.(time.Time); ok {
+				if dt, ok := val.(civil.DateTime); ok {
+					builder.Append(arrow.Timestamp(dt.In(time.UTC).UnixMicro()))
+				} else if ts, ok := val.(time.Time); ok {
 					builder.Append(arrow.Timestamp(ts.UnixMicro()))
 				} else {
 					builder.AppendNull()

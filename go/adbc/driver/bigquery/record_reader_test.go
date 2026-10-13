@@ -25,8 +25,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"google.golang.org/api/option"
 )
@@ -200,5 +204,33 @@ func TestEmptyArrowIteratorRangeColumn(t *testing.T) {
 	}
 	if rdr.Next() {
 		t.Errorf("expected no records")
+	}
+}
+
+func TestRowsToArrowRecordBatchDateTime(t *testing.T) {
+	schema := bigquery.Schema{
+		&bigquery.FieldSchema{Name: "dt", Type: bigquery.DateTimeFieldType},
+	}
+	dt := civil.DateTime{
+		Date: civil.Date{Year: 2026, Month: time.October, Day: 7},
+		Time: civil.Time{Hour: 11, Nanosecond: 123456000},
+	}
+
+	rec, err := rowsToArrowRecordBatch(schema, [][]bigquery.Value{{dt}, {nil}}, memory.DefaultAllocator)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer rec.Release()
+
+	col := rec.Column(0).(*array.Timestamp)
+	if col.IsNull(0) {
+		t.Fatalf("expected a DATETIME value, got NULL")
+	}
+	const dtUnixMicro = 1_791_370_800_123_456 // 2026-10-07T11:00:00.123456Z
+	if got, want := col.Value(0), arrow.Timestamp(dtUnixMicro); got != want {
+		t.Errorf("expected %d, got %d", want, got)
+	}
+	if !col.IsNull(1) {
+		t.Errorf("expected NULL to stay NULL")
 	}
 }
