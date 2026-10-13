@@ -156,6 +156,7 @@ func (d *driverImpl) NewDatabaseWithContext(ctx context.Context, opts map[string
 		port:             DefaultPort,
 		sslMode:          DefaultSSLMode,
 		connectTimeout:   DefaultConnectTimeout,
+		queryRetryCount:  unsetQueryRetryCount,
 	}
 
 	if err := db.SetOptions(opts); err != nil {

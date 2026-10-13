@@ -47,6 +47,9 @@ const (
 	DEFAULT_RETRY_WAIT_MAX = 30 * time.Second
 )
 
+// 0 is a valid retry count (retries off), so "unset" has to be a negative value.
+const unsetQueryRetryCount = -1
+
 type databaseImpl struct {
 	driverbase.DatabaseImplBase
 
