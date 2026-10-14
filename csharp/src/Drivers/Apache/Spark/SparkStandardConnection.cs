@@ -68,6 +68,30 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                             $"Parameters must include valid authentiation settings. Please provide either '{SparkParameters.Token}'; or '{AdbcOptions.Username}' and '{AdbcOptions.Password}'.",
                             nameof(Properties));
                     break;
+                // Real-implement the auth types dbt-oss's Rust core actually sends for
+                // `method: thrift` (crates/dbt-auth/src/spark/mod.rs): PLAIN, NOSASL, LDAP,
+                // KERBEROS.
+                case SparkAuthType.Plain:
+                    if (string.IsNullOrWhiteSpace(username))
+                        throw new ArgumentException(
+                            $"Parameter '{SparkParameters.AuthType}' is set to '{SparkAuthTypeConstants.Plain}' but parameter '{AdbcOptions.Username}' is not set. Please provide a value for this parameter.",
+                            nameof(Properties));
+                    break;
+                case SparkAuthType.NoSasl:
+                    break;
+                case SparkAuthType.Ldap:
+                    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                        throw new ArgumentException(
+                            $"Parameter '{SparkParameters.AuthType}' is set to '{SparkAuthTypeConstants.Ldap}' but parameters '{AdbcOptions.Username}' or '{AdbcOptions.Password}' are not set. Please provide values for these parameters.",
+                            nameof(Properties));
+                    break;
+                case SparkAuthType.Kerberos:
+                    Properties.TryGetValue(SparkParameters.KerberosServiceName, out string? kerberosServiceNameForValidation);
+                    if (string.IsNullOrWhiteSpace(kerberosServiceNameForValidation))
+                        throw new ArgumentException(
+                            $"Parameter '{SparkParameters.AuthType}' is set to '{SparkAuthTypeConstants.Kerberos}' but parameter '{SparkParameters.KerberosServiceName}' is not set. Please provide a value for this parameter.",
+                            nameof(Properties));
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(SparkParameters.AuthType, authType, $"Unsupported {SparkParameters.AuthType} value.");
             }
@@ -159,6 +183,52 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                     TSaslTransport saslTransport = new(bufferedTransport, saslMechanism, config: new());
                     return new TFramedTransport(saslTransport);
 
+                // Real-implement PLAIN, NOSASL, LDAP, KERBEROS for the raw-binary-Thrift
+                // transport — this is the actual auth-type contract dbt-oss's Rust core
+                // sends (see ValidateAuthentication above).
+                case SparkAuthType.Plain:
+                {
+                    Properties.TryGetValue(AdbcOptions.Username, out string? plainUsername);
+                    Properties.TryGetValue(AdbcOptions.Password, out string? plainPassword);
+                    if (string.IsNullOrWhiteSpace(plainUsername))
+                    {
+                        throw new InvalidOperationException($"'{AdbcOptions.Username}' must be provided for PLAIN authentication.");
+                    }
+                    PlainSaslMechanism plainMechanism = new(plainUsername!, plainPassword ?? string.Empty);
+                    TSaslTransport plainSaslTransport = new(bufferedTransport, plainMechanism, config: new());
+                    return new TFramedTransport(plainSaslTransport);
+                }
+
+                case SparkAuthType.NoSasl:
+                    return bufferedTransport;
+
+                case SparkAuthType.Ldap:
+                {
+                    Properties.TryGetValue(AdbcOptions.Username, out string? ldapUsername);
+                    Properties.TryGetValue(AdbcOptions.Password, out string? ldapPassword);
+                    if (string.IsNullOrWhiteSpace(ldapUsername) || string.IsNullOrWhiteSpace(ldapPassword))
+                    {
+                        throw new InvalidOperationException($"'{AdbcOptions.Username}' and '{AdbcOptions.Password}' must be provided for LDAP authentication.");
+                    }
+                    // HiveServer2/Kyuubi's LDAP support validates credentials server-side via
+                    // an LDAP bind; the wire-level SASL mechanism is still PLAIN.
+                    PlainSaslMechanism ldapMechanism = new(ldapUsername!, ldapPassword!);
+                    TSaslTransport ldapSaslTransport = new(bufferedTransport, ldapMechanism, config: new());
+                    return new TFramedTransport(ldapSaslTransport);
+                }
+
+                case SparkAuthType.Kerberos:
+                {
+                    Properties.TryGetValue(SparkParameters.KerberosServiceName, out string? kerberosServiceName);
+                    if (string.IsNullOrWhiteSpace(kerberosServiceName))
+                    {
+                        throw new InvalidOperationException($"'{SparkParameters.KerberosServiceName}' must be provided for KERBEROS authentication.");
+                    }
+                    GssapiSaslMechanism gssapiMechanism = new(kerberosServiceName!, hostName!);
+                    TSaslTransport gssapiSaslTransport = new(bufferedTransport, gssapiMechanism, config: new());
+                    return new TFramedTransport(gssapiSaslTransport);
+                }
+
                 default:
                     throw new NotSupportedException($"Authentication type '{authTypeValue}' is not supported.");
             }
@@ -189,13 +259,18 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
             {
                 case SparkAuthType.UsernameOnly:
                 case SparkAuthType.Basic:
+                case SparkAuthType.Plain:
+                case SparkAuthType.Ldap:
                 case SparkAuthType.Empty when !string.IsNullOrEmpty(username):
                     request.Username = username!;
                     break;
+                // NoSasl/Kerberos: identity comes from the SASL/GSSAPI transport layer (or
+                // is unauthenticated), not from TOpenSessionReq fields.
             }
             switch (authTypeValue)
             {
                 case SparkAuthType.Basic:
+                case SparkAuthType.Ldap:
                 case SparkAuthType.Empty when !string.IsNullOrEmpty(password):
                     request.Password = password!;
                     break;
