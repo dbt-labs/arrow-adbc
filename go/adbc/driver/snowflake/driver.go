@@ -111,6 +111,16 @@ const (
 	// original inline streaming path. Default is disabled.
 	OptionStreamRetryEnabled = "adbc.snowflake.sql.client_option.stream_retry_enabled"
 
+	// OptionBoundedPrefetch controls whether stream prefetch is bounded by
+	// client read progress. When enabled, a prefetch slot is held until the
+	// client has consumed all records in a chunk, so at most
+	// prefetch_concurrency chunks are in flight at once regardless of chunk
+	// size. This fixes unbounded memory growth for slow clients on large or
+	// X-Large warehouses. When disabled (the default), the shipped behaviour
+	// is preserved: a slot is released as soon as a chunk's batches are
+	// queued, so fast producers can outrun slow consumers.
+	OptionBoundedPrefetch = "adbc.snowflake.sql.client_option.bounded_prefetch"
+
 	OptionApplicationName  = "adbc.snowflake.sql.client_option.app_name"
 	OptionSSLSkipVerify    = "adbc.snowflake.sql.client_option.tls_skip_verify"
 	OptionOCSPFailOpenMode = "adbc.snowflake.sql.client_option.ocsp_fail_open_mode"
