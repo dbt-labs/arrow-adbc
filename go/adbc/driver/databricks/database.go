@@ -280,7 +280,7 @@ func (d *databaseImpl) initializeConnectionPool(ctx context.Context) (*sql.DB, e
 	db := sql.OpenDB(connector)
 
 	// Test the connection
-	if err := db.PingContext(ctx); err != nil {
+	if err := d.pingPool(ctx, db); err != nil {
 		err = errors.Join(err, db.Close())
 		return nil, adbc.Error{
 			Code: adbc.StatusInternal,
@@ -289,6 +289,41 @@ func (d *databaseImpl) initializeConnectionPool(ctx context.Context) (*sql.DB, e
 	}
 
 	return db, nil
+}
+
+// pingPool verifies the pool can open a session and run a trivial query.
+//
+// databricks-sql-go's own Ping runs "select 1" under a fixed 60s deadline
+// (Config.PingTimeout) that connect_timeout does not affect. Against a
+// cold-starting warehouse the session opens but the query waits for the warehouse
+// to come up, so the ping fails with "context deadline exceeded" no matter how
+// large connect_timeout is. Instead, run the same query ourselves and give the
+// whole sequence (session open + query) the connect_timeout budget, so a
+// cold-starting warehouse has until that deadline to come up.
+//
+// Without a connect timeout this keeps the SDK's Ping behavior.
+func (d *databaseImpl) pingPool(ctx context.Context, db *sql.DB) error {
+	if !d.hasConnectTimeout() {
+		return db.PingContext(ctx)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, d.connectTimeout)
+	defer cancel()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+
+	rows, err := conn.QueryContext(ctx, "select 1")
+	if err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	return rows.Err()
 }
 
 func (d *databaseImpl) getOrCreatePool(ctx context.Context) (*sql.DB, error) {
