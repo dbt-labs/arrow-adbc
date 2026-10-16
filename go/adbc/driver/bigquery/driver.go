@@ -142,6 +142,7 @@ const (
 	OptionJsonUpdateTableColumnsPolicyTags  = "adbc.bigquery.table.update_columns_policy_tags"
 	OptionJsonAuthorizeViewToDatasets       = "adbc.bigquery.dataset.authorize_view_to_datasets"
 	OptionStringUpdateTableDescriptionValue = "adbc.bigquery.table.update_description"
+	OptionStringAddNestedFieldsFrom         = "adbc.bigquery.table.add_nested_fields_from"
 
 	// WithAppDefaultCredentials instructs the driver to authenticate using
 	// Application Default Credentials (ADC).
