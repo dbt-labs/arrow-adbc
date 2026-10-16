@@ -84,6 +84,7 @@ type databaseImpl struct {
 
 	useHighPrecision      bool
 	streamRetryEnabled    bool
+	boundedPrefetch       bool
 	maxTimestampPrecision MaxTimestampPrecision
 	defaultAppName        string
 }
@@ -176,6 +177,11 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		return adbc.OptionValueDisabled, nil
 	case OptionStreamRetryEnabled:
 		if d.streamRetryEnabled {
+			return adbc.OptionValueEnabled, nil
+		}
+		return adbc.OptionValueDisabled, nil
+	case OptionBoundedPrefetch:
+		if d.boundedPrefetch {
 			return adbc.OptionValueEnabled, nil
 		}
 		return adbc.OptionValueDisabled, nil
@@ -559,6 +565,18 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 				Code: adbc.StatusInvalidArgument,
 			}
 		}
+	case OptionBoundedPrefetch:
+		switch v {
+		case adbc.OptionValueEnabled:
+			d.boundedPrefetch = true
+		case adbc.OptionValueDisabled:
+			d.boundedPrefetch = false
+		default:
+			return adbc.Error{
+				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s'", OptionBoundedPrefetch, v),
+				Code: adbc.StatusInvalidArgument,
+			}
+		}
 	case OptionMaxTimestampPrecision:
 		switch v {
 		case OptionValueNanoseconds, OptionValueNanosecondsNoOverflow, OptionValueMicroseconds:
@@ -604,6 +622,7 @@ func (d *databaseImpl) Open(ctx context.Context) (adbcConnection adbc.Connection
 		// get Int64/Float64 instead
 		useHighPrecision:      d.useHighPrecision,
 		streamRetryEnabled:    d.streamRetryEnabled,
+		boundedPrefetch:       d.boundedPrefetch,
 		maxTimestampPrecision: d.maxTimestampPrecision,
 		ConnectionImplBase:    driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 	}

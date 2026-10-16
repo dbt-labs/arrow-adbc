@@ -41,6 +41,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 )
 
 const (
@@ -554,8 +555,10 @@ type reader struct {
 	schema     *arrow.Schema
 	chs        []chan arrow.RecordBatch
 	curChIndex int
-	rec        arrow.RecordBatch
-	err        error
+	// A stream holds its slot until Next observes its closed, drained channel.
+	streamSlots *semaphore.Weighted
+	rec         arrow.RecordBatch
+	err         error
 
 	cancelFn context.CancelFunc
 	done     chan struct{} // signals all producer goroutines have finished
@@ -752,7 +755,7 @@ func readJSONBatches(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 	return array.NewRecordReader(schema, results)
 }
 
-func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake.ArrowStreamLoader, bufferSize, prefetchConcurrency int, useHighPrecision, streamRetryEnabled bool, maxTimestampPrecision MaxTimestampPrecision) (array.RecordReader, error) {
+func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake.ArrowStreamLoader, bufferSize, prefetchConcurrency int, useHighPrecision, streamRetryEnabled, boundedPrefetch bool, maxTimestampPrecision MaxTimestampPrecision) (array.RecordReader, error) {
 	batches, err := ld.GetBatches()
 	if err != nil {
 		return nil, errToAdbcErr(adbc.StatusInternal, err)
@@ -927,6 +930,19 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 	ctx, cancelFn := context.WithCancel(ctx)
 	group.SetLimit(prefetchConcurrency)
 
+	var streamSlots *semaphore.Weighted
+	if boundedPrefetch {
+		streamSlots = semaphore.NewWeighted(int64(prefetchConcurrency))
+		// The first stream is already open for schema detection and also
+		// counts toward the limit, even if all of its records fit in its channel.
+		if err := streamSlots.Acquire(ctx, 1); err != nil {
+			cancelFn()
+			rr.Release()
+			_ = r.Close()
+			return nil, err
+		}
+	}
+
 	// Allocate every batch's channel synchronously, before any producer
 	// goroutine starts. Next()/Release() index into chs[i] as soon as the
 	// caller gets rdr back; if chs[i] were created lazily inside a spawned
@@ -941,11 +957,12 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 	}
 
 	rdr := &reader{
-		refCount: 1,
-		chs:      chs,
-		err:      nil,
-		cancelFn: cancelFn,
-		done:     make(chan struct{}),
+		refCount:    1,
+		chs:         chs,
+		streamSlots: streamSlots,
+		err:         nil,
+		cancelFn:    cancelFn,
+		done:        make(chan struct{}),
 	}
 
 	var recTransform recordTransformer
@@ -982,8 +999,18 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 
 	lastChannelIndex := len(chs) - 1
 	go func() {
+		var acquireErr error
 		for i := range batches[1:] {
 			batch, batchIdx := &batches[i+1], i+1
+			if streamSlots != nil {
+				if err := streamSlots.Acquire(ctx, 1); err != nil {
+					acquireErr = err
+					for _, ch := range chs[batchIdx:lastChannelIndex] {
+						close(ch)
+					}
+					break
+				}
+			}
 			group.Go(func(batch batchStreamer, batchIdx int) func() error {
 				return func() (err error) {
 					// close channels (except the last) so that Next can move on to the next channel properly
@@ -1069,7 +1096,7 @@ func newRecordReader(ctx context.Context, alloc memory.Allocator, ld gosnowflake
 		// separate goroutine. Otherwise we'll have a race condition between
 		// the call to wait and the calls to group.Go to kick off the jobs
 		// to perform the pre-fetching (GH-1283).
-		rdr.err = group.Wait()
+		rdr.err = errors.Join(acquireErr, group.Wait())
 		// don't close the last channel until after the group is finished,
 		// so that Next() can only return after reader.err may have been set
 		close(chs[lastChannelIndex])
@@ -1110,6 +1137,9 @@ func (r *reader) Next() bool {
 	for r.curChIndex < len(r.chs) {
 		if r.rec, ok = <-r.chs[r.curChIndex]; ok {
 			break
+		}
+		if r.streamSlots != nil {
+			r.streamSlots.Release(1)
 		}
 		r.curChIndex++
 	}
