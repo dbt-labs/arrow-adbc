@@ -35,7 +35,7 @@ func TestSetOptionOIDC(t *testing.T) {
 
 		assert.Equal(t, OptionValueAuthTypeEnvOIDC, db.authType)
 		assert.Equal(t, "oidc-client-id", db.oidcClientID)
-		assert.Empty(t, db.oidcTokenFilePath)
+		assert.Empty(t, db.oidcTokenFilepath)
 	})
 
 	t.Run("file-oidc with token file path", func(t *testing.T) {
@@ -43,11 +43,11 @@ func TestSetOptionOIDC(t *testing.T) {
 
 		require.NoError(t, db.SetOption(OptionAuthType, OptionValueAuthTypeFileOIDC))
 		require.NoError(t, db.SetOption(OptionOIDCClientID, "oidc-client-id"))
-		require.NoError(t, db.SetOption(OptionOIDCTokenFilePath, "/var/run/secrets/token"))
+		require.NoError(t, db.SetOption(OptionOIDCTokenFilepath, "/var/run/secrets/token"))
 
 		assert.Equal(t, OptionValueAuthTypeFileOIDC, db.authType)
 		assert.Equal(t, "oidc-client-id", db.oidcClientID)
-		assert.Equal(t, "/var/run/secrets/token", db.oidcTokenFilePath)
+		assert.Equal(t, "/var/run/secrets/token", db.oidcTokenFilepath)
 	})
 
 	t.Run("file-oidc without token file path", func(t *testing.T) {
@@ -58,7 +58,7 @@ func TestSetOptionOIDC(t *testing.T) {
 
 		assert.Equal(t, OptionValueAuthTypeFileOIDC, db.authType)
 		assert.Equal(t, "oidc-client-id", db.oidcClientID)
-		assert.Empty(t, db.oidcTokenFilePath)
+		assert.Empty(t, db.oidcTokenFilepath)
 	})
 }
 

@@ -91,7 +91,7 @@ const (
 
 	// Auth: OIDC
 	OptionOIDCClientID      = "databricks.oidc.client_id"
-	OptionOIDCTokenFilePath = "databricks.oidc.token_file_path"
+	OptionOIDCTokenFilepath = "databricks.oidc.token_filepath"
 
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Use with a parameter name suffix, e.g. "databricks.session_param.QUERY_TAGS".

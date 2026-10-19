@@ -99,7 +99,7 @@ type databaseImpl struct {
 
 	// OIDC auth
 	oidcClientID      string
-	oidcTokenFilePath string
+	oidcTokenFilepath string
 
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Keys are parameter names (e.g. "QUERY_TAGS"), values are parameter values.
@@ -538,8 +538,8 @@ func (d *databaseImpl) newFileOIDCAuthenticator() (*sdkconfig.Config, error) {
 		ClientID:    d.oidcClientID,
 		Credentials: sdkconfig.FileOIDCCredentials{},
 	}
-	if d.oidcTokenFilePath != "" {
-		cfg.OIDCTokenFilepath = d.oidcTokenFilePath
+	if d.oidcTokenFilepath != "" {
+		cfg.OIDCTokenFilepath = d.oidcTokenFilepath
 	}
 	if err := cfg.EnsureResolved(); err != nil {
 		return nil, adbc.Error{
@@ -711,8 +711,8 @@ func (d *databaseImpl) SetOption(key, value string) error {
 		d.oauthRefreshToken = value
 	case OptionOIDCClientID:
 		d.oidcClientID = value
-	case OptionOIDCTokenFilePath:
-		d.oidcTokenFilePath = value
+	case OptionOIDCTokenFilepath:
+		d.oidcTokenFilepath = value
 	case OptionExternalBrowserTimeout:
 		if value != "" {
 			timeout, err := time.ParseDuration(value)
