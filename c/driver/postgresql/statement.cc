@@ -43,6 +43,7 @@
 #include "driver/common/options.h"
 #include "driver/common/utils.h"
 #include "driver/framework/utility.h"
+#include "driver_policy.h"
 #include "error.h"
 #include "postgres_type.h"
 #include "postgres_util.h"
@@ -917,7 +918,7 @@ void PostgresStatement::ClearResult() {
 
 int PostgresStatement::UseCopy() {
   if (use_copy_ == -1) {
-    return connection_->VendorName() != "Redshift";
+    return kDriverPolicy.UseCopyByDefault(connection_->VendorName());
   } else {
     return use_copy_;
   }

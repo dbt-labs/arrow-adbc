@@ -49,7 +49,11 @@ adbc_driver_postgresql_dep = declare_dependency(
 postgres_tests = {
     'driver-postgresql': {
         'src_name': 'driver_postgresql',
-        'sources': ['postgres_type_test.cc', 'postgresql_test.cc'],
+        'sources': [
+            'driver_policy_test.cc',
+            'postgres_type_test.cc',
+            'postgresql_test.cc',
+        ],
     },
     'driver-postgresql-copy': {
         'src_name': 'driver_postgresql_copy',
