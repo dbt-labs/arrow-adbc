@@ -25,7 +25,7 @@ import (
 )
 
 // TestSetOptionOIDC verifies the OIDC option keys are wired into SetOption and
-// stored on the database impl. The token file path is optional.
+// stored on the database impl.
 func TestSetOptionOIDC(t *testing.T) {
 	t.Run("env-oidc", func(t *testing.T) {
 		db := newTestDatabase(t)
@@ -63,8 +63,7 @@ func TestSetOptionOIDC(t *testing.T) {
 }
 
 // TestResolveConnectionOptionsOIDCMissingClientID verifies that the env-oidc and
-// file-oidc auth types require a client id, and error clearly otherwise. The
-// validation returns before any network/SDK resolution.
+// file-oidc auth types require a client id.
 func TestResolveConnectionOptionsOIDCMissingClientID(t *testing.T) {
 	for _, authType := range []string{OptionValueAuthTypeEnvOIDC, OptionValueAuthTypeFileOIDC} {
 		t.Run(authType, func(t *testing.T) {
