@@ -71,6 +71,8 @@ const (
 	OptionValueAuthTypeExternalBrowser   = "external-browser"
 	OptionValueAuthTypePAT               = "pat"
 	OptionValueAuthTypeAzureClientSecret = "azure-client-secret"
+	OptionValueAuthTypeEnvOIDC           = "env-oidc"
+	OptionValueAuthTypeFileOIDC          = "file-oidc"
 
 	// Auth: OAuth
 	OptionOAuthClientID          = "databricks.oauth.client_id"
@@ -86,6 +88,10 @@ const (
 	OptionAzureClientID     = "databricks.azure.client_id"
 	OptionAzureClientSecret = "databricks.azure.client_secret"
 	OptionAzureTenantID     = "databricks.azure.tenant_id"
+
+	// Auth: OIDC
+	OptionOIDCClientID      = "databricks.oidc.client_id"
+	OptionOIDCTokenFilePath = "databricks.oidc.token_file_path"
 
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Use with a parameter name suffix, e.g. "databricks.session_param.QUERY_TAGS".
