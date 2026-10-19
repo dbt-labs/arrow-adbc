@@ -25,14 +25,28 @@ TEST(DriverPolicyTest, FlavorDefaults) {
   EXPECT_EQ(kPostgreSQLDriverPolicy.flavor, DriverFlavor::kPostgreSQL);
   EXPECT_EQ(kPostgreSQLDriverPolicy.default_vendor_name, "PostgreSQL");
   EXPECT_TRUE(kPostgreSQLDriverPolicy.default_use_copy);
+  EXPECT_TRUE(kPostgreSQLDriverPolicy.UseCopyByDefault("PostgreSQL"));
+  EXPECT_FALSE(kPostgreSQLDriverPolicy.UseCopyByDefault("Redshift"));
+  EXPECT_FALSE(kPostgreSQLDriverPolicy.normalize_nullable_type_oids);
+  EXPECT_FALSE(kPostgreSQLDriverPolicy.fallback_typreceive_from_typname);
+  EXPECT_FALSE(kPostgreSQLDriverPolicy.restart_transaction_separately);
 
   EXPECT_EQ(kRedshiftDriverPolicy.flavor, DriverFlavor::kRedshift);
   EXPECT_EQ(kRedshiftDriverPolicy.default_vendor_name, "PostgreSQL");
   EXPECT_TRUE(kRedshiftDriverPolicy.default_use_copy);
+  EXPECT_TRUE(kRedshiftDriverPolicy.UseCopyByDefault("PostgreSQL"));
+  EXPECT_FALSE(kRedshiftDriverPolicy.UseCopyByDefault("Redshift"));
+  EXPECT_FALSE(kRedshiftDriverPolicy.normalize_nullable_type_oids);
+  EXPECT_FALSE(kRedshiftDriverPolicy.fallback_typreceive_from_typname);
+  EXPECT_FALSE(kRedshiftDriverPolicy.restart_transaction_separately);
 
   EXPECT_EQ(kMotherDuckDriverPolicy.flavor, DriverFlavor::kMotherDuck);
   EXPECT_EQ(kMotherDuckDriverPolicy.default_vendor_name, "MotherDuck");
   EXPECT_FALSE(kMotherDuckDriverPolicy.default_use_copy);
+  EXPECT_FALSE(kMotherDuckDriverPolicy.UseCopyByDefault("MotherDuck"));
+  EXPECT_TRUE(kMotherDuckDriverPolicy.normalize_nullable_type_oids);
+  EXPECT_TRUE(kMotherDuckDriverPolicy.fallback_typreceive_from_typname);
+  EXPECT_TRUE(kMotherDuckDriverPolicy.restart_transaction_separately);
 }
 
 TEST(DriverPolicyTest, SelectsCompileTimeFlavor) {

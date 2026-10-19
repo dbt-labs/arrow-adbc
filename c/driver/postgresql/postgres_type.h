@@ -17,14 +17,18 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include <nanoarrow/nanoarrow.hpp>
+
+#include "driver_policy.h"
 
 namespace adbcpq {
 
@@ -402,7 +406,7 @@ class PostgresTypeResolver {
     uint32_t class_oid;
   };
 
-  PostgresTypeResolver() : base_(AllBase()) {}
+  PostgresTypeResolver() : base_(AllBase()), typname_base_(AllBaseByTypname()) {}
 
   // Place a resolved copy of a PostgresType with the appropriate oid in type_out
   // if NANOARROW_OK is returned or place a null-terminated error message into error
@@ -458,16 +462,25 @@ class PostgresTypeResolver {
   // of Inserts matters: Non-array types must be inserted before the corresponding
   // array types and class definitions must be inserted before the corresponding
   // class type using InsertClass().
-  ArrowErrorCode Insert(const Item& item, ArrowError* error) {
+  ArrowErrorCode Insert(const Item& item, ArrowError* error,
+                        const DriverPolicy& policy = kPostgreSQLDriverPolicy) {
     auto result = base_.find(item.typreceive);
     PostgresType base;
 
-    if (result == base_.end()) {
+    if (result == base_.end() && policy.fallback_typreceive_from_typname &&
+        IsNumericOid(item.typreceive)) {
+      auto typname_result = typname_base_.find(item.typname);
+      if (typname_result != typname_base_.end()) {
+        base = typname_result->second;
+      }
+    }
+
+    if (base.type_id() == PostgresTypeId::kUninitialized && result == base_.end()) {
       // This occurs when a user-defined type has defined a custom receive function
       // (e.g., PostGIS/geometry). The only way these types can be supported is
       // by returning binary unless we hard-code support for some extensions.
       base = PostgresType(PostgresTypeId::kUserDefined);
-    } else {
+    } else if (result != base_.end()) {
       base = result->second;
     }
 
@@ -542,6 +555,12 @@ class PostgresTypeResolver {
   std::unordered_map<uint32_t, uint32_t> array_mapping_;
   std::unordered_map<uint32_t, std::vector<std::pair<std::string, uint32_t>>> classes_;
   std::unordered_map<std::string, PostgresType> base_;
+  std::unordered_map<std::string, PostgresType> typname_base_;
+
+  static bool IsNumericOid(std::string_view value) {
+    return !value.empty() && std::all_of(value.begin(), value.end(),
+                                         [](char c) { return c >= '0' && c <= '9'; });
+  }
 
   ArrowErrorCode ResolveClass(uint32_t oid,
                               std::vector<std::pair<std::string, uint32_t>>* out,
@@ -565,6 +584,17 @@ class PostgresTypeResolver {
       PostgresType type(type_id);
       out.insert(
           {PostgresTyprecv(type_id), type.WithPgTypeInfo(0, PostgresTypname(type_id))});
+    }
+
+    return out;
+  }
+
+  static std::unordered_map<std::string, PostgresType> AllBaseByTypname() {
+    std::unordered_map<std::string, PostgresType> out;
+    for (PostgresTypeId type_id : PostgresTypeIdAll()) {
+      PostgresType type(type_id);
+      out.insert(
+          {PostgresTypname(type_id), type.WithPgTypeInfo(0, PostgresTypname(type_id))});
     }
 
     return out;

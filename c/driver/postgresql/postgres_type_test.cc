@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <nanoarrow/nanoarrow.hpp>
 
+#include "database.h"
 #include "postgres_type.h"
 
 namespace adbcpq {
@@ -441,6 +442,54 @@ TEST(PostgresTypeTest, PostgresTypeResolver) {
   EXPECT_EQ(type.oid(), 13);
   EXPECT_EQ(type.typname(), "some_domain_type_name");
   EXPECT_EQ(type.type_id(), PostgresTypeId::kBool);
+}
+
+TEST(PostgresTypeTest, MotherDuckPgTypeCompatibility) {
+  for (const char* field : {"typbasetype", "typrelid", "typarray"}) {
+    SCOPED_TRACE(field);
+    auto motherduck_oid = ParsePgTypeOid("", true, kMotherDuckDriverPolicy);
+    ASSERT_TRUE(motherduck_oid.has_value());
+    EXPECT_EQ(motherduck_oid.value(), 0);
+
+    auto postgres_oid = ParsePgTypeOid("", true, kPostgreSQLDriverPolicy);
+    EXPECT_FALSE(postgres_oid.has_value());
+  }
+
+  PostgresTypeResolver::Item builtin = {
+      23, "int4", "2406", 0, 0, 0,
+  };
+  PostgresType type;
+
+  PostgresTypeResolver motherduck_resolver;
+  ASSERT_EQ(motherduck_resolver.Insert(builtin, nullptr, kMotherDuckDriverPolicy),
+            NANOARROW_OK);
+  ASSERT_EQ(motherduck_resolver.Find(builtin.oid, &type, nullptr), NANOARROW_OK);
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kInt4);
+  EXPECT_STREQ(PostgresTyprecv(type.type_id()), "int4recv");
+
+  PostgresTypeResolver postgres_resolver;
+  ASSERT_EQ(postgres_resolver.Insert(builtin, nullptr, kPostgreSQLDriverPolicy),
+            NANOARROW_OK);
+  ASSERT_EQ(postgres_resolver.Find(builtin.oid, &type, nullptr), NANOARROW_OK);
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kUserDefined);
+
+  PostgresTypeResolver::Item unknown = {
+      90000, "motherduck_extension_type", "90001", 0, 0, 0,
+  };
+  ASSERT_EQ(motherduck_resolver.Insert(unknown, nullptr, kMotherDuckDriverPolicy),
+            NANOARROW_OK);
+  ASSERT_EQ(motherduck_resolver.Find(unknown.oid, &type, nullptr), NANOARROW_OK);
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kUserDefined);
+
+  nanoarrow::UniqueSchema schema;
+  ArrowSchemaInit(schema.get());
+  ASSERT_EQ(type.SetSchema(schema.get(), "MotherDuck"), NANOARROW_OK);
+  EXPECT_STREQ(schema->format, "z");
+  ArrowStringView extension_name = ArrowCharView("<not found>");
+  ASSERT_EQ(ArrowMetadataGetValue(schema->metadata, ArrowCharView("ARROW:extension:name"),
+                                  &extension_name),
+            NANOARROW_OK);
+  EXPECT_EQ(std::string(extension_name.data, extension_name.size_bytes), "arrow.opaque");
 }
 
 TEST(PostgresTypeTest, PostgresTypeResolveRecord) {

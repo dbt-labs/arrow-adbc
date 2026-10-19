@@ -37,6 +37,9 @@
 namespace adbcpq {
 using adbc::driver::Status;
 
+adbc::driver::Result<int64_t> ParsePgTypeOid(std::string_view value, bool is_null,
+                                             const DriverPolicy& policy);
+
 struct ConnectionParams {
   // Validate connection parameters and return error message if invalid
   std::optional<std::string> Validate() const;

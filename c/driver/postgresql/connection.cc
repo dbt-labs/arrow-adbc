@@ -483,7 +483,9 @@ AdbcStatusCode PostgresConnection::Commit(struct AdbcError* error) {
     return ADBC_STATUS_OK;
   }
 
-  PGresult* result = PQexec(conn_, "COMMIT; BEGIN TRANSACTION");
+  PGresult* result = PQexec(conn_, kDriverPolicy.restart_transaction_separately
+                                       ? "COMMIT"
+                                       : "COMMIT; BEGIN TRANSACTION");
   if (PQresultStatus(result) != PGRES_COMMAND_OK) {
     AdbcStatusCode code = SetError(error, result, "%s%s",
                                    "[libpq] Failed to commit: ", PQerrorMessage(conn_));
@@ -491,6 +493,18 @@ AdbcStatusCode PostgresConnection::Commit(struct AdbcError* error) {
     return code;
   }
   PQclear(result);
+
+  if (kDriverPolicy.restart_transaction_separately) {
+    result = PQexec(conn_, "BEGIN TRANSACTION");
+    if (PQresultStatus(result) != PGRES_COMMAND_OK) {
+      AdbcStatusCode code = SetError(
+          error, result, "%s%s",
+          "[libpq] Failed to begin transaction after commit: ", PQerrorMessage(conn_));
+      PQclear(result);
+      return code;
+    }
+    PQclear(result);
+  }
   return ADBC_STATUS_OK;
 }
 
@@ -1150,7 +1164,9 @@ AdbcStatusCode PostgresConnection::Rollback(struct AdbcError* error) {
     return ADBC_STATUS_OK;
   }
 
-  PGresult* result = PQexec(conn_, "ROLLBACK AND CHAIN");
+  PGresult* result =
+      PQexec(conn_, kDriverPolicy.restart_transaction_separately ? "ROLLBACK"
+                                                                 : "ROLLBACK AND CHAIN");
   if (PQresultStatus(result) != PGRES_COMMAND_OK) {
     InternalAdbcSetError(error, "%s%s",
                          "[libpq] Failed to rollback: ", PQerrorMessage(conn_));
@@ -1158,6 +1174,18 @@ AdbcStatusCode PostgresConnection::Rollback(struct AdbcError* error) {
     return ADBC_STATUS_IO;
   }
   PQclear(result);
+
+  if (kDriverPolicy.restart_transaction_separately) {
+    result = PQexec(conn_, "BEGIN TRANSACTION");
+    if (PQresultStatus(result) != PGRES_COMMAND_OK) {
+      InternalAdbcSetError(
+          error, "%s%s",
+          "[libpq] Failed to begin transaction after rollback: ", PQerrorMessage(conn_));
+      PQclear(result);
+      return ADBC_STATUS_IO;
+    }
+    PQclear(result);
+  }
   return ADBC_STATUS_OK;
 }
 

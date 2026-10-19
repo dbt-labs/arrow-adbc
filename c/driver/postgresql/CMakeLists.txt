@@ -34,12 +34,34 @@ elseif(APPLE)
   if(NOT LIBPQ_STATIC_LIB)
     message(FATAL_ERROR "Could not find static libpq library. Please ensure libpq is installed with Homebrew.")
   endif()
-  set(LIBPQ_LINK_LIBRARIES ${LIBPQ_STATIC_LIB})
-  set(LIBPQ_STATIC_LIBRARIES ${LIBPQ_STATIC_LIB})
+  # Keep libpq itself static while linking its required dependencies.
+  set(LIBPQ_STATIC_DEPENDENCIES ${LIBPQ_STATIC_LDFLAGS})
+  list(REMOVE_ITEM LIBPQ_STATIC_DEPENDENCIES "-lpq")
+  find_library(LIBPGCOMMON_STATIC
+               NAMES libpgcommon_shlib.a
+               PATHS ${LIBPQ_LIBRARY_DIRS}
+               NO_DEFAULT_PATH)
+  find_library(LIBPGPORT_STATIC
+               NAMES libpgport_shlib.a
+               PATHS ${LIBPQ_LIBRARY_DIRS}
+               NO_DEFAULT_PATH)
+  if(LIBPGCOMMON_STATIC AND LIBPGPORT_STATIC)
+    list(REMOVE_ITEM LIBPQ_STATIC_DEPENDENCIES "-lpgcommon" "-lpgport")
+    list(PREPEND
+         LIBPQ_STATIC_DEPENDENCIES
+         ${LIBPGCOMMON_STATIC}
+         ${LIBPGPORT_STATIC})
+  endif()
+  set(LIBPQ_LINK_LIBRARIES ${LIBPQ_STATIC_LIB} ${LIBPQ_STATIC_DEPENDENCIES})
+  set(LIBPQ_STATIC_LIBRARIES ${LIBPQ_STATIC_LIB} ${LIBPQ_STATIC_DEPENDENCIES})
   set(LIBPQ_INCLUDE_DIRS ${LIBPQ_INCLUDE_DIRS})
 else()
   find_package(PkgConfig)
   pkg_check_modules(LIBPQ REQUIRED libpq)
+endif()
+
+if(ADBC_REDSHIFT_FLAVOR AND ADBC_MOTHERDUCK_FLAVOR)
+  message(FATAL_ERROR "Only one PostgreSQL driver flavor may be selected")
 endif()
 
 # The Redshift driver requires the AWS SDK
@@ -60,6 +82,8 @@ endif()
 # Set library name based on flavor
 if(ADBC_REDSHIFT_FLAVOR)
   set(DRIVER_LIB_NAME adbc_driver_redshift)
+elseif(ADBC_MOTHERDUCK_FLAVOR)
+  set(DRIVER_LIB_NAME adbc_driver_motherduck)
 else()
   set(DRIVER_LIB_NAME adbc_driver_postgresql)
 endif()
@@ -110,6 +134,8 @@ foreach(LIB_TARGET ${ADBC_LIBRARIES})
     target_compile_definitions(${LIB_TARGET} PUBLIC ADBC_REDSHIFT_FLAVOR)
     target_include_directories(${LIB_TARGET} SYSTEM PRIVATE ${AWSSDK_INCLUDE_DIRS})
     target_link_libraries(${LIB_TARGET} PRIVATE ${AWSSDK_LIBRARIES})
+  elseif(ADBC_MOTHERDUCK_FLAVOR)
+    target_compile_definitions(${LIB_TARGET} PUBLIC ADBC_MOTHERDUCK_FLAVOR)
   endif()
 endforeach()
 

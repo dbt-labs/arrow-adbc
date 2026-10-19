@@ -227,6 +227,8 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
   define_option(ADBC_DRIVER_FLIGHTSQL "Build the Flight SQL driver" OFF)
   define_option(ADBC_DRIVER_MANAGER "Build the driver manager" OFF)
   define_option(ADBC_DRIVER_POSTGRESQL "Build the PostgreSQL driver" OFF)
+  define_option(ADBC_MOTHERDUCK_FLAVOR
+                "Build the PostgreSQL driver with MotherDuck compatibility" OFF)
   define_option(ADBC_DRIVER_SQLITE "Build the SQLite driver" OFF)
   define_option(ADBC_DRIVER_SNOWFLAKE "Build the Snowflake driver" OFF)
   define_option(ADBC_DRIVER_BIGQUERY "Build the BigQuery driver" OFF)

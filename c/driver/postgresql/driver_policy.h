@@ -31,6 +31,9 @@ struct DriverPolicy {
   DriverFlavor flavor;
   std::string_view default_vendor_name;
   bool default_use_copy;
+  bool normalize_nullable_type_oids;
+  bool fallback_typreceive_from_typname;
+  bool restart_transaction_separately;
 
   std::string_view VendorName(bool redshift_server_detected) const {
     return redshift_server_detected ? "Redshift" : default_vendor_name;
@@ -41,12 +44,12 @@ struct DriverPolicy {
   }
 };
 
-inline constexpr DriverPolicy kPostgreSQLDriverPolicy = {DriverFlavor::kPostgreSQL,
-                                                         "PostgreSQL", true};
-inline constexpr DriverPolicy kRedshiftDriverPolicy = {DriverFlavor::kRedshift,
-                                                       "PostgreSQL", true};
-inline constexpr DriverPolicy kMotherDuckDriverPolicy = {DriverFlavor::kMotherDuck,
-                                                         "MotherDuck", false};
+inline constexpr DriverPolicy kPostgreSQLDriverPolicy = {
+    DriverFlavor::kPostgreSQL, "PostgreSQL", true, false, false, false};
+inline constexpr DriverPolicy kRedshiftDriverPolicy = {
+    DriverFlavor::kRedshift, "PostgreSQL", true, false, false, false};
+inline constexpr DriverPolicy kMotherDuckDriverPolicy = {
+    DriverFlavor::kMotherDuck, "MotherDuck", false, true, true, true};
 
 #if defined(ADBC_REDSHIFT_FLAVOR) && defined(ADBC_MOTHERDUCK_FLAVOR)
 #error "Only one PostgreSQL driver flavor may be selected"
