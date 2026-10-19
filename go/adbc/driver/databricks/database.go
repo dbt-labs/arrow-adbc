@@ -522,6 +522,7 @@ func (d *databaseImpl) newEnvOIDCAuthenticator() (*sdkconfig.Config, error) {
 		Host:        "https://" + d.serverHostname,
 		ClientID:    d.oidcClientID,
 		Credentials: sdkconfig.EnvOIDCCredentials{},
+		AuthType:    OptionValueAuthTypeEnvOIDC,
 	}
 	if err := cfg.EnsureResolved(); err != nil {
 		return nil, adbc.Error{
@@ -537,6 +538,7 @@ func (d *databaseImpl) newFileOIDCAuthenticator() (*sdkconfig.Config, error) {
 		Host:        "https://" + d.serverHostname,
 		ClientID:    d.oidcClientID,
 		Credentials: sdkconfig.FileOIDCCredentials{},
+		AuthType:    OptionValueAuthTypeFileOIDC,
 	}
 	if d.oidcTokenFilepath != "" {
 		cfg.OIDCTokenFilepath = d.oidcTokenFilepath
