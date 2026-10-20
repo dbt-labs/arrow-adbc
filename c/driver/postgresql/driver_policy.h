@@ -42,6 +42,18 @@ struct DriverPolicy {
   bool UseCopyByDefault(std::string_view detected_vendor_name) const {
     return default_use_copy && detected_vendor_name != "Redshift";
   }
+
+  const char* CommitQuery() const {
+    return restart_transaction_separately ? "COMMIT" : "COMMIT; BEGIN TRANSACTION";
+  }
+
+  const char* RollbackQuery() const {
+    return restart_transaction_separately ? "ROLLBACK" : "ROLLBACK AND CHAIN";
+  }
+
+  const char* TransactionRestartQuery() const {
+    return restart_transaction_separately ? "BEGIN TRANSACTION" : nullptr;
+  }
 };
 
 inline constexpr DriverPolicy kPostgreSQLDriverPolicy = {

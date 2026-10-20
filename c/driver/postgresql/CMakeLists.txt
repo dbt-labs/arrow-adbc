@@ -58,6 +58,7 @@ elseif(APPLE)
 else()
   find_package(PkgConfig)
   pkg_check_modules(LIBPQ REQUIRED libpq)
+  set(LIBPQ_STATIC_LIBRARIES ${LIBPQ_STATIC_LDFLAGS})
 endif()
 
 if(ADBC_REDSHIFT_FLAVOR AND ADBC_MOTHERDUCK_FLAVOR)
@@ -84,8 +85,34 @@ if(ADBC_REDSHIFT_FLAVOR)
   set(DRIVER_LIB_NAME adbc_driver_redshift)
 elseif(ADBC_MOTHERDUCK_FLAVOR)
   set(DRIVER_LIB_NAME adbc_driver_motherduck)
+  set(DRIVER_CMAKE_PACKAGE_NAME AdbcDriverMotherDuck)
+  set(DRIVER_PKG_CONFIG_NAME adbc-driver-motherduck)
+  set(DRIVER_STATIC_INSTALL_INTERFACE_LIBS
+      AdbcDriverCommon::adbc_driver_common
+      AdbcDriverFramework::adbc_driver_framework)
+  if(WIN32)
+    list(APPEND DRIVER_STATIC_INSTALL_INTERFACE_LIBS PostgreSQL::PostgreSQL wsock32
+         ws2_32)
+  else()
+    list(APPEND DRIVER_STATIC_INSTALL_INTERFACE_LIBS
+         AdbcDriverMotherDuck::libpq_static)
+  endif()
+  set(DRIVER_PKG_CONFIG_PRIVATE_LIBS
+      -ladbc_driver_framework
+      -ladbc_driver_common
+      -lfmt
+      -lnanoarrow)
+  string(REPLACE ";" " " DRIVER_PKG_CONFIG_PRIVATE_LIBS
+                 "${DRIVER_PKG_CONFIG_PRIVATE_LIBS}")
 else()
   set(DRIVER_LIB_NAME adbc_driver_postgresql)
+endif()
+
+if(NOT DRIVER_CMAKE_PACKAGE_NAME)
+  set(DRIVER_CMAKE_PACKAGE_NAME AdbcDriverPostgreSQL)
+endif()
+if(NOT DRIVER_PKG_CONFIG_NAME)
+  set(DRIVER_PKG_CONFIG_NAME adbc-driver-postgresql)
 endif()
 
 add_arrow_lib(${DRIVER_LIB_NAME}
@@ -101,9 +128,9 @@ add_arrow_lib(${DRIVER_LIB_NAME}
               OUTPUTS
               ADBC_LIBRARIES
               CMAKE_PACKAGE_NAME
-              AdbcDriverPostgreSQL
+              ${DRIVER_CMAKE_PACKAGE_NAME}
               PKG_CONFIG_NAME
-              adbc-driver-postgresql
+              ${DRIVER_PKG_CONFIG_NAME}
               SHARED_LINK_FLAGS
               ${ADBC_LINK_FLAGS}
               SHARED_LINK_LIBS
@@ -114,7 +141,9 @@ add_arrow_lib(${DRIVER_LIB_NAME}
               ${LIBPQ_LINK_LIBRARIES}
               adbc_driver_common
               adbc_driver_framework
-              ${LIBPQ_STATIC_LIBRARIES})
+              ${LIBPQ_STATIC_LIBRARIES}
+              STATIC_INSTALL_INTERFACE_LIBS
+              ${DRIVER_STATIC_INSTALL_INTERFACE_LIBS})
 
 foreach(LIB_TARGET ${ADBC_LIBRARIES})
   target_compile_definitions(${LIB_TARGET} PRIVATE ADBC_EXPORTING)

@@ -136,7 +136,8 @@ LIBRARY=$<TARGET_FILE:adbc_driver_${TARGET}_shared>" ${Python3_EXECUTABLE} -m pi
                        WORKING_DIRECTORY ${REPOSITORY_ROOT})
   endmacro()
 
-  if(ADBC_DRIVER_POSTGRESQL)
+  # The MotherDuck flavor has no Python package.
+  if(ADBC_DRIVER_POSTGRESQL AND NOT ADBC_MOTHERDUCK_FLAVOR)
     adbc_install_python_package(postgresql)
   endif()
 

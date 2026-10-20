@@ -464,7 +464,7 @@ ORDER BY
 
   // Create a new type resolver (this instance's type_resolver_ member
   // will be updated at the end if this succeeds).
-  auto resolver = std::make_shared<PostgresTypeResolver>();
+  auto resolver = std::make_shared<PostgresTypeResolver>(kDriverPolicy);
 
   // Insert record type definitions (this includes table schemas)
   PqResultHelper columns(conn, kColumnsQuery.c_str());
@@ -577,7 +577,7 @@ static Status InsertPgTypeResult(const PqResultHelper& result,
     type_item.class_oid = static_cast<uint32_t>(typrelid);
     type_item.base_oid = static_cast<uint32_t>(typbasetype);
 
-    int insert_result = resolver->Insert(type_item, nullptr, kDriverPolicy);
+    int insert_result = resolver->Insert(type_item, nullptr);
 
     // If there's an array type and the insert succeeded, add that now too
     if (insert_result == NANOARROW_OK && typarray != 0) {
@@ -587,7 +587,7 @@ static Status InsertPgTypeResult(const PqResultHelper& result,
       type_item.typreceive = "array_recv";
       type_item.child_oid = static_cast<uint32_t>(oid);
 
-      resolver->Insert(type_item, nullptr, kDriverPolicy);
+      resolver->Insert(type_item, nullptr);
     }
   }
 

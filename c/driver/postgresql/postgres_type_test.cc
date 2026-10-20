@@ -460,24 +460,21 @@ TEST(PostgresTypeTest, MotherDuckPgTypeCompatibility) {
   };
   PostgresType type;
 
-  PostgresTypeResolver motherduck_resolver;
-  ASSERT_EQ(motherduck_resolver.Insert(builtin, nullptr, kMotherDuckDriverPolicy),
-            NANOARROW_OK);
+  PostgresTypeResolver motherduck_resolver(kMotherDuckDriverPolicy);
+  ASSERT_EQ(motherduck_resolver.Insert(builtin, nullptr), NANOARROW_OK);
   ASSERT_EQ(motherduck_resolver.Find(builtin.oid, &type, nullptr), NANOARROW_OK);
   EXPECT_EQ(type.type_id(), PostgresTypeId::kInt4);
   EXPECT_STREQ(PostgresTyprecv(type.type_id()), "int4recv");
 
   PostgresTypeResolver postgres_resolver;
-  ASSERT_EQ(postgres_resolver.Insert(builtin, nullptr, kPostgreSQLDriverPolicy),
-            NANOARROW_OK);
+  ASSERT_EQ(postgres_resolver.Insert(builtin, nullptr), NANOARROW_OK);
   ASSERT_EQ(postgres_resolver.Find(builtin.oid, &type, nullptr), NANOARROW_OK);
   EXPECT_EQ(type.type_id(), PostgresTypeId::kUserDefined);
 
   PostgresTypeResolver::Item unknown = {
       90000, "motherduck_extension_type", "90001", 0, 0, 0,
   };
-  ASSERT_EQ(motherduck_resolver.Insert(unknown, nullptr, kMotherDuckDriverPolicy),
-            NANOARROW_OK);
+  ASSERT_EQ(motherduck_resolver.Insert(unknown, nullptr), NANOARROW_OK);
   ASSERT_EQ(motherduck_resolver.Find(unknown.oid, &type, nullptr), NANOARROW_OK);
   EXPECT_EQ(type.type_id(), PostgresTypeId::kUserDefined);
 
@@ -490,6 +487,37 @@ TEST(PostgresTypeTest, MotherDuckPgTypeCompatibility) {
                                   &extension_name),
             NANOARROW_OK);
   EXPECT_EQ(std::string(extension_name.data, extension_name.size_bytes), "arrow.opaque");
+}
+
+TEST(PostgresTypeTest, MotherDuckArrayResolutionIsIndependentOfRowOrder) {
+  PostgresTypeResolver resolver(kMotherDuckDriverPolicy);
+  PostgresType type;
+
+  PostgresTypeResolver::Item physical_array = {
+      1007, "_int4", "2400", 0, 0, 0,
+  };
+  ASSERT_EQ(resolver.Insert(physical_array, nullptr), NANOARROW_OK);
+
+  PostgresTypeResolver::Item element = {
+      23, "int4", "2406", 0, 0, 0,
+  };
+  ASSERT_EQ(resolver.Insert(element, nullptr), NANOARROW_OK);
+
+  PostgresTypeResolver::Item resolved_array = {
+      1007, "_int4", "array_recv", 23, 0, 0,
+  };
+  ASSERT_EQ(resolver.Insert(resolved_array, nullptr), NANOARROW_OK);
+
+  // Rebuilding retries every row; the physical row must not replace the array.
+  ASSERT_EQ(resolver.Insert(physical_array, nullptr), NANOARROW_OK);
+  ASSERT_EQ(resolver.Find(physical_array.oid, &type, nullptr), NANOARROW_OK);
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kArray);
+  ASSERT_EQ(type.n_children(), 1);
+  EXPECT_EQ(type.child(0).type_id(), PostgresTypeId::kInt4);
+
+  ASSERT_EQ(resolver.FindArray(element.oid, &type, nullptr), NANOARROW_OK);
+  EXPECT_EQ(type.oid(), physical_array.oid);
+  EXPECT_NE(resolver.GetOID(PostgresTypeId::kUserDefined), physical_array.oid);
 }
 
 TEST(PostgresTypeTest, PostgresTypeResolveRecord) {

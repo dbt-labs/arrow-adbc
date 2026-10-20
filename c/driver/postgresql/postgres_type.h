@@ -406,7 +406,8 @@ class PostgresTypeResolver {
     uint32_t class_oid;
   };
 
-  PostgresTypeResolver() : base_(AllBase()), typname_base_(AllBaseByTypname()) {}
+  explicit PostgresTypeResolver(const DriverPolicy& policy = kPostgreSQLDriverPolicy)
+      : policy_(policy), base_(AllBase()), typname_base_(AllBaseByTypname()) {}
 
   // Place a resolved copy of a PostgresType with the appropriate oid in type_out
   // if NANOARROW_OK is returned or place a null-terminated error message into error
@@ -462,12 +463,11 @@ class PostgresTypeResolver {
   // of Inserts matters: Non-array types must be inserted before the corresponding
   // array types and class definitions must be inserted before the corresponding
   // class type using InsertClass().
-  ArrowErrorCode Insert(const Item& item, ArrowError* error,
-                        const DriverPolicy& policy = kPostgreSQLDriverPolicy) {
+  ArrowErrorCode Insert(const Item& item, ArrowError* error) {
     auto result = base_.find(item.typreceive);
     PostgresType base;
 
-    if (result == base_.end() && policy.fallback_typreceive_from_typname &&
+    if (result == base_.end() && policy_.fallback_typreceive_from_typname &&
         IsNumericOid(item.typreceive)) {
       auto typname_result = typname_base_.find(item.typname);
       if (typname_result != typname_base_.end()) {
@@ -490,9 +490,10 @@ class PostgresTypeResolver {
       case PostgresTypeId::kArray: {
         PostgresType child;
         NANOARROW_RETURN_NOT_OK(Find(item.child_oid, &child, error));
-        mapping_.insert({item.oid, child.Array(item.oid, item.typname)});
+        RemoveReverseMapping(item.oid);
+        mapping_[item.oid] = child.Array(item.oid, item.typname);
         reverse_mapping_.insert({static_cast<int32_t>(base.type_id()), item.oid});
-        array_mapping_.insert({child.oid(), item.oid});
+        array_mapping_[child.oid()] = item.oid;
         break;
       }
 
@@ -529,8 +530,9 @@ class PostgresTypeResolver {
       }
 
       default:
-        mapping_.insert({item.oid, type});
-        reverse_mapping_.insert({static_cast<int32_t>(base.type_id()), item.oid});
+        if (mapping_.insert({item.oid, type}).second) {
+          reverse_mapping_.insert({static_cast<int32_t>(base.type_id()), item.oid});
+        }
         break;
     }
 
@@ -548,6 +550,7 @@ class PostgresTypeResolver {
   }
 
  private:
+  DriverPolicy policy_;
   std::unordered_map<uint32_t, PostgresType> mapping_;
   // We can't use PostgresTypeId as an unordered map key because there is no
   // built-in hasher for an enum on gcc 4.8 (i.e., R 3.6 on Windows).
@@ -560,6 +563,16 @@ class PostgresTypeResolver {
   static bool IsNumericOid(std::string_view value) {
     return !value.empty() && std::all_of(value.begin(), value.end(),
                                          [](char c) { return c >= '0' && c <= '9'; });
+  }
+
+  void RemoveReverseMapping(uint32_t oid) {
+    for (auto it = reverse_mapping_.begin(); it != reverse_mapping_.end();) {
+      if (it->second == oid) {
+        it = reverse_mapping_.erase(it);
+      } else {
+        ++it;
+      }
+    }
   }
 
   ArrowErrorCode ResolveClass(uint32_t oid,
