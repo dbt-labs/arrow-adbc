@@ -99,10 +99,7 @@ class PostgresDatabase {
   Status InitVersions(PGconn* conn);
   Status RebuildTypeResolver(PGconn* conn);
   std::string_view VendorName() {
-    if (redshift_server_version_[0] != 0) {
-      return "Redshift";
-    }
-    return kDriverPolicy.vendor_name;
+    return kDriverPolicy.VendorName(redshift_server_version_[0] != 0);
   }
   const std::array<int, 3>& VendorVersion() {
     if (redshift_server_version_[0] != 0) {

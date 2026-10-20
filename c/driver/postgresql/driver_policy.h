@@ -29,8 +29,12 @@ enum class DriverFlavor {
 
 struct DriverPolicy {
   DriverFlavor flavor;
-  std::string_view vendor_name;
+  std::string_view default_vendor_name;
   bool default_use_copy;
+
+  std::string_view VendorName(bool redshift_server_detected) const {
+    return redshift_server_detected ? "Redshift" : default_vendor_name;
+  }
 
   bool UseCopyByDefault(std::string_view detected_vendor_name) const {
     return default_use_copy && detected_vendor_name != "Redshift";
@@ -40,7 +44,7 @@ struct DriverPolicy {
 inline constexpr DriverPolicy kPostgreSQLDriverPolicy = {DriverFlavor::kPostgreSQL,
                                                          "PostgreSQL", true};
 inline constexpr DriverPolicy kRedshiftDriverPolicy = {DriverFlavor::kRedshift,
-                                                       "Redshift", false};
+                                                       "PostgreSQL", true};
 inline constexpr DriverPolicy kMotherDuckDriverPolicy = {DriverFlavor::kMotherDuck,
                                                          "MotherDuck", false};
 

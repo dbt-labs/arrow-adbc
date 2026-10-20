@@ -21,22 +21,41 @@
 
 namespace adbcpq {
 
-TEST(DriverPolicyTest, FlavorDecisions) {
+TEST(DriverPolicyTest, FlavorDefaults) {
   EXPECT_EQ(kPostgreSQLDriverPolicy.flavor, DriverFlavor::kPostgreSQL);
-  EXPECT_EQ(kPostgreSQLDriverPolicy.vendor_name, "PostgreSQL");
+  EXPECT_EQ(kPostgreSQLDriverPolicy.default_vendor_name, "PostgreSQL");
   EXPECT_TRUE(kPostgreSQLDriverPolicy.default_use_copy);
-  EXPECT_TRUE(kPostgreSQLDriverPolicy.UseCopyByDefault("PostgreSQL"));
-  EXPECT_FALSE(kPostgreSQLDriverPolicy.UseCopyByDefault("Redshift"));
 
   EXPECT_EQ(kRedshiftDriverPolicy.flavor, DriverFlavor::kRedshift);
-  EXPECT_EQ(kRedshiftDriverPolicy.vendor_name, "Redshift");
-  EXPECT_FALSE(kRedshiftDriverPolicy.default_use_copy);
-  EXPECT_FALSE(kRedshiftDriverPolicy.UseCopyByDefault("Redshift"));
+  EXPECT_EQ(kRedshiftDriverPolicy.default_vendor_name, "PostgreSQL");
+  EXPECT_TRUE(kRedshiftDriverPolicy.default_use_copy);
 
   EXPECT_EQ(kMotherDuckDriverPolicy.flavor, DriverFlavor::kMotherDuck);
-  EXPECT_EQ(kMotherDuckDriverPolicy.vendor_name, "MotherDuck");
+  EXPECT_EQ(kMotherDuckDriverPolicy.default_vendor_name, "MotherDuck");
   EXPECT_FALSE(kMotherDuckDriverPolicy.default_use_copy);
-  EXPECT_FALSE(kMotherDuckDriverPolicy.UseCopyByDefault("MotherDuck"));
+}
+
+TEST(DriverPolicyTest, SelectsCompileTimeFlavor) {
+#if defined(ADBC_REDSHIFT_FLAVOR)
+  EXPECT_EQ(kDriverPolicy.flavor, DriverFlavor::kRedshift);
+#elif defined(ADBC_MOTHERDUCK_FLAVOR)
+  EXPECT_EQ(kDriverPolicy.flavor, DriverFlavor::kMotherDuck);
+#else
+  EXPECT_EQ(kDriverPolicy.flavor, DriverFlavor::kPostgreSQL);
+#endif
+}
+
+TEST(DriverPolicyTest, AppliesRuntimeServerDetection) {
+  EXPECT_EQ(kDriverPolicy.VendorName(true), "Redshift");
+  EXPECT_FALSE(kDriverPolicy.UseCopyByDefault(kDriverPolicy.VendorName(true)));
+
+#if defined(ADBC_MOTHERDUCK_FLAVOR)
+  EXPECT_EQ(kDriverPolicy.VendorName(false), "MotherDuck");
+  EXPECT_FALSE(kDriverPolicy.UseCopyByDefault(kDriverPolicy.VendorName(false)));
+#else
+  EXPECT_EQ(kDriverPolicy.VendorName(false), "PostgreSQL");
+  EXPECT_TRUE(kDriverPolicy.UseCopyByDefault(kDriverPolicy.VendorName(false)));
+#endif
 }
 
 }  // namespace adbcpq
