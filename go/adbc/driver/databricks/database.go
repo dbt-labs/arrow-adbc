@@ -540,6 +540,8 @@ func (d *databaseImpl) newFileOIDCAuthenticator() (*sdkconfig.Config, error) {
 		Credentials: sdkconfig.FileOIDCCredentials{},
 		AuthType:    OptionValueAuthTypeFileOIDC,
 	}
+	// The Databricks SDK allows the OIDC file path to be provided in an environment variable
+	// DATABRICKS_OIDC_TOKEN_FILEPATH or DATABRICKS_OIDC_TOKEN_FILE instead of as an option.
 	if d.oidcTokenFilepath != "" {
 		cfg.OIDCTokenFilepath = d.oidcTokenFilepath
 	}
