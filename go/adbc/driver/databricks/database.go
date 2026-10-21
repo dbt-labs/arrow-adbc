@@ -97,6 +97,10 @@ type databaseImpl struct {
 	azureClientSecret string
 	azureTenantID     string
 
+	// OIDC auth
+	oidcClientID      string
+	oidcTokenFilepath string
+
 	// Session parameters passed to the Databricks SQL session at connection time.
 	// Keys are parameter names (e.g. "QUERY_TAGS"), values are parameter values.
 	sessionParams map[string]string
@@ -189,6 +193,18 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 			}
 		}
 		authenticator, err := d.newAzureClientSecretAuthenticator()
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, dbsql.WithAuthenticator(authenticator))
+	case OptionValueAuthTypeEnvOIDC, OptionValueAuthTypeFileOIDC:
+		if d.oidcClientID == "" {
+			return nil, adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("client ID is required when using auth type '%s'. Set this via '%s'.", d.authType, OptionOIDCClientID),
+			}
+		}
+		authenticator, err := d.newOIDCAuthenticator(d.authType)
 		if err != nil {
 			return nil, err
 		}
@@ -489,6 +505,40 @@ func (d *databaseImpl) newAzureClientSecretAuthenticator() (*sdkconfig.Config, e
 	return cfg, nil
 }
 
+// newOIDCAuthenticator builds a databricks-sdk-go Config for OIDC token federation.
+// authType selects where the SDK reads the OIDC token from: an environment variable
+// (env-oidc) or a file (file-oidc).
+func (d *databaseImpl) newOIDCAuthenticator(authType string) (*sdkconfig.Config, error) {
+	cfg := &sdkconfig.Config{
+		Host:     "https://" + d.serverHostname,
+		ClientID: d.oidcClientID,
+		AuthType: authType,
+	}
+	switch authType {
+	case OptionValueAuthTypeEnvOIDC:
+		cfg.Credentials = sdkconfig.EnvOIDCCredentials{}
+	case OptionValueAuthTypeFileOIDC:
+		cfg.Credentials = sdkconfig.FileOIDCCredentials{}
+		// The Databricks SDK allows the OIDC file path to be provided in an environment variable
+		// DATABRICKS_OIDC_TOKEN_FILEPATH or DATABRICKS_OIDC_TOKEN_FILE instead of as an option.
+		if d.oidcTokenFilepath != "" {
+			cfg.OIDCTokenFilepath = d.oidcTokenFilepath
+		}
+	default:
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("'%s' is not an OIDC auth type", authType),
+		}
+	}
+	if err := cfg.EnsureResolved(); err != nil {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("failed to configure '%s' auth: %v", authType, err),
+		}
+	}
+	return cfg, nil
+}
+
 func (d *databaseImpl) SetOptions(options map[string]string) error {
 	for k, v := range options {
 		if err := d.SetOption(k, v); err != nil {
@@ -648,6 +698,10 @@ func (d *databaseImpl) SetOption(key, value string) error {
 		d.azureTenantID = value
 	case OptionOAuthRefreshToken:
 		d.oauthRefreshToken = value
+	case OptionOIDCClientID:
+		d.oidcClientID = value
+	case OptionOIDCTokenFilepath:
+		d.oidcTokenFilepath = value
 	case OptionExternalBrowserTimeout:
 		if value != "" {
 			timeout, err := time.ParseDuration(value)
