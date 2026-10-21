@@ -1351,6 +1351,7 @@ func (st *statement) initIngest(ctx context.Context) error {
 	fileCfg := &job.Src.(*bigquery.ReaderSource).FileConfig
 	fileCfg.SourceFormat = bigquery.CSV // TODO: parameterize for other files
 	fileCfg.SkipLeadingRows = 1
+	fileCfg.AllowQuotedNewlines = true
 	fileCfg.FieldDelimiter = st.ingestFileDelimiter
 
 	if st.explicitSchema != nil {
