@@ -19,13 +19,16 @@ package bigquery
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"golang.org/x/oauth2/google/externalaccount"
@@ -570,5 +573,41 @@ func TestStatementSetGetOptionReservation(t *testing.T) {
 	}
 	if got != "" {
 		t.Fatalf("expected empty after clear, got %q", got)
+	}
+}
+
+// TestImpersonationUsesConfiguredAuthAsSource checks that the IAM
+// generateAccessToken call is made with the credentials selected by the auth
+// type, not Application Default Credentials.
+func TestImpersonationUsesConfiguredAuthAsSource(t *testing.T) {
+	var gotAuth atomic.Value
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth.Store(r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"accessToken":"impersonated","expireTime":"2099-01-01T00:00:00Z"}`))
+	}))
+	defer srv.Close()
+
+	// The IAM endpoint is hard-coded in the SDK, so route every dial to srv.
+	orig := http.DefaultTransport
+	http.DefaultTransport = &http.Transport{
+		DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}).DialContext(ctx, "tcp", srv.Listener.Addr().String())
+		},
+	}
+	defer func() { http.DefaultTransport = orig }()
+
+	conn := &connectionImpl{
+		authType:                   OptionValueAuthTypeTemporaryAccessToken,
+		accessToken:                "user-token",
+		impersonateTargetPrincipal: "sa@p.iam.gserviceaccount.com",
+		impersonateScopes:          []string{"https://www.googleapis.com/auth/bigquery"},
+		impersonateLifetime:        time.Hour, // non-zero lifetime fetches the token eagerly
+	}
+	if _, err := conn.authOptions(context.Background()); err != nil {
+		t.Fatalf("authOptions returned error: %v", err)
+	}
+	if got, _ := gotAuth.Load().(string); got != "Bearer user-token" {
+		t.Fatalf("expected generateAccessToken to be called with the user's token, got Authorization %q", got)
 	}
 }
