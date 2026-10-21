@@ -197,26 +197,14 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 			return nil, err
 		}
 		opts = append(opts, dbsql.WithAuthenticator(authenticator))
-	case OptionValueAuthTypeEnvOIDC:
+	case OptionValueAuthTypeEnvOIDC, OptionValueAuthTypeFileOIDC:
 		if d.oidcClientID == "" {
 			return nil, adbc.Error{
 				Code: adbc.StatusInvalidArgument,
-				Msg:  fmt.Sprintf("client ID is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeEnvOIDC, OptionOIDCClientID),
+				Msg:  fmt.Sprintf("client ID is required when using auth type '%s'. Set this via '%s'.", d.authType, OptionOIDCClientID),
 			}
 		}
-		authenticator, err := d.newEnvOIDCAuthenticator()
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, dbsql.WithAuthenticator(authenticator))
-	case OptionValueAuthTypeFileOIDC:
-		if d.oidcClientID == "" {
-			return nil, adbc.Error{
-				Code: adbc.StatusInvalidArgument,
-				Msg:  fmt.Sprintf("client ID is required when using auth type '%s'. Set this via '%s'.", OptionValueAuthTypeFileOIDC, OptionOIDCClientID),
-			}
-		}
-		authenticator, err := d.newFileOIDCAuthenticator()
+		authenticator, err := d.newOIDCAuthenticator(d.authType)
 		if err != nil {
 			return nil, err
 		}
@@ -517,38 +505,35 @@ func (d *databaseImpl) newAzureClientSecretAuthenticator() (*sdkconfig.Config, e
 	return cfg, nil
 }
 
-func (d *databaseImpl) newEnvOIDCAuthenticator() (*sdkconfig.Config, error) {
+// newOIDCAuthenticator builds a databricks-sdk-go Config for OIDC token federation.
+// authType selects where the SDK reads the OIDC token from: an environment variable
+// (env-oidc) or a file (file-oidc).
+func (d *databaseImpl) newOIDCAuthenticator(authType string) (*sdkconfig.Config, error) {
 	cfg := &sdkconfig.Config{
-		Host:        "https://" + d.serverHostname,
-		ClientID:    d.oidcClientID,
-		Credentials: sdkconfig.EnvOIDCCredentials{},
-		AuthType:    OptionValueAuthTypeEnvOIDC,
+		Host:     "https://" + d.serverHostname,
+		ClientID: d.oidcClientID,
+		AuthType: authType,
 	}
-	if err := cfg.EnsureResolved(); err != nil {
+	switch authType {
+	case OptionValueAuthTypeEnvOIDC:
+		cfg.Credentials = sdkconfig.EnvOIDCCredentials{}
+	case OptionValueAuthTypeFileOIDC:
+		cfg.Credentials = sdkconfig.FileOIDCCredentials{}
+		// The Databricks SDK allows the OIDC file path to be provided in an environment variable
+		// DATABRICKS_OIDC_TOKEN_FILEPATH or DATABRICKS_OIDC_TOKEN_FILE instead of as an option.
+		if d.oidcTokenFilepath != "" {
+			cfg.OIDCTokenFilepath = d.oidcTokenFilepath
+		}
+	default:
 		return nil, adbc.Error{
 			Code: adbc.StatusInvalidArgument,
-			Msg:  fmt.Sprintf("failed to configure '%s' auth: %v", OptionValueAuthTypeEnvOIDC, err),
+			Msg:  fmt.Sprintf("'%s' is not an OIDC auth type", authType),
 		}
 	}
-	return cfg, nil
-}
-
-func (d *databaseImpl) newFileOIDCAuthenticator() (*sdkconfig.Config, error) {
-	cfg := &sdkconfig.Config{
-		Host:        "https://" + d.serverHostname,
-		ClientID:    d.oidcClientID,
-		Credentials: sdkconfig.FileOIDCCredentials{},
-		AuthType:    OptionValueAuthTypeFileOIDC,
-	}
-	// The Databricks SDK allows the OIDC file path to be provided in an environment variable
-	// DATABRICKS_OIDC_TOKEN_FILEPATH or DATABRICKS_OIDC_TOKEN_FILE instead of as an option.
-	if d.oidcTokenFilepath != "" {
-		cfg.OIDCTokenFilepath = d.oidcTokenFilepath
-	}
 	if err := cfg.EnsureResolved(); err != nil {
 		return nil, adbc.Error{
 			Code: adbc.StatusInvalidArgument,
-			Msg:  fmt.Sprintf("failed to configure '%s' auth: %v", OptionValueAuthTypeFileOIDC, err),
+			Msg:  fmt.Sprintf("failed to configure '%s' auth: %v", authType, err),
 		}
 	}
 	return cfg, nil
