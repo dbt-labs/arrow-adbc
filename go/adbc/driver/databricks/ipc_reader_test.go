@@ -24,6 +24,7 @@ package databricks
 import (
 	"bytes"
 	"context"
+	"database/sql/driver"
 	"io"
 	"testing"
 
@@ -76,6 +77,10 @@ func (m *mockRows) GetArrowIPCStreams(ctx context.Context) (dbsqlrows.ArrowIPCSt
 func (m *mockRows) GetArrowBatches(ctx context.Context) (dbsqlrows.ArrowBatchIterator, error) {
 	return nil, nil // Not used in our tests
 }
+
+func (m *mockRows) Close() error                   { return nil }
+func (m *mockRows) Columns() []string              { return nil }
+func (m *mockRows) Next(dest []driver.Value) error { return io.EOF }
 
 // TestIPCReaderAdapter tests the IPC reader adapter with mock data
 func TestIPCReaderAdapter(t *testing.T) {
