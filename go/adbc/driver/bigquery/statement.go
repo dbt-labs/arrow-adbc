@@ -585,7 +585,9 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 		return nil, -1, err
 	}
 
-	ctx = context.WithValue(ctx, ContextKeyUseStorageApiDisabledClient, st.useStorageApiDisabledClient)
+	// This experimental build always converts rows returned by the REST API,
+	// regardless of the statement option value.
+	ctx = context.WithValue(ctx, ContextKeyUseStorageApiDisabledClient, true)
 	return newRecordReader(ctx, st.queryClient(), st.query(), rdr, st.parameterMode, st.cnxn.Alloc, st.resultRecordBufferSize, st.prefetchConcurrency, st.linkFailedJob)
 }
 

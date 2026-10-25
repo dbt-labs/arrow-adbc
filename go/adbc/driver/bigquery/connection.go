@@ -967,24 +967,8 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 		restOptions = append(restOptions, option.WithEndpoint(c.apiEndpoint+bigQueryRESTPath))
 	}
 
-	storageReadClient, err := bigquery.NewClient(ctx, c.catalog, restOptions...)
-	if err != nil {
-		return err
-	}
-
-	if c.location != "" {
-		storageReadClient.Location = c.location
-	}
-
-	err = storageReadClient.EnableStorageReadClient(ctx, authOptions...)
-	if err != nil {
-		return err
-	}
-	c.client = storageReadClient
-
-	// Create a second client without the Storage API enabled
-	// since the Storage API returns null values for pseudo columns, for example _PARTITIONDATE
-	// EnableStorageReadClient should not be invoked for this client
+	// This experimental build intentionally leaves the Storage Read client
+	// disabled so query results are fetched through the REST API.
 	client, err := bigquery.NewClient(ctx, c.catalog, restOptions...)
 	if err != nil {
 		return err
@@ -993,6 +977,8 @@ func (c *connectionImpl) newClient(ctx context.Context) error {
 	if c.location != "" {
 		client.Location = c.location
 	}
+
+	c.client = client
 	c.clientStorageApiDisabled = client
 
 	return nil
