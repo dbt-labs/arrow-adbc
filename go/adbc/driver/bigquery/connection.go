@@ -911,10 +911,8 @@ func (c *connectionImpl) authOptions(ctx context.Context) ([]option.ClientOption
 		var lifetime time.Duration
 		if c.impersonateLifetime != 0 {
 			lifetime = c.impersonateLifetime
-		} else {
-			// Use default lifetime of 1 hour when impersonation is enabled but no lifetime is specified
-			lifetime = 3600 * time.Second
 		}
+        // Unset (0) lets the impersonate package refresh 1h tokens; any explicit lifetime yields a static token
 
 		impCfg := impersonate.CredentialsConfig{
 			TargetPrincipal: c.impersonateTargetPrincipal,
