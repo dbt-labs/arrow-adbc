@@ -24,6 +24,12 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
         Basic,
         Token,
         OAuth,
+        // Auth types for the raw-binary-Thrift/SASL connection (SparkStandardConnection),
+        // matching dbt-oss's `spark.auth_type` values exactly (see SparkAuthTypeConstants).
+        Plain,
+        NoSasl,
+        Ldap,
+        Kerberos,
         Empty = int.MaxValue,
     }
 
@@ -51,6 +57,18 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                     return true;
                 case SparkAuthTypeConstants.OAuth:
                     authTypeValue = SparkAuthType.OAuth;
+                    return true;
+                case SparkAuthTypeConstants.Plain:
+                    authTypeValue = SparkAuthType.Plain;
+                    return true;
+                case SparkAuthTypeConstants.NoSasl:
+                    authTypeValue = SparkAuthType.NoSasl;
+                    return true;
+                case SparkAuthTypeConstants.Ldap:
+                    authTypeValue = SparkAuthType.Ldap;
+                    return true;
+                case SparkAuthTypeConstants.Kerberos:
+                    authTypeValue = SparkAuthType.Kerberos;
                     return true;
                 default:
                     authTypeValue = default;

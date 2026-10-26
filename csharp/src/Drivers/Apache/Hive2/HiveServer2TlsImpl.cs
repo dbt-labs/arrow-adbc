@@ -111,10 +111,20 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
         static internal TlsProperties GetStandardTlsOptions(IReadOnlyDictionary<string, string> properties)
         {
             TlsProperties tlsProperties = new();
-            // tls is enabled by default
+            // Default to disabled when the caller doesn't say either way. dbt-oss's Rust
+            // core (the primary consumer of this driver) parses a `use_ssl` profile field
+            // with its OWN default of false (dbt-schemas/src/schemas/profiles.rs), but never
+            // actually forwards it as an ADBC option to any backend today (confirmed: no
+            // `use_ssl`/`tls` reference anywhere in dbt-auth/src/spark) -- so
+            // adbc.standard_options.tls.enabled is never set by dbt-oss, regardless of what
+            // a user's profiles.yml says. Defaulting to `true` here (the original upstream
+            // behavior) made every dbt-oss connection through this driver attempt a TLS
+            // handshake unconditionally and fail against any plain (non-TLS) server --
+            // which is Kyuubi/HiveServer2's common self-hosted deployment shape, ours
+            // included. Matches dbt-oss's own schema default instead.
             if (!properties.TryGetValue(StandardTlsOptions.IsTlsEnabled, out string? isTlsEnabled) || !bool.TryParse(isTlsEnabled, out bool isTlsEnabledBool))
             {
-                tlsProperties.IsTlsEnabled = true;
+                tlsProperties.IsTlsEnabled = false;
             }
             else
             {

@@ -24,6 +24,31 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
     {
         public static SparkConnection NewConnection(IReadOnlyDictionary<string, string> properties)
         {
+            // Promote any legacy "adbc.spark.*" values (Host/Port/AuthType) into the new
+            // bare "spark.*" keys where the new key wasn't already set — done once, here,
+            // so every downstream read (ValidateAuthentication/CreateTransport/etc., in
+            // whichever connection class gets constructed below) transparently honors both
+            // conventions without needing a fallback check at each individual call site.
+            properties = SparkParameters.MergeLegacyAliases(properties);
+
+            // NOTE: dbt-oss's Rust core sends the transport selector as
+            // `spark.api` (thrift+binary / thrift+http / livy / connect) — see
+            // crates/dbt-adbc/src/spark.rs in dbt-labs/dbt — never the upstream
+            // `adbc.spark.type` (standard/http) property below. Prefer it when present;
+            // fall back to `Type` for any other caller of this driver.
+            if (properties.TryGetValue(SparkParameters.TransportApi, out string? transportApi) && !string.IsNullOrEmpty(transportApi))
+            {
+                return transportApi switch
+                {
+                    SparkTransportApiConstants.ThriftBinary => new SparkStandardConnection(properties),
+                    SparkTransportApiConstants.ThriftHttp => new SparkHttpConnection(properties),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(properties),
+                        $"Unsupported or unknown value '{transportApi}' given for property '{SparkParameters.TransportApi}'. " +
+                        $"Supported values: {SparkTransportApiConstants.ThriftBinary}, {SparkTransportApiConstants.ThriftHttp}."),
+                };
+            }
+
             if (!properties.TryGetValue(SparkParameters.Type, out string? type) && string.IsNullOrEmpty(type))
             {
                 throw new ArgumentException($"Required property '{SparkParameters.Type}' is missing. Supported types: {ServerTypeParser.SupportedList}", nameof(properties));

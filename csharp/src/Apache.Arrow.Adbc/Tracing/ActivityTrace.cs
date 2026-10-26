@@ -40,8 +40,14 @@ namespace Apache.Arrow.Adbc.Tracing
         public ActivityTrace(string? activitySourceName = default, string? activitySourceVersion = default, string? traceParent = default, IEnumerable<KeyValuePair<string, object?>>? tags = default)
         {
             activitySourceName ??= GetType().Assembly.GetName().Name!;
-            // It's okay to have a null version.
-            activitySourceVersion ??= FileVersionInfo.GetVersionInfo(GetType().Assembly.Location).ProductVersion;
+            // It's okay to have a null version. Assembly.Location is "" under NativeAOT/
+            // single-file publishing (no DLL file on disk), which makes
+            // FileVersionInfo.GetVersionInfo throw ArgumentException instead of just
+            // returning a null/empty version -- fall back to AssemblyVersion in that case.
+            string __asmLocation = GetType().Assembly.Location;
+            activitySourceVersion ??= string.IsNullOrEmpty(__asmLocation)
+                ? GetType().Assembly.GetName().Version?.ToString()
+                : FileVersionInfo.GetVersionInfo(__asmLocation).ProductVersion;
             if (string.IsNullOrWhiteSpace(activitySourceName))
             {
                 throw new ArgumentNullException(nameof(activitySourceName));

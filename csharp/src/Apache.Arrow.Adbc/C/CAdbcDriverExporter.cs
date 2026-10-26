@@ -95,9 +95,19 @@ namespace Apache.Arrow.Adbc.C
 
         public unsafe static AdbcStatusCode AdbcDriverInit(int version, CAdbcDriver* nativeDriver, CAdbcError* error, AdbcDriver driver)
         {
-            if (version != AdbcVersion.Version_1_0_0)
+            // NOTE: also accept ADBC 1.1.0. adbc_core's `AdbcVersion` Rust enum
+            // defaults to V110 (see rust/core/src/options.rs), and dbt-adbc's driver loader
+            // (crates/dbt-adbc/src/driver.rs) calls `.with_adbc_version(adbc_version)` using
+            // that default unless a caller explicitly overrides it — so a caller requesting
+            // 1.1.0 is the common case, not the exception, for any driver loaded this way.
+            // We only populate the 1.0.0 subset of CAdbcDriver's fields below; this is safe
+            // because CAdbcDriver is one sequentially-laid-out struct with 1.1.0's additions
+            // appended after the 1.0.0 region (see CAdbcDriver.cs), and ADBC callers are
+            // required to zero-initialize the struct before calling AdbcDriverInit, so any
+            // 1.1.0-only field we don't touch here correctly reads back as "not implemented".
+            if (version != AdbcVersion.Version_1_0_0 && version != AdbcVersion.Version_1_1_0)
             {
-                // TODO: implement support for AdbcVersion.Version_1_1_0
+                // TODO: implement support for versions beyond 1.1.0
                 return AdbcStatusCode.InternalError;
             }
 
