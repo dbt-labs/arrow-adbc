@@ -70,7 +70,7 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
 
-replace github.com/snowflakedb/gosnowflake => github.com/dbt-labs/gosnowflake v1.17.12
+replace github.com/snowflakedb/gosnowflake => github.com/dbt-labs/gosnowflake v1.17.13
 
 replace github.com/databricks/databricks-sql-go => github.com/dbt-labs/databricks-sql-go v1.14.2
 
