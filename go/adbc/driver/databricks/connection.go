@@ -96,10 +96,7 @@ func (c *connectionImpl) SetCurrentCatalog(catalog string) error {
 	escapedCatalog := strings.ReplaceAll(catalog, "`", "``")
 	_, err := c.conn.ExecContext(context.Background(), fmt.Sprintf("USE CATALOG `%s`", escapedCatalog))
 	if err != nil {
-		return adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to set catalog: %v", err),
-		}
+		return errorWithSQLState(adbc.StatusInternal, "failed to set catalog", err)
 	}
 	c.catalog = catalog
 	return nil
@@ -121,10 +118,7 @@ func (c *connectionImpl) SetCurrentDbSchema(schema string) error {
 	escapedSchema := strings.ReplaceAll(schema, "`", "``")
 	_, err := c.conn.ExecContext(context.Background(), fmt.Sprintf("USE SCHEMA `%s`", escapedSchema))
 	if err != nil {
-		return adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to set schema: %v", err),
-		}
+		return errorWithSQLState(adbc.StatusInternal, "failed to set schema", err)
 	}
 	c.dbSchema = schema
 	return nil
@@ -164,10 +158,7 @@ func (c *connectionImpl) GetCatalogs(ctx context.Context, catalogFilter *string)
 	var rows *sql.Rows
 	rows, err = c.conn.QueryContext(ctx, query)
 	if err != nil {
-		return nil, adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to query catalogs: %v", err),
-		}
+		return nil, errorWithSQLState(adbc.StatusInternal, "failed to query catalogs", err)
 	}
 	defer func() {
 		err = errors.Join(err, rows.Close())
@@ -198,10 +189,7 @@ func (c *connectionImpl) GetDBSchemasForCatalog(ctx context.Context, catalog str
 	var rows *sql.Rows
 	rows, err = c.conn.QueryContext(ctx, query)
 	if err != nil {
-		return nil, adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to query schemas: %v", err),
-		}
+		return nil, errorWithSQLState(adbc.StatusInternal, "failed to query schemas", err)
 	}
 	defer func() {
 		err = errors.Join(err, rows.Close())
@@ -233,10 +221,7 @@ func (c *connectionImpl) GetTablesForDBSchema(ctx context.Context, catalog strin
 	var rows *sql.Rows
 	rows, err = c.conn.QueryContext(ctx, query)
 	if err != nil {
-		return nil, adbc.Error{
-			Code: adbc.StatusInternal,
-			Msg:  fmt.Sprintf("failed to query tables: %v", err),
-		}
+		return nil, errorWithSQLState(adbc.StatusInternal, "failed to query tables", err)
 	}
 	defer func() {
 		err = errors.Join(err, rows.Close())
