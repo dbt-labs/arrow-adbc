@@ -24,18 +24,26 @@ if(WIN32)
 elseif(APPLE)
   # On macOS, statically link libpq to avoid code signing issues
   find_package(PkgConfig)
-  # Explicitly look for static libpq
   pkg_check_modules(LIBPQ REQUIRED IMPORTED_TARGET libpq)
-  # Find the static library
-  find_library(LIBPQ_STATIC_LIB 
-               NAMES libpq.a 
-               PATHS ${LIBPQ_LIBRARY_DIRS} /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib
-               NO_DEFAULT_PATH)
-  if(NOT LIBPQ_STATIC_LIB)
-    message(FATAL_ERROR "Could not find static libpq library. Please ensure libpq is installed with Homebrew.")
-  endif()
-  set(LIBPQ_LINK_LIBRARIES ${LIBPQ_STATIC_LIB})
-  set(LIBPQ_STATIC_LIBRARIES ${LIBPQ_STATIC_LIB})
+  # Resolve every library from `pkg-config --static --libs libpq` to its static
+  # archive, since the driver links with -undefined dynamic_lookup and any
+  # transitive symbol left unresolved binds to NULL and segfaults on connect.
+  # Prefer the _shlib archives: only libpgcommon_shlib.a defines
+  # pg_char_to_encoding and friends. Libraries with no archive (Kerberos, curl,
+  # ldap, z, m) are macOS system libraries and may be linked dynamically.
+  set(LIBPQ_LINK_LIBRARIES)
+  foreach(LIB ${LIBPQ_STATIC_LIBRARIES})
+    find_library(LIBPQ_STATIC_${LIB}
+                 NAMES lib${LIB}_shlib.a lib${LIB}.a
+                 PATHS ${LIBPQ_STATIC_LIBRARY_DIRS}
+                 NO_DEFAULT_PATH)
+    if(LIBPQ_STATIC_${LIB})
+      list(APPEND LIBPQ_LINK_LIBRARIES ${LIBPQ_STATIC_${LIB}})
+    else()
+      list(APPEND LIBPQ_LINK_LIBRARIES -l${LIB})
+    endif()
+  endforeach()
+  set(LIBPQ_STATIC_LIBRARIES ${LIBPQ_LINK_LIBRARIES})
   set(LIBPQ_INCLUDE_DIRS ${LIBPQ_INCLUDE_DIRS})
 else()
   find_package(PkgConfig)
