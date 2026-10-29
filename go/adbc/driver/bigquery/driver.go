@@ -143,6 +143,13 @@ const (
 	OptionJsonAuthorizeViewToDatasets       = "adbc.bigquery.dataset.authorize_view_to_datasets"
 	OptionStringUpdateTableDescriptionValue = "adbc.bigquery.table.update_description"
 
+	// OptionJsonGetDatasetLocation accepts a JSON object {project, dataset}
+	// and makes ExecuteQuery return the dataset's location via Dataset.Metadata
+	// (datasets.get) as a single `location` column: one row, or none when the
+	// dataset does not exist. Unlike INFORMATION_SCHEMA.SCHEMATA, this does not
+	// count against the INFORMATION_SCHEMA query rate limit.
+	OptionJsonGetDatasetLocation = "bigquery.dataset.get_location"
+
 	// WithAppDefaultCredentials instructs the driver to authenticate using
 	// Application Default Credentials (ADC).
 	OptionValueAuthTypeAppDefaultCredentials = "adbc.bigquery.sql.auth_type.app_default_credentials"
