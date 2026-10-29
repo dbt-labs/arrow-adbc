@@ -118,6 +118,9 @@ type statement struct {
 	// Field that contains the table description to update
 	tableDescription string
 
+	// Field that contains the table to take missing nested fields from
+	addNestedFieldsFrom string
+
 	// Copy table fields
 	copyTableSource           string
 	copyTableDestination      string
@@ -231,6 +234,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return st.updateTableColumnsPolicyTags, nil
 	case OptionStringUpdateTableDescriptionValue:
 		return st.tableDescription, nil
+	case OptionStringAddNestedFieldsFrom:
+		return st.addNestedFieldsFrom, nil
 	case OptionJsonAuthorizeViewToDatasets:
 		return st.authorizeViewToDatasets, nil
 	case OptionStringDataprocReqRegion:
@@ -455,6 +460,8 @@ func (st *statement) SetOption(key string, v string) error {
 	case OptionStringUpdateTableDescriptionValue:
 		st.tableDescription = v
 		return nil
+	case OptionStringAddNestedFieldsFrom:
+		st.addNestedFieldsFrom = v
 	case OptionBoolQueryLinkFailedJob:
 		val, err := strconv.ParseBool(v)
 		if err == nil {
@@ -571,6 +578,10 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 
 	if st.authorizeViewToDatasets != "" {
 		return st.executeAuthorizeViewToDatasets(ctx)
+	}
+
+	if st.addNestedFieldsFrom != "" {
+		return st.executeAddNestedFields(ctx)
 	}
 
 	if st.queryConfig.Q == "" {
@@ -1844,6 +1855,83 @@ func (st *statement) executeUpdateTableDescription(ctx context.Context) (array.R
 	}
 
 	return emptyResult()
+}
+
+// executeAddNestedFields copies missing RECORD subfields from the source table to Dst,
+// because BigQuery DDL can't add nested fields. Existing fields stay unchanged.
+func (st *statement) executeAddNestedFields(ctx context.Context) (array.RecordReader, int64, error) {
+	thisFunction := getFunctionName()
+
+	if st.queryConfig.Dst == nil {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, "destination table not specified")
+	}
+
+	source, err := stringToTable(st, st.addNestedFieldsFrom)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("invalid source table: %v", err))
+	}
+	sourceMetadata, err := source.Metadata(ctx)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to get source table metadata: %v", err))
+	}
+
+	table := st.queryConfig.Dst
+	tableMetadata, err := table.Metadata(ctx)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to get table metadata: %v", err))
+	}
+
+	schema, changed := addNestedFields(sourceMetadata.Schema, tableMetadata.Schema)
+	if !changed {
+		return emptyResult()
+	}
+
+	if _, err := table.Update(ctx, bigquery.TableMetadataToUpdate{Schema: schema}, tableMetadata.ETag); err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to update table schema: %v", err))
+	}
+
+	return emptyResult()
+}
+
+// addNestedFields appends the fields of source missing inside target's RECORD columns.
+func addNestedFields(source, target bigquery.Schema) (bigquery.Schema, bool) {
+	merged := slices.Clone(target)
+	changed := false
+	for index, field := range target {
+		sourceField := findField(source, field.Name)
+		if field.Type != bigquery.RecordFieldType || sourceField == nil || sourceField.Type != bigquery.RecordFieldType {
+			continue
+		}
+		if children, added := addFields(sourceField.Schema, field.Schema); added {
+			updated := *field
+			updated.Schema = children
+			merged[index] = &updated
+			changed = true
+		}
+	}
+	return merged, changed
+}
+
+// addFields appends the fields of source missing in target at any depth.
+func addFields(source, target bigquery.Schema) (bigquery.Schema, bool) {
+	merged, changed := addNestedFields(source, target)
+	for _, field := range source {
+		if findField(target, field.Name) == nil {
+			merged = append(merged, field)
+			changed = true
+		}
+	}
+	return merged, changed
+}
+
+func findField(schema bigquery.Schema, name string) *bigquery.FieldSchema {
+	index := slices.IndexFunc(schema, func(field *bigquery.FieldSchema) bool {
+		return strings.EqualFold(field.Name, name)
+	})
+	if index < 0 {
+		return nil
+	}
+	return schema[index]
 }
 
 func (st *statement) executeAuthorizeViewToDatasets(ctx context.Context) (array.RecordReader, int64, error) {
