@@ -234,7 +234,7 @@ func (d *DatabricksQuirks) SupportsExecuteSchema() bool                 { return
 func (d *DatabricksQuirks) SupportsGetSetOptions() bool                 { return true }
 func (d *DatabricksQuirks) SupportsPartitionedData() bool               { return false }
 func (d *DatabricksQuirks) SupportsStatistics() bool                    { return false }
-func (d *DatabricksQuirks) SupportsTransactions() bool                  { return true }
+func (d *DatabricksQuirks) SupportsTransactions() bool                  { return false }
 func (d *DatabricksQuirks) SupportsGetParameterSchema() bool            { return false }
 func (d *DatabricksQuirks) SupportsDynamicParameterBinding() bool       { return false }
 func (d *DatabricksQuirks) SupportsErrorIngestIncompatibleSchema() bool { return false }
