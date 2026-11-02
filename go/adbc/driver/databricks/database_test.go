@@ -78,7 +78,7 @@ func TestConcurrentOpen(t *testing.T) {
 
 // TestSetOptionConnectTimeout verifies the connect-timeout option parses a Go
 // duration, is stored on the database impl and surfaced via GetOption, and that
-// an unparseable value is rejected.
+// an unparsable value is rejected.
 func TestSetOptionConnectTimeout(t *testing.T) {
 	db := newTestDatabase(t)
 
@@ -153,4 +153,30 @@ func TestUnsetQueryRetryCountAddsNoRetryOption(t *testing.T) {
 
 	assert.Equal(t, len(unsetOpts)+1, len(explicitOpts),
 		"an explicit retry count adds a WithRetries option; an unset one does not")
+}
+
+// TestRemovedRefreshTokenOption verifies the removed refresh-token option fails
+// with an explicit error and leaves existing settings untouched.
+func TestRemovedRefreshTokenOption(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.SetOption(OptionOAuthClientID, "my-client"))
+
+	err := db.SetOption("databricks.oauth.refresh_token", "tok")
+	require.Error(t, err)
+	var adbcErr adbc.Error
+	require.ErrorAs(t, err, &adbcErr)
+	assert.Equal(t, adbc.StatusInvalidArgument, adbcErr.Code)
+	assert.Contains(t, err.Error(), "databricks.oauth.refresh_token")
+	assert.Contains(t, err.Error(), "has been removed")
+
+	got, err := db.GetOption(OptionOAuthClientID)
+	require.NoError(t, err)
+	assert.Equal(t, "my-client", got)
+	assert.Equal(t, OptionValueAuthTypePAT, db.authType)
+
+	// Valid neighbours still work and unknown keys keep the generic error.
+	require.NoError(t, db.SetOption(OptionOAuthClientSecret, "s"))
+	err = db.SetOption("databricks.oauth.nonexistent", "x")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "has been removed")
 }
