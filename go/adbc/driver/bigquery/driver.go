@@ -320,3 +320,8 @@ func tableToString(value *bigquery.Table) string {
 		return fmt.Sprintf("%s.%s.%s", value.ProjectID, value.DatasetID, value.TableID)
 	}
 }
+
+// ErrorDetailJobErrorReason is the error reason of a query job that BigQuery
+// reports as done and failed, so a client can tell it is safe to submit a new
+// job.
+const ErrorDetailJobErrorReason = "adbc.bigquery.job.error_reason"

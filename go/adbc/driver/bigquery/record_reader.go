@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -88,6 +89,24 @@ func runQuery(ctx context.Context, client *bigquery.Client, query *bigquery.Quer
 	// Project id and job id can only contain URL safe characters: https://cloud.google.com/bigquery/docs/reference/rest/v2/JobReference
 	// Locations are also URL-safe, listed here: https://cloud.google.com/bigquery/docs/locations
 	jobLink := fmt.Sprintf("https://console.cloud.google.com/bigquery?project=%s&j=bq:%s:%s&page=queryresults", job.ProjectID(), job.Location(), job.ID())
+	// Return terminal failures before Job.Read gets stuck polling them.
+	// The client decides whether to retry
+	status, err := waitForQueryJob(ctx, job)
+	if err != nil {
+		return nil, -1, err
+	}
+	var jobErr *bigquery.Error
+	if errors.As(status.Err(), &jobErr) && slices.Contains(jobRetryReasons, jobErr.Reason) {
+		err := adbc.Error{
+			Code:    adbc.StatusInternal,
+			Msg:     fmt.Sprintf("%s: %s", jobErr.Reason, jobErr.Message),
+			Details: []adbc.ErrorDetail{&adbc.TextErrorDetail{Name: ErrorDetailJobErrorReason, Detail: jobErr.Reason}},
+		}
+		if linkFailedJob {
+			err.Msg += fmt.Sprintf(" (Query: %s)", jobLink)
+		}
+		return nil, -1, err
+	}
 	iter, err := job.Read(ctx)
 	if err != nil {
 		if linkFailedJob {
