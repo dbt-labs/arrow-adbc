@@ -45,6 +45,33 @@ type statementImpl struct {
 	queryTags map[string]string
 }
 
+// sqlStateStatuses maps the SQLSTATEs that identify a missing or existing object to ADBC statuses.
+var sqlStateStatuses = map[string]adbc.Status{
+	"42P01": adbc.StatusNotFound,        // TABLE_OR_VIEW_NOT_FOUND
+	"42704": adbc.StatusNotFound,        // SCHEMA_NOT_FOUND, NO_SUCH_CATALOG_EXCEPTION
+	"42883": adbc.StatusNotFound,        // UNRESOLVED_ROUTINE
+	"42P07": adbc.StatusAlreadyExists,   // TABLE_OR_VIEW_ALREADY_EXISTS
+	"42703": adbc.StatusInvalidArgument, // UNRESOLVED_COLUMN
+}
+
+// errorWithSQLState builds the error for a failed operation as "<action>: <cause>". It copies the
+// SQLSTATE of the underlying execution error and maps known SQLSTATEs to their ADBC status.
+func errorWithSQLState(code adbc.Status, action string, cause error) adbc.Error {
+	e := adbc.Error{Code: code, Msg: fmt.Sprintf("%s: %v", action, cause)}
+	var execErr dbsqlerr.DBExecutionError
+	for errors.As(cause, &execErr) {
+		if sqlState := execErr.SqlState(); sqlState != "" {
+			copy(e.SqlState[:], sqlState)
+			if status, ok := sqlStateStatuses[sqlState]; ok {
+				e.Code = status
+			}
+			return e
+		}
+		cause = errors.Unwrap(execErr)
+	}
+	return e
+}
+
 func classifyError(action string, err error) adbc.Error {
 	code := adbc.StatusInternal
 	var execErr dbsqlerr.DBExecutionError
@@ -60,7 +87,7 @@ func classifyError(action string, err error) adbc.Error {
 	case errors.As(err, &reqErr) || errors.As(err, &drvErr):
 		code = adbc.StatusIO
 	}
-	return adbc.Error{Code: code, Msg: fmt.Sprintf("%s: %v", action, err)}
+	return errorWithSQLState(code, action, err)
 }
 
 func (s *statementImpl) Close() error {
