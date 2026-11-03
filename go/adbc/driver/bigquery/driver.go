@@ -141,6 +141,7 @@ const (
 	OptionJsonUpdateTableColumnsDescription = "adbc.bigquery.table.update_columns_description"
 	OptionJsonUpdateTableColumnsPolicyTags  = "adbc.bigquery.table.update_columns_policy_tags"
 	OptionJsonAuthorizeViewToDatasets       = "adbc.bigquery.dataset.authorize_view_to_datasets"
+	OptionJsonGetDatasetMetadata            = "adbc.bigquery.dataset.get_metadata"
 	OptionStringUpdateTableDescriptionValue = "adbc.bigquery.table.update_description"
 
 	// WithAppDefaultCredentials instructs the driver to authenticate using

@@ -115,6 +115,9 @@ type statement struct {
 	// Field that contains the JSON string to authorize a view to source datasets
 	authorizeViewToDatasets string
 
+	// Field that contains the project and dataset whose metadata should be returned
+	getDatasetMetadata string
+
 	// Field that contains the table description to update
 	tableDescription string
 
@@ -233,6 +236,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return st.tableDescription, nil
 	case OptionJsonAuthorizeViewToDatasets:
 		return st.authorizeViewToDatasets, nil
+	case OptionJsonGetDatasetMetadata:
+		return st.getDatasetMetadata, nil
 	case OptionStringDataprocReqRegion:
 		return st.dataprocRegion, nil
 	case OptionStringDataprocReqProject:
@@ -452,6 +457,8 @@ func (st *statement) SetOption(key string, v string) error {
 		return nil
 	case OptionJsonAuthorizeViewToDatasets:
 		st.authorizeViewToDatasets = v
+	case OptionJsonGetDatasetMetadata:
+		st.getDatasetMetadata = v
 	case OptionStringUpdateTableDescriptionValue:
 		st.tableDescription = v
 		return nil
@@ -571,6 +578,10 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 
 	if st.authorizeViewToDatasets != "" {
 		return st.executeAuthorizeViewToDatasets(ctx)
+	}
+
+	if st.getDatasetMetadata != "" {
+		return st.executeGetDatasetMetadata(ctx)
 	}
 
 	if st.queryConfig.Q == "" {
@@ -1899,6 +1910,62 @@ func tableEqual(self *bigquery.Table, other *bigquery.Table) bool {
 		return self == other
 	}
 	return self.TableID == other.TableID && self.DatasetID == other.DatasetID && self.ProjectID == other.ProjectID
+}
+
+// executeGetDatasetMetadata returns the METADATA view for one dataset.
+// MetadataWithOptions maps to datasets.get; the ACL is intentionally excluded.
+func (st *statement) executeGetDatasetMetadata(ctx context.Context) (array.RecordReader, int64, error) {
+	thisFunction := getFunctionName()
+
+	var request struct {
+		Project string `json:"project"`
+		Dataset string `json:"dataset"`
+	}
+	if err := json.Unmarshal([]byte(st.getDatasetMetadata), &request); err != nil {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("failed to parse dataset reference JSON: %v", err))
+	}
+	if request.Project == "" || request.Dataset == "" {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, "project and dataset must both be set")
+	}
+
+	dataset := st.cnxn.datasetInProject(request.Project, request.Dataset)
+	metadata, err := dataset.MetadataWithOptions(
+		ctx,
+		bigquery.WithDatasetView(bigquery.DatasetMetadataView),
+	)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to get dataset metadata: %v", err))
+	}
+
+	// Keep the result focused on the dataset attributes exposed to the adapter.
+	result := struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Location    string `json:"location"`
+	}{
+		Name:        metadata.Name,
+		Description: metadata.Description,
+		Location:    metadata.Location,
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to encode dataset metadata: %v", err))
+	}
+
+	schema := arrow.NewSchema([]arrow.Field{
+		{Name: "metadata", Type: arrow.BinaryTypes.String, Nullable: false},
+	}, nil)
+	bldr := array.NewRecordBuilder(st.alloc, schema)
+	defer bldr.Release()
+	bldr.Field(0).(*array.StringBuilder).Append(string(encoded))
+
+	record := bldr.NewRecordBatch()
+	defer record.Release()
+	reader, err := array.NewRecordReader(schema, []arrow.RecordBatch{record})
+	if err != nil {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to create dataset metadata result: %v", err))
+	}
+	return reader, 1, nil
 }
 
 // emptyResult returns an empty record reader when the caller doesn't return any data
