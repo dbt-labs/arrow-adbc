@@ -21,9 +21,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"runtime"
 	"slices"
@@ -41,6 +43,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/ipc"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/assert/yaml"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -114,6 +117,9 @@ type statement struct {
 
 	// Field that contains the JSON string to authorize a view to source datasets
 	authorizeViewToDatasets string
+
+	// Field that contains the JSON {project, dataset} whose location to return
+	getDatasetLocation string
 
 	// Field that contains the table description to update
 	tableDescription string
@@ -233,6 +239,8 @@ func (st *statement) GetOption(key string) (string, error) {
 		return st.tableDescription, nil
 	case OptionJsonAuthorizeViewToDatasets:
 		return st.authorizeViewToDatasets, nil
+	case OptionJsonGetDatasetLocation:
+		return st.getDatasetLocation, nil
 	case OptionStringDataprocReqRegion:
 		return st.dataprocRegion, nil
 	case OptionStringDataprocReqProject:
@@ -452,6 +460,8 @@ func (st *statement) SetOption(key string, v string) error {
 		return nil
 	case OptionJsonAuthorizeViewToDatasets:
 		st.authorizeViewToDatasets = v
+	case OptionJsonGetDatasetLocation:
+		st.getDatasetLocation = v
 	case OptionStringUpdateTableDescriptionValue:
 		st.tableDescription = v
 		return nil
@@ -571,6 +581,10 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 
 	if st.authorizeViewToDatasets != "" {
 		return st.executeAuthorizeViewToDatasets(ctx)
+	}
+
+	if st.getDatasetLocation != "" {
+		return st.executeGetDatasetLocation(ctx)
 	}
 
 	if st.queryConfig.Q == "" {
@@ -1892,6 +1906,54 @@ func (st *statement) executeAuthorizeViewToDatasets(ctx context.Context) (array.
 	}
 
 	return emptyResult()
+}
+
+// executeGetDatasetLocation returns the location of the dataset named by the
+// JSON option value {project, dataset}, read with datasets.get. The result has
+// one `location` row, or no rows when the dataset does not exist.
+func (st *statement) executeGetDatasetLocation(ctx context.Context) (array.RecordReader, int64, error) {
+	thisFunction := getFunctionName()
+
+	var ref struct {
+		Project string `json:"project"`
+		Dataset string `json:"dataset"`
+	}
+	if err := json.Unmarshal([]byte(st.getDatasetLocation), &ref); err != nil {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("failed to parse dataset JSON: %v", err))
+	}
+	if ref.Project == "" || ref.Dataset == "" {
+		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("a project and a dataset are required, got %q", st.getDatasetLocation))
+	}
+
+	var locations []string
+	metadata, err := st.cnxn.datasetInProject(ref.Project, ref.Dataset).Metadata(ctx)
+	if err == nil {
+		locations = []string{metadata.Location}
+	} else if !isDatasetNotFound(err) {
+		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to get dataset metadata for %s.%s: %v", ref.Project, ref.Dataset, err))
+	}
+
+	schema := arrow.NewSchema([]arrow.Field{{Name: "location", Type: arrow.BinaryTypes.String}}, nil)
+	builder := array.NewStringBuilder(st.cnxn.Alloc)
+	defer builder.Release()
+	builder.AppendValues(locations, nil)
+	arr := builder.NewArray()
+	defer arr.Release()
+	rec := array.NewRecordBatch(schema, []arrow.Array{arr}, int64(len(locations)))
+	defer rec.Release()
+	reader, err := array.NewRecordReader(schema, []arrow.RecordBatch{rec})
+	if err != nil {
+		return nil, -1, err
+	}
+	return reader, int64(len(locations)), nil
+}
+
+// isDatasetNotFound reports whether err is datasets.get's 404 for a missing
+// dataset. A missing project is also a 404 ("Project ... is not found"), but
+// that is a configuration error, not an absent dataset.
+func isDatasetNotFound(err error) bool {
+	apiErr, ok := errors.AsType[*googleapi.Error](err)
+	return ok && apiErr.Code == http.StatusNotFound && strings.HasPrefix(apiErr.Message, "Not found: Dataset")
 }
 
 func tableEqual(self *bigquery.Table, other *bigquery.Table) bool {
