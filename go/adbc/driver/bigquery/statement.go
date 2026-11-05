@@ -1739,12 +1739,38 @@ func (st *statement) executeCreateNotebookExecutionJob(ctx context.Context) (arr
 
 }
 
+// applyColumnMetadata returns a copy of schema with descriptions and policy
+// tags applied. Map keys are dot-separated paths ("a.b.c") addressing nested
+// fields. Policy tags are not applied to RECORD fields.
+func applyColumnMetadata(schema bigquery.Schema, prefix string, descriptions map[string]string, policyTags map[string][]string) bigquery.Schema {
+	newSchema := make(bigquery.Schema, len(schema))
+	for i, field := range schema {
+		path := field.Name
+		if prefix != "" {
+			path = prefix + "." + field.Name
+		}
+		nf := *field
+		if d, ok := descriptions[path]; ok {
+			nf.Description = d
+		}
+		if tags, ok := policyTags[path]; ok && field.Type != bigquery.RecordFieldType {
+			nf.PolicyTags = &bigquery.PolicyTagList{Names: tags}
+		}
+		if len(field.Schema) > 0 {
+			nf.Schema = applyColumnMetadata(field.Schema, path, descriptions, policyTags)
+		}
+		newSchema[i] = &nf
+	}
+	return newSchema
+}
+
 // executeUpdateTableColumnsMetadata updates the table columns descriptions and policy tags
 // based on the JSON strings in st.updateTableColumnsDescription and st.updateTableColumnsPolicyTags
 // using the table reference from st.queryConfig.Dst
 //
-// st.updateTableColumnsDescription is a map of column name to description.
-// st.updateTableColumnsPolicyTags is a map of column name to a list of policy tag IDs.
+// st.updateTableColumnsDescription is a map of column path to description.
+// st.updateTableColumnsPolicyTags is a map of column path to a list of policy tag IDs.
+// A column path is dot-separated, so fields nested in RECORD columns are addressed as `a.b.c`.
 // Either may be empty; columns absent from a map are left unchanged for that dimension.
 //
 // The driver will return an empty record reader since this operation doesn't return data
@@ -1781,26 +1807,7 @@ func (st *statement) executeUpdateTableColumnsMetadata(ctx context.Context) (arr
 		return nil, -1, adbcError(adbc.StatusInternal, thisFunction, fmt.Sprintf("failed to get table metadata: %v", err))
 	}
 
-	newSchema := make([]*bigquery.FieldSchema, len(tableMetadata.Schema))
-	for i, field := range tableMetadata.Schema {
-		newField := &bigquery.FieldSchema{
-			Name:        field.Name,
-			Type:        field.Type,
-			Description: field.Description,
-			Repeated:    field.Repeated,
-			Required:    field.Required,
-			Schema:      field.Schema, // For nested fields
-			PolicyTags:  field.PolicyTags,
-		}
-		if description, exists := columnDescriptions[field.Name]; exists {
-			newField.Description = description
-		}
-		// Policy tags are not applied to RECORD-typed fields.
-		if tags, exists := columnPolicyTags[field.Name]; exists && field.Type != bigquery.RecordFieldType {
-			newField.PolicyTags = &bigquery.PolicyTagList{Names: tags}
-		}
-		newSchema[i] = newField
-	}
+	newSchema := applyColumnMetadata(tableMetadata.Schema, "", columnDescriptions, columnPolicyTags)
 
 	tableUpdate := bigquery.TableMetadataToUpdate{
 		Schema: newSchema,
