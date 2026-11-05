@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apache/arrow-adbc/go/adbc"
+	driver "github.com/apache/arrow-adbc/go/adbc/driver/snowflake"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 )
@@ -79,7 +81,7 @@ func (suite *SnowflakeTests) queryTemporal(scale int, opts map[string]string) ar
 	return rec
 }
 
-func (suite *SnowflakeTests) checkTemporal(rec arrow.RecordBatch, scale int, digits int) {
+func (suite *SnowflakeTests) checkTemporal(rec arrow.RecordBatch, scale int, digits int, withOffset bool) {
 	msg := fmt.Sprintf("scale %d", scale)
 	suite.Require().EqualValues(len(temporalTestValues), rec.NumRows(), msg)
 	for row, v := range temporalTestValues {
@@ -103,8 +105,16 @@ func (suite *SnowflakeTests) checkTemporal(rec arrow.RecordBatch, scale int, dig
 			suite.Equal(want, ts.Value(row).ToTime(unit), "%s: %s row %d", msg, rec.ColumnName(col), row)
 		}
 
-		ts := rec.Column(4).(*array.Timestamp)
-		suite.Equal(want, ts.Value(row).ToTime(ts.DataType().(*arrow.TimestampType).Unit), "%s: TZ row %d", msg, row)
+		tz := rec.Column(4)
+		if withOffset {
+			s := tz.(*array.Struct)
+			ts := s.Field(0).(*array.Timestamp)
+			suite.Equal(want, ts.Value(row).ToTime(ts.DataType().(*arrow.TimestampType).Unit), "%s: TZ row %d", msg, row)
+			suite.EqualValues(330, s.Field(1).(*array.Int16).Value(row), "%s: TZ offset row %d", msg, row)
+		} else {
+			ts := tz.(*array.Timestamp)
+			suite.Equal(want, ts.Value(row).ToTime(ts.DataType().(*arrow.TimestampType).Unit), "%s: TZ row %d", msg, row)
+		}
 	}
 }
 
@@ -125,10 +135,50 @@ func unitOf(dt arrow.DataType) arrow.TimeUnit {
 func (suite *SnowflakeTests) TestTemporalScales() {
 	for scale := 0; scale <= 9; scale++ {
 		rec := suite.queryTemporal(scale, nil)
-		suite.checkTemporal(rec, scale, scale/3*3)
+		suite.checkTemporal(rec, scale, scale/3*3, false)
 		for col := 1; col <= 4; col++ {
 			suite.Equal(arrow.TimeUnit(scale/3), unitOf(rec.Column(col).DataType()), "scale %d: %s", scale, rec.ColumnName(col))
 		}
 		rec.Release()
 	}
+}
+
+func (suite *SnowflakeTests) TestTemporalLosslessTimeUnit() {
+	opts := map[string]string{driver.OptionLosslessTimeUnit: adbc.OptionValueEnabled}
+	for scale := 0; scale <= 9; scale++ {
+		rec := suite.queryTemporal(scale, opts)
+		suite.checkTemporal(rec, scale, scale, false)
+		for col := 1; col <= 4; col++ {
+			suite.Equal(arrow.TimeUnit((scale+2)/3), unitOf(rec.Column(col).DataType()), "scale %d: %s", scale, rec.ColumnName(col))
+		}
+		rec.Release()
+	}
+}
+
+func (suite *SnowflakeTests) TestTemporalTimestampTZWithOffset() {
+	opts := map[string]string{
+		driver.OptionLosslessTimeUnit:      adbc.OptionValueEnabled,
+		driver.OptionTimestampTZWithOffset: adbc.OptionValueEnabled,
+	}
+	for scale := 0; scale <= 9; scale++ {
+		rec := suite.queryTemporal(scale, opts)
+		suite.checkTemporal(rec, scale, scale, true)
+		rec.Release()
+	}
+
+	// empty results have the same schema
+	stmt, err := suite.cnxn.NewStatement()
+	suite.Require().NoError(err)
+	defer stmt.Close()
+	for k, v := range opts {
+		suite.Require().NoError(stmt.SetOption(k, v))
+	}
+	suite.Require().NoError(stmt.SetSqlQuery("SELECT '2024-01-02 03:04:05 +05:30'::TIMESTAMP_TZ(4) AS tz WHERE FALSE"))
+	rdr, _, err := stmt.ExecuteQuery(suite.ctx)
+	suite.Require().NoError(err)
+	defer rdr.Release()
+	suite.Equal(arrow.StructOf(
+		arrow.Field{Name: "timestamp", Type: &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}, Nullable: true},
+		arrow.Field{Name: "offset_minutes", Type: arrow.PrimitiveTypes.Int16, Nullable: true},
+	), rdr.Schema().Field(0).Type)
 }

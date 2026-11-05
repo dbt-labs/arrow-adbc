@@ -132,21 +132,35 @@ func timestamps(t *testing.T, a arrow.Array) []*time.Time {
 func TestTimeOptionsUnits(t *testing.T) {
 	defaults := timeOptions{}
 	micros := timeOptions{maxTimestampPrecision: Microseconds}
+	lossless := timeOptions{losslessTimeUnit: true}
+	losslessMicros := timeOptions{losslessTimeUnit: true, maxTimestampPrecision: Microseconds}
 
 	s, ms, us, ns := arrow.Second, arrow.Millisecond, arrow.Microsecond, arrow.Nanosecond
-	for scale, want := range [][2]arrow.TimeUnit{
-		// defaults, micros
-		{s, s}, {s, s}, {s, s},
-		{ms, ms}, {ms, ms}, {ms, ms},
-		{us, us}, {us, us}, {us, us},
-		{ns, us},
+	for scale, want := range [][4]arrow.TimeUnit{
+		// defaults, micros, lossless, losslessMicros
+		{s, s, s, s},
+		{s, s, ms, ms},
+		{s, s, ms, ms},
+		{ms, ms, ms, ms},
+		{ms, ms, us, us},
+		{ms, ms, us, us},
+		{us, us, us, us},
+		{us, us, ns, us},
+		{us, us, ns, us},
+		{ns, us, ns, us},
 	} {
-		got := [2]arrow.TimeUnit{defaults.timestampUnit(int64(scale)), micros.timestampUnit(int64(scale))}
+		got := [4]arrow.TimeUnit{
+			defaults.timestampUnit(int64(scale)),
+			micros.timestampUnit(int64(scale)),
+			lossless.timestampUnit(int64(scale)),
+			losslessMicros.timestampUnit(int64(scale)),
+		}
 		assert.Equal(t, want, got, "scale %d", scale)
 	}
 
 	// TIME is not capped by the maximum timestamp precision
-	assert.Equal(t, arrow.FixedWidthTypes.Time64ns, micros.timeType(9))
+	assert.Equal(t, arrow.FixedWidthTypes.Time64ns, losslessMicros.timeType(7))
+	assert.Equal(t, arrow.FixedWidthTypes.Time32ms, lossless.timeType(1))
 	assert.Equal(t, arrow.FixedWidthTypes.Time32s, defaults.timeType(2))
 	assert.Equal(t, arrow.FixedWidthTypes.Time64us, defaults.timeType(8))
 }
@@ -165,11 +179,17 @@ func TestConvertTimestamps(t *testing.T) {
 	}{
 		{"scale 0", 0, timeOptions{}, 0},
 		{"scale 1", 1, timeOptions{}, 0},
+		{"scale 1 lossless", 1, timeOptions{losslessTimeUnit: true}, 1},
+		{"scale 2 lossless", 2, timeOptions{losslessTimeUnit: true}, 2},
 		{"scale 3", 3, timeOptions{}, 3},
 		{"scale 4", 4, timeOptions{}, 3},
+		{"scale 5 lossless", 5, timeOptions{losslessTimeUnit: true}, 5},
 		{"scale 6", 6, timeOptions{}, 6},
 		{"scale 7", 7, timeOptions{}, 6},
+		{"scale 7 lossless", 7, timeOptions{losslessTimeUnit: true}, 7},
+		{"scale 7 lossless micros", 7, timeOptions{losslessTimeUnit: true, maxTimestampPrecision: Microseconds}, 6},
 		{"scale 8", 8, timeOptions{}, 6},
+		{"scale 8 lossless", 8, timeOptions{losslessTimeUnit: true}, 8},
 		{"scale 9", 9, timeOptions{}, 9},
 		{"scale 9 micros", 9, timeOptions{maxTimestampPrecision: Microseconds}, 6},
 	} {
@@ -236,35 +256,48 @@ func TestConvertTimestampTZs(t *testing.T) {
 	}{
 		{"scale 0", 0, timeOptions{}, 0},
 		{"scale 2", 2, timeOptions{}, 0},
+		{"scale 2 lossless", 2, timeOptions{losslessTimeUnit: true}, 2},
 		{"scale 3", 3, timeOptions{}, 3},
 		{"scale 4", 4, timeOptions{}, 3},
 		{"scale 8", 8, timeOptions{}, 6},
 		{"scale 9", 9, timeOptions{}, 9},
 		{"scale 9 micros", 9, timeOptions{maxTimestampPrecision: Microseconds}, 6},
 	} {
-		opts := tc.opts
-		t.Run(tc.name, func(t *testing.T) {
-			var wire arrow.Array
-			values := []*time.Time{&testTime, &testTimeBeforeEpoch, nil}
-			if tc.scale <= 3 {
-				wire = scaledIntsWithOffsets(mem, tc.scale, offsets, values...)
-			} else {
-				wire = epochFractions(mem, tc.scale, offsets, values...)
-			}
-			defer wire.Release()
+		for _, withOffset := range []bool{false, true} {
+			opts := tc.opts
+			opts.timestampTZWithOffset = withOffset
+			t.Run(tc.name, func(t *testing.T) {
+				var wire arrow.Array
+				values := []*time.Time{&testTime, &testTimeBeforeEpoch, nil}
+				if tc.scale <= 3 {
+					wire = scaledIntsWithOffsets(mem, tc.scale, offsets, values...)
+				} else {
+					wire = epochFractions(mem, tc.scale, offsets, values...)
+				}
+				defer wire.Release()
 
-			dt := &arrow.TimestampType{Unit: opts.timestampUnit(tc.scale), TimeZone: "UTC"}
-			got, err := convertTimestampTZs(ctx, wire, dt, tc.scale, opts)
-			require.NoError(t, err)
-			defer got.Release()
-			assert.Equal(t, dt, got.DataType())
+				dt := &arrow.TimestampType{Unit: opts.timestampUnit(tc.scale), TimeZone: "UTC"}
+				got, err := convertTimestampTZs(ctx, wire, dt, tc.scale, opts)
+				require.NoError(t, err)
+				defer got.Release()
+				assert.Equal(t, opts.timestampTZType(dt), got.DataType())
 
-			assert.Equal(t, []*time.Time{
-				ptr(truncate(truncate(testTime, tc.scale), tc.digits)),
-				ptr(truncate(truncate(testTimeBeforeEpoch, tc.scale), tc.digits)),
-				nil,
-			}, timestamps(t, got))
-		})
+				want := []*time.Time{
+					ptr(truncate(truncate(testTime, tc.scale), tc.digits)),
+					ptr(truncate(truncate(testTimeBeforeEpoch, tc.scale), tc.digits)),
+					nil,
+				}
+				if !withOffset {
+					assert.Equal(t, want, timestamps(t, got))
+					return
+				}
+				s := got.(*array.Struct)
+				assert.Equal(t, want, timestamps(t, s.Field(0)))
+				assert.Equal(t, []bool{true, true, false}, []bool{s.IsValid(0), s.IsValid(1), s.IsValid(2)})
+				gotOffsets := s.Field(1).(*array.Int16)
+				assert.Equal(t, []int16{330, -150}, gotOffsets.Int16Values()[:2])
+			})
+		}
 	}
 }
 
@@ -284,9 +317,12 @@ func TestConvertTimes(t *testing.T) {
 	}{
 		{0, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32s, 86_399)},
 		{2, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32s, 86_399)},
+		{2, arrow.PrimitiveTypes.Int32, timeOptions{losslessTimeUnit: true}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_980)},
 		{4, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_987)},
 		{5, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_987)},
+		{5, arrow.PrimitiveTypes.Int64, timeOptions{losslessTimeUnit: true}, arrayOf(mem, arrow.FixedWidthTypes.Time64us, 86_399_987_650)},
 		{7, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time64us, 86_399_987_654)},
+		{8, arrow.PrimitiveTypes.Int64, timeOptions{losslessTimeUnit: true}, arrayOf(mem, arrow.FixedWidthTypes.Time64ns, 86_399_987_654_320)},
 		{9, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time64ns, nanos)},
 	} {
 		raw := nanos / pow10[9-tc.scale]
@@ -323,27 +359,29 @@ func TestJSONTimestamps(t *testing.T) {
 	mem := memory.NewCheckedAllocator(memory.DefaultAllocator)
 	defer mem.AssertSize(t, 0)
 
-	opts := timeOptions{}
+	opts := timeOptions{timestampTZWithOffset: true}
 	snowflakeType := func(name string) arrow.Metadata {
 		return arrow.MetadataFrom(map[string]string{MetadataKeySnowflakeType: name})
 	}
-	// the units of the schema, not nanoseconds
 	ntz3 := &arrow.TimestampType{Unit: opts.timestampUnit(3)}
-	tz2 := &arrow.TimestampType{Unit: opts.timestampUnit(2), TimeZone: "UTC"}
+	tz9 := &arrow.TimestampType{Unit: opts.timestampUnit(9), TimeZone: "UTC"}
 	schema := arrow.NewSchema([]arrow.Field{
 		{Name: "ntz", Type: ntz3, Nullable: true, Metadata: snowflakeType("timestamp_ntz")},
-		{Name: "tz", Type: tz2, Nullable: true, Metadata: snowflakeType("timestamp_tz")},
+		{Name: "tz", Type: opts.timestampTZType(tz9), Nullable: true, Metadata: snowflakeType("timestamp_tz")},
 	}, nil)
 	bldr := array.NewRecordBuilder(mem, schema)
 	defer bldr.Release()
 
 	rec, err := jsonDataToArrow(context.Background(), bldr, [][]*string{
-		{ptr("1704164645.123000000"), ptr("1704164645.12 1770")},
+		{ptr("1704164645.123000000"), ptr("1704164645.123456789 1770")},
 		{nil, nil},
 	}, opts)
 	require.NoError(t, err)
 	defer rec.Release()
 
 	assert.Equal(t, []*time.Time{ptr(truncate(testTime, 3)), nil}, timestamps(t, rec.Column(0)))
-	assert.Equal(t, []*time.Time{ptr(truncate(testTime, 0)), nil}, timestamps(t, rec.Column(1)))
+	tz := rec.Column(1).(*array.Struct)
+	assert.Equal(t, []*time.Time{&testTime, nil}, timestamps(t, tz.Field(0)))
+	assert.Equal(t, int16(330), tz.Field(1).(*array.Int16).Value(0))
+	assert.True(t, tz.IsNull(1))
 }

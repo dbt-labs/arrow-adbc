@@ -838,6 +838,9 @@ func (c *connectionImpl) ReadPartition(ctx context.Context, serializedPartition 
 
 func (c *connectionImpl) SetOption(key, value string) error {
 	switch key {
+	case OptionLosslessTimeUnit, OptionTimestampTZWithOffset:
+		// statements inherit the value, and can override it
+		return c.timeOptions.set(key, value)
 	case OptionUseHighPrecision:
 		// statements will inherit the value of the OptionUseHighPrecision
 		// from the connection, but the option can be overridden at the

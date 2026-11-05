@@ -122,6 +122,8 @@ func (st *statement) GetOption(key string) (string, error) {
 	switch key {
 	case OptionStatementQueryTag:
 		return st.queryTag, nil
+	case OptionLosslessTimeUnit, OptionTimestampTZWithOffset:
+		return st.timeOptions.get(key), nil
 	default:
 		return st.Base().GetOption(key)
 	}
@@ -229,6 +231,8 @@ func (st *statement) SetOption(key string, val string) error {
 	case OptionStatementQueryTag:
 		st.queryTag = val
 		return nil
+	case OptionLosslessTimeUnit, OptionTimestampTZWithOffset:
+		return st.timeOptions.set(key, val)
 	case OptionUseHighPrecision:
 		switch val {
 		case adbc.OptionValueEnabled:

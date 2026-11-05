@@ -174,7 +174,7 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 			// we convert each value to UTC since we have timezone information
 			// with the data that lets us do so.
 			dt := &arrow.TimestampType{TimeZone: "UTC", Unit: timeOpts.timestampUnit(srcMeta.Scale)}
-			f.Type = dt
+			f.Type = timeOpts.timestampTZType(dt)
 			scale := srcMeta.Scale
 			transformers[i] = func(ctx context.Context, a arrow.Array) (arrow.Array, error) {
 				return convertTimestampTZs(ctx, a, dt, scale, timeOpts)
@@ -200,12 +200,54 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 // timeOptions controls how TIME and TIMESTAMP_* values are converted.
 type timeOptions struct {
 	maxTimestampPrecision MaxTimestampPrecision
+	// See OptionLosslessTimeUnit.
+	losslessTimeUnit bool
+	// See OptionTimestampTZWithOffset.
+	timestampTZWithOffset bool
+}
+
+// set sets OptionLosslessTimeUnit or OptionTimestampTZWithOffset.
+func (o *timeOptions) set(key, value string) error {
+	var enabled bool
+	switch value {
+	case adbc.OptionValueEnabled:
+		enabled = true
+	case adbc.OptionValueDisabled:
+		enabled = false
+	default:
+		return adbc.Error{
+			Msg:  fmt.Sprintf("[Snowflake] invalid value for option %s: %s", key, value),
+			Code: adbc.StatusInvalidArgument,
+		}
+	}
+	switch key {
+	case OptionLosslessTimeUnit:
+		o.losslessTimeUnit = enabled
+	case OptionTimestampTZWithOffset:
+		o.timestampTZWithOffset = enabled
+	}
+	return nil
+}
+
+// get gets OptionLosslessTimeUnit or OptionTimestampTZWithOffset.
+func (o timeOptions) get(key string) string {
+	enabled := o.losslessTimeUnit
+	if key == OptionTimestampTZWithOffset {
+		enabled = o.timestampTZWithOffset
+	}
+	if enabled {
+		return adbc.OptionValueEnabled
+	}
+	return adbc.OptionValueDisabled
 }
 
 // timeUnit returns the Arrow time unit for values with scale fractional
-// digits: the unit of scale/3, dropping digits for scales that are not a
-// multiple of 3.
+// digits: the unit of scale/3 by default (dropping digits for scales that are
+// not a multiple of 3), the finest unit needed for scale with losslessTimeUnit.
 func (o timeOptions) timeUnit(scale int64) arrow.TimeUnit {
+	if o.losslessTimeUnit {
+		return arrow.TimeUnit((scale + 2) / 3)
+	}
 	return arrow.TimeUnit(scale / 3)
 }
 
@@ -223,6 +265,18 @@ func (o timeOptions) timestampUnit(scale int64) arrow.TimeUnit {
 		return arrow.Microsecond
 	}
 	return unit
+}
+
+// timestampTZType returns the Arrow type of TIMESTAMP_TZ values given the
+// Arrow type of their UTC timestamp.
+func (o timeOptions) timestampTZType(dt *arrow.TimestampType) arrow.DataType {
+	if !o.timestampTZWithOffset {
+		return dt
+	}
+	return arrow.StructOf(
+		arrow.Field{Name: "timestamp", Type: dt, Nullable: true},
+		arrow.Field{Name: "offset_minutes", Type: arrow.PrimitiveTypes.Int16, Nullable: true},
+	)
 }
 
 var pow10 = [...]int64{1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
@@ -332,7 +386,7 @@ func convertTimestamps(ctx context.Context, a arrow.Array, dt *arrow.TimestampTy
 
 // convertTimestampTZs converts TIMESTAMP_TZ values, a struct of the epoch (an
 // integer count of 10^-scale seconds, or epoch seconds and nanoseconds), and
-// the time zone offset in minutes plus 1440, to UTC.
+// the time zone offset in minutes plus 1440.
 func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.TimestampType, scale int64, timeOpts timeOptions) (arrow.Array, error) {
 	structData, ok := a.(*array.Struct)
 	if !ok {
@@ -343,13 +397,19 @@ func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.Timestamp
 	if structData.NumField() == 3 {
 		fraction = structData.Field(1).(*array.Int32).Int32Values()
 	}
+	tzoffset := structData.Field(structData.NumField() - 1).(*array.Int32).Int32Values()
 
-	tb := array.NewTimestampBuilder(compute.GetAllocator(ctx), dt)
+	pool := compute.GetAllocator(ctx)
+	tb := array.NewTimestampBuilder(pool, dt)
 	defer tb.Release()
 	tb.Reserve(a.Len())
+	ob := array.NewInt16Builder(pool)
+	defer ob.Release()
+	ob.Reserve(a.Len())
 	for i := 0; i < a.Len(); i++ {
 		if a.IsNull(i) {
 			tb.AppendNull()
+			ob.AppendNull()
 			continue
 		}
 		var t time.Time
@@ -364,8 +424,22 @@ func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.Timestamp
 			return nil, err
 		}
 		tb.Append(v)
+		ob.Append(int16(tzoffset[i] - 1440))
 	}
-	return tb.NewArray(), nil
+
+	timestamps := tb.NewArray()
+	if !timeOpts.timestampTZWithOffset {
+		return timestamps, nil
+	}
+	defer timestamps.Release()
+	offsets := ob.NewArray()
+	defer offsets.Release()
+	// a value is null when its timestamp is
+	data := array.NewData(timeOpts.timestampTZType(dt), timestamps.Len(),
+		[]*memory.Buffer{timestamps.Data().Buffers()[0]},
+		[]arrow.ArrayData{timestamps.Data(), offsets.Data()}, timestamps.NullN(), 0)
+	defer data.Release()
+	return array.MakeFromData(data), nil
 }
 
 func getArrowTimestampFromTime(val time.Time, unit arrow.TimeUnit, maxTimestampPrecision MaxTimestampPrecision) (arrow.Timestamp, error) {
@@ -441,7 +515,7 @@ func rowTypesToArrowSchema(_ context.Context, ld gosnowflake.ArrowStreamLoader, 
 		case "timestamp_ntz":
 			fields[i].Type = &arrow.TimestampType{Unit: timeOpts.timestampUnit(srcMeta.Scale)}
 		case "timestamp_tz":
-			fields[i].Type = &arrow.TimestampType{TimeZone: "UTC", Unit: timeOpts.timestampUnit(srcMeta.Scale)}
+			fields[i].Type = timeOpts.timestampTZType(&arrow.TimestampType{TimeZone: "UTC", Unit: timeOpts.timestampUnit(srcMeta.Scale)})
 		case "timestamp_ltz":
 			if loc == nil {
 				loc = ld.Location()
@@ -550,6 +624,20 @@ func jsonDataToArrow(_ context.Context, bldr *array.RecordBuilder, rawData [][]*
 					return nil, err
 				}
 				fb.Append(ts)
+			case *array.StructBuilder:
+				// TIMESTAMP_TZ with OptionTimestampTZWithOffset
+				t, offset, err := parseJSONTimestamp(bldr.Schema().Field(i), *col)
+				if err != nil {
+					return nil, err
+				}
+				tsb := fb.FieldBuilder(0).(*array.TimestampBuilder)
+				ts, err := getArrowTimestampFromTime(t, tsb.Type().(*arrow.TimestampType).Unit, timeOpts.maxTimestampPrecision)
+				if err != nil {
+					return nil, err
+				}
+				fb.Append(true)
+				tsb.Append(ts)
+				fb.FieldBuilder(1).(*array.Int16Builder).Append(int16(offset))
 			case *array.BinaryBuilder:
 				b, err := hex.DecodeString(*col)
 				if err != nil {
