@@ -82,11 +82,11 @@ type databaseImpl struct {
 	clientSecret string
 	refreshToken string
 
-	useHighPrecision      bool
-	streamRetryEnabled    bool
-	boundedPrefetch       bool
-	maxTimestampPrecision MaxTimestampPrecision
-	defaultAppName        string
+	useHighPrecision   bool
+	streamRetryEnabled bool
+	boundedPrefetch    bool
+	timeOptions        timeOptions
+	defaultAppName     string
 }
 
 func (d *databaseImpl) GetOption(key string) (string, error) {
@@ -186,7 +186,7 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		}
 		return adbc.OptionValueDisabled, nil
 	case OptionMaxTimestampPrecision:
-		switch d.maxTimestampPrecision {
+		switch d.timeOptions.maxTimestampPrecision {
 		case Microseconds:
 			return OptionValueMicroseconds, nil
 		case NanosecondsNoOverflow:
@@ -580,7 +580,7 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 	case OptionMaxTimestampPrecision:
 		switch v {
 		case OptionValueNanoseconds, OptionValueNanosecondsNoOverflow, OptionValueMicroseconds:
-			d.maxTimestampPrecision = maxTimestampPrecisionMap[v]
+			d.timeOptions.maxTimestampPrecision = maxTimestampPrecisionMap[v]
 		default:
 			return adbc.Error{
 				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s'", OptionMaxTimestampPrecision, v),
@@ -620,11 +620,11 @@ func (d *databaseImpl) Open(ctx context.Context) (adbcConnection adbc.Connection
 		// default enable high precision
 		// SetOption(OptionUseHighPrecision, adbc.OptionValueDisabled) to
 		// get Int64/Float64 instead
-		useHighPrecision:      d.useHighPrecision,
-		streamRetryEnabled:    d.streamRetryEnabled,
-		boundedPrefetch:       d.boundedPrefetch,
-		maxTimestampPrecision: d.maxTimestampPrecision,
-		ConnectionImplBase:    driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
+		useHighPrecision:   d.useHighPrecision,
+		streamRetryEnabled: d.streamRetryEnabled,
+		boundedPrefetch:    d.boundedPrefetch,
+		timeOptions:        d.timeOptions,
+		ConnectionImplBase: driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
 	}
 
 	adbcConnection = driverbase.NewConnectionBuilder(conn).

@@ -51,14 +51,14 @@ const (
 
 type statement struct {
 	driverbase.StatementImplBase
-	cnxn                  *connectionImpl
-	alloc                 memory.Allocator
-	queueSize             int
-	prefetchConcurrency   int
-	useHighPrecision      bool
-	streamRetryEnabled    bool
-	boundedPrefetch       bool
-	maxTimestampPrecision MaxTimestampPrecision
+	cnxn                *connectionImpl
+	alloc               memory.Allocator
+	queueSize           int
+	prefetchConcurrency int
+	useHighPrecision    bool
+	streamRetryEnabled  bool
+	boundedPrefetch     bool
+	timeOptions         timeOptions
 
 	query         string
 	targetTable   string
@@ -560,7 +560,7 @@ func (st *statement) ExecuteQuery(ctx context.Context) (reader array.RecordReade
 					return nil, err
 				}
 
-				reader, err = newRecordReader(ctx, st.alloc, loader, st.queueSize, st.prefetchConcurrency, st.useHighPrecision, st.streamRetryEnabled, st.boundedPrefetch, st.maxTimestampPrecision)
+				reader, err = newRecordReader(ctx, st.alloc, loader, st.queueSize, st.prefetchConcurrency, st.useHighPrecision, st.streamRetryEnabled, st.boundedPrefetch, st.timeOptions)
 				return reader, err
 			},
 			currentBatch: st.bound,
@@ -585,7 +585,7 @@ func (st *statement) ExecuteQuery(ctx context.Context) (reader array.RecordReade
 		return
 	}
 
-	reader, err = newRecordReader(ctx, st.alloc, loader, st.queueSize, st.prefetchConcurrency, st.useHighPrecision, st.streamRetryEnabled, st.boundedPrefetch, st.maxTimestampPrecision)
+	reader, err = newRecordReader(ctx, st.alloc, loader, st.queueSize, st.prefetchConcurrency, st.useHighPrecision, st.streamRetryEnabled, st.boundedPrefetch, st.timeOptions)
 	nRows = loader.TotalRows()
 	return
 }
@@ -704,7 +704,7 @@ func (st *statement) ExecuteSchema(ctx context.Context) (schema *arrow.Schema, e
 		return nil, err
 	}
 
-	schema, err = rowTypesToArrowSchema(ctx, loader, st.useHighPrecision, st.maxTimestampPrecision)
+	schema, err = rowTypesToArrowSchema(ctx, loader, st.useHighPrecision, st.timeOptions)
 	return schema, err
 }
 
