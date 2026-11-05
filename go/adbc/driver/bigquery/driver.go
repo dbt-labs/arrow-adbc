@@ -252,6 +252,14 @@ func (d *driverImpl) NewDatabaseWithContext(ctx context.Context, opts map[string
 
 func parseParts(defaultProjectID, defaultDatasetID, value string) (string, string, string, error) {
 	parts := strings.Split(value, ".")
+	// A legacy domain-scoped project ID (example.com:my-project) contains dots, but dataset and
+	// table IDs can't contain dots or colons, so the project ends at the first dot after the colon.
+	if colon := strings.LastIndexByte(value, ':'); colon >= 0 {
+		if dot := strings.IndexByte(value[colon:], '.'); dot >= 0 {
+			parts = strings.Split(value[colon:], ".")
+			parts[0] = value[:colon+dot]
+		}
+	}
 	switch len(parts) {
 	case 1:
 		return defaultProjectID, defaultDatasetID, parts[0], nil
