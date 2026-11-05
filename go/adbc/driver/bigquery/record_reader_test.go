@@ -21,12 +21,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"google.golang.org/api/option"
 )
@@ -107,6 +111,55 @@ func TestRunQueryRecoversExistingJobAfterDuplicateInsert(t *testing.T) {
 	}
 	if len(submittedJobIDs) != 2 {
 		t.Fatalf("expected two distinct submitted job IDs, got %d", len(submittedJobIDs))
+	}
+}
+
+// A job that failed with one of jobRetryReasons comes back tagged, without
+// being polled forever (dbt-labs/dbt#16731); other failures keep the Job.Read error.
+func TestRunQueryFailedJob(t *testing.T) {
+	for _, reason := range append([]string{"invalidQuery"}, jobRetryReasons...) {
+		t.Run(reason, func(t *testing.T) {
+			var job map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodPost:
+					_ = json.NewDecoder(r.Body).Decode(&job)
+					job["status"] = map[string]string{"state": "RUNNING"}
+				case strings.Contains(r.URL.Path, "/jobs/"):
+					job["status"] = map[string]any{"state": "DONE", "errorResult": map[string]string{"reason": reason, "message": "injected"}}
+				default:
+					w.WriteHeader(http.StatusBadRequest)
+					fmt.Fprintf(w, `{"error":{"code":400,"message":"injected","errors":[{"reason":%q}]}}`, reason)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(job)
+			}))
+			defer srv.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			client, err := bigquery.NewClient(ctx, "p", option.WithEndpoint(srv.URL+"/bigquery/v2/"), option.WithHTTPClient(srv.Client()), option.WithoutAuthentication())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+
+			_, _, err = runQuery(ctx, client, client.Query("SELECT 1"), false, false, memory.DefaultAllocator)
+
+			var ae adbc.Error
+			tag := ""
+			if errors.As(err, &ae) && len(ae.Details) == 1 && ae.Details[0].Key() == ErrorDetailJobErrorReason {
+				v, _ := ae.Details[0].Serialize()
+				tag = string(v)
+			}
+			if reason == "invalidQuery" {
+				if tag != "" || !strings.Contains(err.Error(), "googleapi: Error 400") {
+					t.Fatalf("want the untagged Job.Read error, got tag=%q: %v", tag, err)
+				}
+			} else if tag != reason {
+				t.Fatalf("want tag %q, got %q: %v", reason, tag, err)
+			}
+		})
 	}
 }
 
