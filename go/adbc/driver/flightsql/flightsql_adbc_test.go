@@ -843,7 +843,8 @@ func (suite *HeaderTests) TestPrepared() {
 	stmt, err := suite.Cnxn.NewStatement()
 	suite.Require().NoError(err)
 
-	suite.Require().NoError(stmt.SetSqlQuery("timeout"))
+	// The example SQLite server validates the query on prepare, so it must be valid SQL.
+	suite.Require().NoError(stmt.SetSqlQuery("SELECT 1"))
 
 	suite.Require().NoError(suite.Cnxn.(adbc.PostInitOptions).
 		SetOption("adbc.flight.sql.rpc.call_header.x-header-one", "value 1"))
