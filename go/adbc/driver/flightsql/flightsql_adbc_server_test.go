@@ -1965,8 +1965,11 @@ func (suite *DataTypeTests) DoTestCase(name string, schema *arrow.Schema) {
 	suite.NoError(stmt.SetSqlQuery(name))
 	reader, _, err := stmt.ExecuteQuery(context.Background())
 	suite.NoError(err)
-	suite.Equal(reader.Schema(), schema)
 	defer reader.Release()
+	// Compare with arrow's type equality rather than reflect.DeepEqual: since
+	// arrow-go v18.7.0 the IPC reader builds map types with MapOfFields, whose
+	// internal representation differs from MapOf's even though the types are equal.
+	suite.Truef(schema.Equal(reader.Schema()), "expected schema:\n%s\ngot:\n%s", schema, reader.Schema())
 }
 
 func (suite *DataTypeTests) TestListInt3() {
@@ -2393,7 +2396,7 @@ func (srv *GetObjectsTestServer) DoGetTables(ctx context.Context, cmd flightsql.
 	ch := make(chan flight.StreamChunk)
 
 	rdr, err := array.NewRecordReader(schema_ref.TablesWithIncludedSchema, []arrow.RecordBatch{tablesRecordWithSchema})
-	go flight.StreamChunksFromReader(rdr, ch)
+	go flight.StreamChunksFromReader(ctx, rdr, ch)
 	return schema_ref.TablesWithIncludedSchema, ch, err
 }
 

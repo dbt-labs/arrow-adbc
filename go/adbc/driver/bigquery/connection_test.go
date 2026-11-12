@@ -432,7 +432,7 @@ func TestBuildField(t *testing.T) {
 					},
 				},
 			},
-			expectedTypeStr: "list<item: struct<field1: utf8, field2: int64>, nullable>",
+			expectedTypeStr: "list<item: struct<field1: utf8 nullable, field2: int64 nullable>, nullable>",
 			expectError:     false,
 		},
 		{
@@ -451,7 +451,7 @@ func TestBuildField(t *testing.T) {
 					},
 				},
 			},
-			expectedTypeStr: "list<item: struct<single_field: utf8>, nullable>",
+			expectedTypeStr: "list<item: struct<single_field: utf8 nullable>, nullable>",
 			expectError:     false,
 		},
 		{
@@ -475,7 +475,7 @@ func TestBuildField(t *testing.T) {
 					},
 				},
 			},
-			expectedTypeStr: "struct<nested_string: utf8, nested_int: int64>",
+			expectedTypeStr: "struct<nested_string: utf8 nullable, nested_int: int64>",
 			expectError:     false,
 		},
 		{
@@ -485,7 +485,7 @@ func TestBuildField(t *testing.T) {
 				Type:             bigquery.RangeFieldType,
 				RangeElementType: &bigquery.RangeElementType{Type: bigquery.DateFieldType},
 			},
-			expectedTypeStr: "struct<start: date32, end: date32>",
+			expectedTypeStr: "struct<start: date32 nullable, end: date32 nullable>",
 		},
 		{
 			name: "RangeDateTime",
@@ -494,7 +494,7 @@ func TestBuildField(t *testing.T) {
 				Type:             bigquery.RangeFieldType,
 				RangeElementType: &bigquery.RangeElementType{Type: bigquery.DateTimeFieldType},
 			},
-			expectedTypeStr: "struct<start: timestamp[us], end: timestamp[us]>",
+			expectedTypeStr: "struct<start: timestamp[us] nullable, end: timestamp[us] nullable>",
 		},
 		{
 			name: "RangeTimestamp",
@@ -503,7 +503,7 @@ func TestBuildField(t *testing.T) {
 				Type:             bigquery.RangeFieldType,
 				RangeElementType: &bigquery.RangeElementType{Type: bigquery.TimestampFieldType},
 			},
-			expectedTypeStr: "struct<start: timestamp[us, tz=UTC], end: timestamp[us, tz=UTC]>",
+			expectedTypeStr: "struct<start: timestamp[us, tz=UTC] nullable, end: timestamp[us, tz=UTC] nullable>",
 		},
 	}
 

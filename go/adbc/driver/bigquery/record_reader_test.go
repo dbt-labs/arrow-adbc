@@ -195,7 +195,7 @@ func TestEmptyArrowIteratorRangeColumn(t *testing.T) {
 	if len(fields) != 1 {
 		t.Fatalf("expected 1 field, got %d", len(fields))
 	}
-	if got, want := fields[0].Type.String(), "struct<start: date32, end: date32>"; got != want {
+	if got, want := fields[0].Type.String(), "struct<start: date32 nullable, end: date32 nullable>"; got != want {
 		t.Errorf("expected type %q, got %q", want, got)
 	}
 	if rdr.Next() {
