@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/bigquery"
 	gax "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/googleapi"
 )
@@ -36,6 +37,10 @@ var (
 	// non-job API calls, such as tables.list:
 	// https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/bigquery.go#L254-L255
 	defaultRetryReasons = []string{"backendError", "rateLimitExceeded"}
+	// jobRetryReasons are the failed-job reasons a client may resubmit, as in
+	// google-cloud-bigquery's _job_should_retry:
+	// https://github.com/googleapis/google-cloud-python/blob/8aa6d4d704833fb1c628a2d8e30e88f32ece8062/packages/google-cloud-bigquery/google/cloud/bigquery/retry.py#L138-L175
+	jobRetryReasons = []string{"backendError", "rateLimitExceeded", "jobRateLimitExceeded", "internalError", "jobBackendError", "jobInternalError", "badGateway"}
 )
 
 // isRetryableError reports whether err is transient, retrying structured
@@ -114,4 +119,21 @@ func doWithRetry[T any](ctx context.Context, do func(...googleapi.CallOption) (T
 		return res, errors.Join(err, lastErr)
 	}
 	return res, lastErr
+}
+
+// waitForQueryJob polls until DONE without resubmitting the query.
+// Job.Status handles request retries.
+func waitForQueryJob(ctx context.Context, job *bigquery.Job) (*bigquery.JobStatus, error) {
+	backoff := gax.Backoff{Initial: 50 * time.Millisecond, Multiplier: 1.3, Max: 60 * time.Second}
+	status := job.LastStatus()
+	for status == nil || !status.Done() {
+		if err := gax.Sleep(ctx, backoff.Pause()); err != nil {
+			return nil, err
+		}
+		var err error
+		if status, err = job.Status(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return status, nil
 }
