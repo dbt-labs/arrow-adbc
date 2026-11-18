@@ -56,12 +56,12 @@ const (
 	MetadataKeySnowflakeNumDmlDuplicates = "SNOWFLAKE:num_dml_duplicates"
 )
 
-// add the DML counts the loader reports to meta, leaving out the ones the
+// Add the DML counts the loader reports to meta, leaving out the ones the
 // server did not send.
-func addStatsMetadata(meta map[string]string, ld gosnowflake.ArrowStreamLoader) {
+func addStatsMetadata(meta map[string]string, ld gosnowflake.ArrowStreamLoader) bool {
 	p, ok := ld.(gosnowflake.QueryResultStatsProvider)
 	if !ok {
-		return
+		return false
 	}
 
 	addStat := func(key string, stat func() (int64, bool)) {
@@ -74,6 +74,7 @@ func addStatsMetadata(meta map[string]string, ld gosnowflake.ArrowStreamLoader) 
 	addStat(MetadataKeySnowflakeNumRowsDeleted, p.NumRowsDeleted)
 	addStat(MetadataKeySnowflakeNumRowsUpdated, p.NumRowsUpdated)
 	addStat(MetadataKeySnowflakeNumDmlDuplicates, p.NumDmlDuplicates)
+	return true
 }
 
 func identCol(_ context.Context, a arrow.Array) (arrow.Array, error) {
