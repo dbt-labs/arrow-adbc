@@ -43,6 +43,18 @@ type statementImpl struct {
 
 	// Query tag overrides for this statement, layered over the connection defaults
 	queryTags map[string]string
+
+	// Server query id of the last execution; always a string.
+	lastQueryID atomic.Value
+}
+
+// withQueryIDCapture returns ctx with a callback that records the server query id on the
+// statement, so it can be read back through OptionLastQueryID.
+func (s *statementImpl) withQueryIDCapture(ctx context.Context) context.Context {
+	s.lastQueryID.Store("")
+	return dbsqlctx.NewContextWithQueryIdCallback(ctx, func(id string) {
+		s.lastQueryID.Store(id)
+	})
 }
 
 // sqlStateStatuses maps the SQLSTATEs that identify a missing or existing object to ADBC statuses.
@@ -130,6 +142,16 @@ func (s *statementImpl) SetOption(key, val string) error {
 }
 
 func (s *statementImpl) GetOption(key string) (string, error) {
+	if key == OptionLastQueryID {
+		if id, _ := s.lastQueryID.Load().(string); id != "" {
+			return id, nil
+		}
+		return "", adbc.Error{
+			Code: adbc.StatusNotFound,
+			Msg:  "no query id: no statement has been executed yet",
+		}
+	}
+
 	if strings.HasPrefix(key, OptionQueryTagPrefix) {
 		tagKey := strings.TrimPrefix(key, OptionQueryTagPrefix)
 		if v, ok := s.queryTags[tagKey]; ok {
@@ -226,11 +248,7 @@ func (s *statementImpl) ExecuteQuery(ctx context.Context) (array.RecordReader, i
 		}
 	}
 
-	var qidAtomic atomic.Value
-	qidCallback := func(id string) {
-		qidAtomic.Store(id)
-	}
-	ctxWithQid := dbsqlctx.NewContextWithQueryIdCallback(withQueryTags(ctx, s.effectiveQueryTags()), qidCallback)
+	ctxWithQid := s.withQueryIDCapture(withQueryTags(ctx, s.effectiveQueryTags()))
 
 	// Execute query using raw driver interface to get Arrow batches
 	var driverRows driver.Rows
@@ -257,7 +275,7 @@ func (s *statementImpl) ExecuteQuery(ctx context.Context) (array.RecordReader, i
 		}
 	}
 
-	qid, _ := qidAtomic.Load().(string)
+	qid, _ := s.lastQueryID.Load().(string)
 
 	// Use the IPC stream interface (zero-copy)
 	reader, err := newIPCReaderAdapter(ctx, databricksRows, qid)
@@ -277,7 +295,7 @@ func (s *statementImpl) ExecuteUpdate(ctx context.Context) (int64, error) {
 	var result sql.Result
 	var err error
 
-	ctx = withQueryTags(ctx, s.effectiveQueryTags())
+	ctx = s.withQueryIDCapture(withQueryTags(ctx, s.effectiveQueryTags()))
 
 	if s.prepared != nil {
 		result, err = s.prepared.ExecContext(ctx)

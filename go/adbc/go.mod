@@ -72,7 +72,7 @@ require (
 
 replace github.com/snowflakedb/gosnowflake => github.com/dbt-labs/gosnowflake v1.17.17
 
-replace github.com/databricks/databricks-sql-go => github.com/dbt-labs/databricks-sql-go v1.14.2
+replace github.com/databricks/databricks-sql-go => github.com/dbt-labs/databricks-sql-go v1.14.3-0.20261118112229-b4dbca86f741
 
 require (
 	cloud.google.com/go v0.121.6
