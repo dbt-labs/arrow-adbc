@@ -50,30 +50,30 @@ const (
 
 	// DML counts the server reports for the statement. A key is absent when the
 	// server did not report that count, which is not the same as a count of 0.
-	MetadataKeySnowflakeNumRowsInserted  = "SNOWFLAKE_NUM_ROWS_INSERTED"
-	MetadataKeySnowflakeNumRowsDeleted   = "SNOWFLAKE_NUM_ROWS_DELETED"
-	MetadataKeySnowflakeNumRowsUpdated   = "SNOWFLAKE_NUM_ROWS_UPDATED"
-	MetadataKeySnowflakeNumDmlDuplicates = "SNOWFLAKE_NUM_DML_DUPLICATES"
+	MetadataKeySnowflakeNumRowsInserted  = "SNOWFLAKE:num_rows_inserted"
+	MetadataKeySnowflakeNumRowsDeleted   = "SNOWFLAKE:num_rows_deleted"
+	MetadataKeySnowflakeNumRowsUpdated   = "SNOWFLAKE:num_rows_updated"
+	MetadataKeySnowflakeNumDmlDuplicates = "SNOWFLAKE:num_dml_duplicates"
 )
 
-// addStatsMetadata adds the DML counts the loader reports to meta, leaving out
-// the ones the server did not send. For a CREATE TABLE AS SELECT they are the
-// only place that reports how many rows were written.
+// add the DML counts the loader reports to meta, leaving out the ones the
+// server did not send.
 func addStatsMetadata(meta map[string]string, ld gosnowflake.ArrowStreamLoader) {
 	p, ok := ld.(gosnowflake.QueryResultStatsProvider)
 	if !ok {
 		return
 	}
-	for key, stat := range map[string]func() (int64, bool){
-		MetadataKeySnowflakeNumRowsInserted:  p.NumRowsInserted,
-		MetadataKeySnowflakeNumRowsDeleted:   p.NumRowsDeleted,
-		MetadataKeySnowflakeNumRowsUpdated:   p.NumRowsUpdated,
-		MetadataKeySnowflakeNumDmlDuplicates: p.NumDmlDuplicates,
-	} {
+
+	addStat := func(key string, stat func() (int64, bool)) {
 		if n, ok := stat(); ok {
 			meta[key] = strconv.FormatInt(n, 10)
 		}
 	}
+
+	addStat(MetadataKeySnowflakeNumRowsInserted, p.NumRowsInserted)
+	addStat(MetadataKeySnowflakeNumRowsDeleted, p.NumRowsDeleted)
+	addStat(MetadataKeySnowflakeNumRowsUpdated, p.NumRowsUpdated)
+	addStat(MetadataKeySnowflakeNumDmlDuplicates, p.NumDmlDuplicates)
 }
 
 func identCol(_ context.Context, a arrow.Array) (arrow.Array, error) {
