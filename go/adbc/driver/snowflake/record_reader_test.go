@@ -23,6 +23,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/snowflakedb/gosnowflake"
 )
 
 // runWithTimeout runs fn on its own goroutine and reports whether it
@@ -95,4 +96,57 @@ func TestReader_Next_NilChannelSlot(t *testing.T) {
 		t.Fatal("second Next() call unexpectedly returned; expected it to hang on the nil channel at chs[1] " +
 			"(if this starts passing, something changed Next()'s nil-channel handling, not just newRecordReader's construction order)")
 	}
+}
+
+// statsLoader is an ArrowStreamLoader that reports the given counts. A nil
+// count is one the server did not send.
+type statsLoader struct {
+	gosnowflake.ArrowStreamLoader
+	inserted, deleted, updated, duplicates *int64
+}
+
+func (l statsLoader) NumRowsInserted() (int64, bool)  { return deref(l.inserted) }
+func (l statsLoader) NumRowsDeleted() (int64, bool)   { return deref(l.deleted) }
+func (l statsLoader) NumRowsUpdated() (int64, bool)   { return deref(l.updated) }
+func (l statsLoader) NumDmlDuplicates() (int64, bool) { return deref(l.duplicates) }
+
+func deref(v *int64) (int64, bool) {
+	if v == nil {
+		return 0, false
+	}
+	return *v, true
+}
+
+func ptr(v int64) *int64 { return &v }
+
+func TestAddStatsMetadata(t *testing.T) {
+	t.Run("reports only the counts the server sent", func(t *testing.T) {
+		meta := map[string]string{}
+		addStatsMetadata(meta, statsLoader{inserted: ptr(3), deleted: ptr(0)})
+		if got, want := len(meta), 2; got != want {
+			t.Fatalf("got %d keys (%v), want %d", got, meta, want)
+		}
+		if meta[MetadataKeySnowflakeNumRowsInserted] != "3" {
+			t.Errorf("inserted = %q, want 3", meta[MetadataKeySnowflakeNumRowsInserted])
+		}
+		if meta[MetadataKeySnowflakeNumRowsDeleted] != "0" {
+			t.Errorf("deleted = %q, want 0", meta[MetadataKeySnowflakeNumRowsDeleted])
+		}
+	})
+
+	t.Run("adds nothing when the server sent no stats", func(t *testing.T) {
+		meta := map[string]string{}
+		addStatsMetadata(meta, statsLoader{})
+		if len(meta) != 0 {
+			t.Fatalf("got %v, want no keys", meta)
+		}
+	})
+
+	t.Run("adds nothing for a loader without stats support", func(t *testing.T) {
+		meta := map[string]string{}
+		addStatsMetadata(meta, struct{ gosnowflake.ArrowStreamLoader }{})
+		if len(meta) != 0 {
+			t.Fatalf("got %v, want no keys", meta)
+		}
+	})
 }

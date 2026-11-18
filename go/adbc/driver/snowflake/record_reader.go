@@ -47,7 +47,35 @@ import (
 const (
 	MetadataKeySnowflakeType    = "SNOWFLAKE_TYPE"
 	MetadataKeySnowflakeQueryID = "SNOWFLAKE_QUERY_ID"
+
+	// DML counts the server reports for the statement. A key is absent when the
+	// server did not report that count, which is not the same as a count of 0.
+	MetadataKeySnowflakeNumRowsInserted  = "SNOWFLAKE:num_rows_inserted"
+	MetadataKeySnowflakeNumRowsDeleted   = "SNOWFLAKE:num_rows_deleted"
+	MetadataKeySnowflakeNumRowsUpdated   = "SNOWFLAKE:num_rows_updated"
+	MetadataKeySnowflakeNumDmlDuplicates = "SNOWFLAKE:num_dml_duplicates"
 )
+
+// Add the DML counts the loader reports to meta, leaving out the ones the
+// server did not send.
+func addStatsMetadata(meta map[string]string, ld gosnowflake.ArrowStreamLoader) bool {
+	p, ok := ld.(gosnowflake.QueryResultStatsProvider)
+	if !ok {
+		return false
+	}
+
+	addStat := func(key string, stat func() (int64, bool)) {
+		if n, ok := stat(); ok {
+			meta[key] = strconv.FormatInt(n, 10)
+		}
+	}
+
+	addStat(MetadataKeySnowflakeNumRowsInserted, p.NumRowsInserted)
+	addStat(MetadataKeySnowflakeNumRowsDeleted, p.NumRowsDeleted)
+	addStat(MetadataKeySnowflakeNumRowsUpdated, p.NumRowsUpdated)
+	addStat(MetadataKeySnowflakeNumDmlDuplicates, p.NumDmlDuplicates)
+	return true
+}
 
 func identCol(_ context.Context, a arrow.Array) (arrow.Array, error) {
 	a.Retain()
@@ -310,6 +338,7 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 	if _, ok := meta[MetadataKeySnowflakeQueryID]; !ok {
 		meta[MetadataKeySnowflakeQueryID] = ld.QueryID()
 	}
+	addStatsMetadata(meta, ld)
 
 	finalMeta := arrow.MetadataFrom(meta)
 	out := arrow.NewSchema(fields, &finalMeta)
@@ -418,10 +447,12 @@ func rowTypesToArrowSchema(_ context.Context, ld gosnowflake.ArrowStreamLoader, 
 			fields[i].Type = arrow.BinaryTypes.String
 		}
 	}
-	// Add query ID to schema metadata
-	schemaMetadata := arrow.MetadataFrom(map[string]string{
+	// Add query ID and DML counts to schema metadata
+	meta := map[string]string{
 		MetadataKeySnowflakeQueryID: ld.QueryID(),
-	})
+	}
+	addStatsMetadata(meta, ld)
+	schemaMetadata := arrow.MetadataFrom(meta)
 	return arrow.NewSchema(fields, &schemaMetadata), nil
 }
 
