@@ -329,21 +329,9 @@ func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.Timestamp
 			}
 
 			loc := gosnowflake.Location(int(tzoffset[i]) - 1440)
-			// When there's no fraction field, epoch contains the timestamp in the scale's unit
-			// For scale 0-2: seconds, scale 3-5: milliseconds, scale 6-8: microseconds, scale 9: nanoseconds
-			var t time.Time
-			switch scale {
-			case 0, 1, 2:
-				t = time.Unix(epoch[i], 0).In(loc)
-			case 3, 4, 5:
-				t = time.UnixMilli(epoch[i]).In(loc)
-			case 6, 7, 8:
-				t = time.UnixMicro(epoch[i]).In(loc)
-			case 9:
-				t = time.Unix(0, epoch[i]).In(loc)
-			default:
-				t = time.Unix(epoch[i], 0).In(loc)
-			}
+			// When there's no fraction field, epoch is an integer count of
+			// 10^-scale seconds
+			t := scaledToTime(epoch[i], scale).In(loc)
 			v, err := getArrowTimestampFromTime(t, dt.Unit, timeOpts.maxTimestampPrecision)
 			if err != nil {
 				return nil, err
