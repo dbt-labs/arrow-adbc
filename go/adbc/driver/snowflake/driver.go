@@ -107,6 +107,13 @@ const (
 	// by default: the unit is the one of scale / 3 digits, dropping the digits
 	// beyond it. Can be set on the database, the connection or the statement.
 	OptionLosslessTimeUnit = "adbc.snowflake.sql.client_option.lossless_time_unit"
+	// OptionTimestampTZWithOffset, when enabled, returns TIMESTAMP_TZ columns as
+	// the arrow.timestamp_with_offset canonical extension type, i.e.
+	// struct<timestamp: timestamp[unit, tz=UTC], offset_minutes: int16>, keeping
+	// the time zone offset of each value. Disabled by default: the values are
+	// converted to UTC and their offsets are dropped. Can be set on the
+	// database, the connection or the statement.
+	OptionTimestampTZWithOffset = "adbc.snowflake.sql.client_option.timestamp_tz_with_offset"
 
 	// OptionStreamRetryEnabled controls whether batch reads from Snowflake
 	// use a retry-based approach that buffers entire batches and retries on

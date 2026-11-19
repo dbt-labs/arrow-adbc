@@ -34,7 +34,9 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/bitutil"
 	"github.com/apache/arrow-go/v18/arrow/compute"
+	"github.com/apache/arrow-go/v18/arrow/extensions"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/snowflakedb/gosnowflake"
@@ -202,7 +204,7 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 			// we convert each value to UTC since we have timezone information
 			// with the data that lets us do so.
 			dt := &arrow.TimestampType{TimeZone: "UTC", Unit: timeOpts.timestampUnit(srcMeta.Scale)}
-			f.Type = dt
+			f.Type = timeOpts.timestampTZType(dt)
 			scale := srcMeta.Scale
 			transformers[i] = func(ctx context.Context, a arrow.Array) (arrow.Array, error) {
 				return convertTimestampTZs(ctx, a, dt, scale, timeOpts)
@@ -231,9 +233,11 @@ type timeOptions struct {
 	maxTimestampPrecision MaxTimestampPrecision
 	// See OptionLosslessTimeUnit.
 	losslessTimeUnit bool
+	// See OptionTimestampTZWithOffset.
+	timestampTZWithOffset bool
 }
 
-// set sets OptionLosslessTimeUnit.
+// set sets OptionLosslessTimeUnit or OptionTimestampTZWithOffset.
 func (o *timeOptions) set(key, value string) error {
 	var enabled bool
 	switch value {
@@ -250,13 +254,18 @@ func (o *timeOptions) set(key, value string) error {
 	switch key {
 	case OptionLosslessTimeUnit:
 		o.losslessTimeUnit = enabled
+	case OptionTimestampTZWithOffset:
+		o.timestampTZWithOffset = enabled
 	}
 	return nil
 }
 
-// get gets OptionLosslessTimeUnit.
+// get gets OptionLosslessTimeUnit or OptionTimestampTZWithOffset.
 func (o timeOptions) get(key string) string {
 	enabled := o.losslessTimeUnit
+	if key == OptionTimestampTZWithOffset {
+		enabled = o.timestampTZWithOffset
+	}
 	if enabled {
 		return adbc.OptionValueEnabled
 	}
@@ -287,6 +296,58 @@ func (o timeOptions) timestampUnit(scale int64) arrow.TimeUnit {
 		return arrow.Microsecond
 	}
 	return unit
+}
+
+// timestampTZType returns the Arrow type of TIMESTAMP_TZ values given the
+// Arrow type of their UTC timestamp. With OptionTimestampTZWithOffset, it is
+// the arrow.timestamp_with_offset canonical extension type
+// (https://arrow.apache.org/docs/format/CanonicalExtensions.html#timestamp-with-offset).
+func (o timeOptions) timestampTZType(dt *arrow.TimestampType) arrow.DataType {
+	if !o.timestampTZWithOffset {
+		return dt
+	}
+	return extensions.NewTimestampWithOffsetType(dt.Unit)
+}
+
+// newTimestampWithOffsetArray builds an arrow.timestamp_with_offset array,
+// null where valid is false. The fields of its storage are not nullable, so
+// they hold zeros under null values.
+func newTimestampWithOffsetArray(mem memory.Allocator, dt *extensions.TimestampWithOffsetType, timestamps *array.Timestamp, offsets *array.Int16, valid func(int) bool) arrow.Array {
+	storageType := dt.StorageType().(*arrow.StructType)
+	n := timestamps.Len()
+	tb := array.NewTimestampBuilder(mem, storageType.Field(0).Type.(*arrow.TimestampType))
+	defer tb.Release()
+	tb.Reserve(n)
+	ob := array.NewInt16Builder(mem)
+	defer ob.Release()
+	ob.Reserve(n)
+	validity := memory.NewResizableBuffer(mem)
+	defer validity.Release()
+	validity.Resize(int(bitutil.BytesForBits(int64(n))))
+	nulls := 0
+	for i := 0; i < n; i++ {
+		if valid(i) {
+			bitutil.SetBit(validity.Bytes(), i)
+			tb.UnsafeAppend(timestamps.Value(i))
+			ob.UnsafeAppend(offsets.Value(i))
+		} else {
+			bitutil.ClearBit(validity.Bytes(), i)
+			nulls++
+			tb.UnsafeAppend(0)
+			ob.UnsafeAppend(0)
+		}
+	}
+	ts := tb.NewArray()
+	defer ts.Release()
+	offs := ob.NewArray()
+	defer offs.Release()
+	buffers := []*memory.Buffer{validity}
+	if nulls == 0 {
+		buffers = []*memory.Buffer{nil}
+	}
+	data := array.NewData(dt, n, buffers, []arrow.ArrayData{ts.Data(), offs.Data()}, nulls, 0)
+	defer data.Release()
+	return array.MakeFromData(data)
 }
 
 var pow10 = [...]int64{1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
@@ -396,7 +457,7 @@ func convertTimestamps(ctx context.Context, a arrow.Array, dt *arrow.TimestampTy
 
 // convertTimestampTZs converts TIMESTAMP_TZ values, a struct of the epoch (an
 // integer count of 10^-scale seconds, or epoch seconds and nanoseconds), and
-// the time zone offset in minutes plus 1440, to UTC.
+// the time zone offset in minutes plus 1440.
 func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.TimestampType, scale int64, timeOpts timeOptions) (arrow.Array, error) {
 	structData, ok := a.(*array.Struct)
 	if !ok {
@@ -407,13 +468,19 @@ func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.Timestamp
 	if structData.NumField() == 3 {
 		fraction = structData.Field(1).(*array.Int32).Int32Values()
 	}
+	tzoffset := structData.Field(structData.NumField() - 1).(*array.Int32).Int32Values()
 
-	tb := array.NewTimestampBuilder(compute.GetAllocator(ctx), dt)
+	pool := compute.GetAllocator(ctx)
+	tb := array.NewTimestampBuilder(pool, dt)
 	defer tb.Release()
 	tb.Reserve(a.Len())
+	ob := array.NewInt16Builder(pool)
+	defer ob.Release()
+	ob.Reserve(a.Len())
 	for i := 0; i < a.Len(); i++ {
 		if a.IsNull(i) {
 			tb.AppendNull()
+			ob.AppendNull()
 			continue
 		}
 		var t time.Time
@@ -428,8 +495,18 @@ func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.Timestamp
 			return nil, err
 		}
 		tb.Append(v)
+		ob.Append(int16(tzoffset[i] - 1440))
 	}
-	return tb.NewArray(), nil
+
+	timestamps := tb.NewArray()
+	if !timeOpts.timestampTZWithOffset {
+		return timestamps, nil
+	}
+	defer timestamps.Release()
+	offsets := ob.NewArray()
+	defer offsets.Release()
+	return newTimestampWithOffsetArray(pool, timeOpts.timestampTZType(dt).(*extensions.TimestampWithOffsetType),
+		timestamps.(*array.Timestamp), offsets.(*array.Int16), a.IsValid), nil
 }
 
 func getArrowTimestampFromTime(val time.Time, unit arrow.TimeUnit, maxTimestampPrecision MaxTimestampPrecision) (arrow.Timestamp, error) {
@@ -505,7 +582,7 @@ func rowTypesToArrowSchema(_ context.Context, ld gosnowflake.ArrowStreamLoader, 
 		case "timestamp_ntz":
 			fields[i].Type = &arrow.TimestampType{Unit: timeOpts.timestampUnit(srcMeta.Scale)}
 		case "timestamp_tz":
-			fields[i].Type = &arrow.TimestampType{TimeZone: "UTC", Unit: timeOpts.timestampUnit(srcMeta.Scale)}
+			fields[i].Type = timeOpts.timestampTZType(&arrow.TimestampType{TimeZone: "UTC", Unit: timeOpts.timestampUnit(srcMeta.Scale)})
 		case "timestamp_ltz":
 			if loc == nil {
 				loc = ld.Location()

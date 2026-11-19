@@ -185,7 +185,7 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 			return adbc.OptionValueEnabled, nil
 		}
 		return adbc.OptionValueDisabled, nil
-	case OptionLosslessTimeUnit:
+	case OptionLosslessTimeUnit, OptionTimestampTZWithOffset:
 		return d.timeOptions.get(key), nil
 	case OptionMaxTimestampPrecision:
 		switch d.timeOptions.maxTimestampPrecision {
@@ -579,7 +579,7 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 				Code: adbc.StatusInvalidArgument,
 			}
 		}
-	case OptionLosslessTimeUnit:
+	case OptionLosslessTimeUnit, OptionTimestampTZWithOffset:
 		if err := d.timeOptions.set(k, v); err != nil {
 			return err
 		}
