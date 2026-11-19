@@ -510,8 +510,49 @@ func extractTimestamp(src *string) (sec, nsec int64, err error) {
 	return
 }
 
+// parseJSONTimestamp parses a TIMESTAMP_* value of a JSON result: the epoch
+// seconds with an optional fraction, followed for TIMESTAMP_TZ by a space and
+// the time zone offset in minutes plus 1440. The offset is returned in minutes.
+func parseJSONTimestamp(field arrow.Field, src string) (t time.Time, offset int64, err error) {
+	snowflakeType, ok := field.Metadata.GetValue(MetadataKeySnowflakeType)
+	if !ok {
+		return t, 0, errToAdbcErr(
+			adbc.StatusInvalidData,
+			fmt.Errorf("key %s not found in metadata for field %s", MetadataKeySnowflakeType, field.Name),
+		)
+	}
+
+	if snowflakeType == "timestamp_tz" {
+		tm := strings.Split(src, " ")
+		if len(tm) != 2 {
+			return t, 0, adbc.Error{
+				Msg:        "invalid TIMESTAMP_TZ data. value doesn't consist of two numeric values separated by a space: " + src,
+				SqlState:   [5]byte{'2', '2', '0', '0', '7'},
+				VendorCode: 268000,
+				Code:       adbc.StatusInvalidData,
+			}
+		}
+		src = tm[0]
+		offset, err = strconv.ParseInt(tm[1], 10, 64)
+		if err != nil {
+			return t, 0, adbc.Error{
+				Msg:        "invalid TIMESTAMP_TZ data. offset value is not an integer: " + tm[1],
+				SqlState:   [5]byte{'2', '2', '0', '0', '7'},
+				VendorCode: 268000,
+				Code:       adbc.StatusInvalidData,
+			}
+		}
+		offset -= 1440
+	}
+
+	sec, nsec, err := extractTimestamp(&src)
+	if err != nil {
+		return t, 0, err
+	}
+	return time.Unix(sec, nsec), offset, nil
+}
+
 func jsonDataToArrow(_ context.Context, bldr *array.RecordBuilder, rawData [][]*string, timeOpts timeOptions) (arrow.RecordBatch, error) {
-	maxTimestampPrecision := timeOpts.maxTimestampPrecision
 	fieldBuilders := bldr.Fields()
 	for _, rec := range rawData {
 		for i, col := range rec {
@@ -531,74 +572,15 @@ func jsonDataToArrow(_ context.Context, bldr *array.RecordBuilder, rawData [][]*
 
 				fb.Append(arrow.Time64(sec*1e9 + nsec))
 			case *array.TimestampBuilder:
-				snowflakeType, ok := bldr.Schema().Field(i).Metadata.GetValue(MetadataKeySnowflakeType)
-				if !ok {
-					return nil, errToAdbcErr(
-						adbc.StatusInvalidData,
-						fmt.Errorf("key %s not found in metadata for field %s", MetadataKeySnowflakeType, bldr.Schema().Field(i).Name),
-					)
-				}
-
-				if snowflakeType == "timestamp_tz" {
-					// "timestamp_tz" should be value + offset separated by space
-					tm := strings.Split(*col, " ")
-					if len(tm) != 2 {
-						return nil, adbc.Error{
-							Msg:        "invalid TIMESTAMP_TZ data. value doesn't consist of two numeric values separated by a space: " + *col,
-							SqlState:   [5]byte{'2', '2', '0', '0', '7'},
-							VendorCode: 268000,
-							Code:       adbc.StatusInvalidData,
-						}
-					}
-
-					sec, nsec, err := extractTimestamp(&tm[0])
-					if err != nil {
-						return nil, err
-					}
-					offset, err := strconv.ParseInt(tm[1], 10, 64)
-					if err != nil {
-						return nil, adbc.Error{
-							Msg:        "invalid TIMESTAMP_TZ data. offset value is not an integer: " + tm[1],
-							SqlState:   [5]byte{'2', '2', '0', '0', '7'},
-							VendorCode: 268000,
-							Code:       adbc.StatusInvalidData,
-						}
-					}
-
-					loc := gosnowflake.Location(int(offset) - 1440)
-					tt := time.Unix(sec, nsec).In(loc)
-
-					var unit arrow.TimeUnit
-					if maxTimestampPrecision == Microseconds {
-						unit = arrow.Microsecond
-					} else {
-						unit = arrow.Nanosecond
-					}
-
-					ts, err := getArrowTimestampFromTime(tt, unit, maxTimestampPrecision)
-					if err != nil {
-						return nil, err
-					}
-					fb.Append(ts)
-					break
-				}
-
-				// otherwise timestamp_ntz or timestamp_ltz, which have the same physical representation
-				sec, nsec, err := extractTimestamp(col)
+				t, _, err := parseJSONTimestamp(bldr.Schema().Field(i), *col)
 				if err != nil {
 					return nil, err
 				}
-
-				if maxTimestampPrecision == Microseconds {
-					tt := time.Unix(sec, nsec)
-					ts, err := getArrowTimestampFromTime(tt, arrow.Microsecond, maxTimestampPrecision)
-					if err != nil {
-						return nil, err
-					}
-					fb.Append(ts)
-				} else {
-					fb.Append(arrow.Timestamp(sec*1e9 + nsec))
+				ts, err := getArrowTimestampFromTime(t, fb.Type().(*arrow.TimestampType).Unit, timeOpts.maxTimestampPrecision)
+				if err != nil {
+					return nil, err
 				}
+				fb.Append(ts)
 			case *array.BinaryBuilder:
 				b, err := hex.DecodeString(*col)
 				if err != nil {
