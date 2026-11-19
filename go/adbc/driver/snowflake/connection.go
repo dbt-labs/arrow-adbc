@@ -72,11 +72,11 @@ type connectionImpl struct {
 	db   *databaseImpl
 	ctor driver.Connector
 
-	activeTransaction     bool
-	useHighPrecision      bool
-	streamRetryEnabled    bool
-	boundedPrefetch       bool
-	maxTimestampPrecision MaxTimestampPrecision
+	activeTransaction  bool
+	useHighPrecision   bool
+	streamRetryEnabled bool
+	boundedPrefetch    bool
+	timeOptions        timeOptions
 }
 
 type traceParentScope uint8
@@ -533,19 +533,19 @@ func (c *connectionImpl) toArrowField(columnInfo driverbase.ColumnInfo) arrow.Fi
 	case "DATETIME":
 		fallthrough
 	case "TIMESTAMP", "TIMESTAMP_NTZ":
-		if c.maxTimestampPrecision == Microseconds {
+		if c.timeOptions.maxTimestampPrecision == Microseconds {
 			field.Type = &arrow.TimestampType{Unit: arrow.Microsecond}
 		} else {
 			field.Type = &arrow.TimestampType{Unit: arrow.Nanosecond}
 		}
 	case "TIMESTAMP_LTZ":
-		if c.maxTimestampPrecision == Microseconds {
+		if c.timeOptions.maxTimestampPrecision == Microseconds {
 			field.Type = &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}
 		} else {
 			field.Type = &arrow.TimestampType{Unit: arrow.Nanosecond, TimeZone: "UTC"}
 		}
 	case "TIMESTAMP_TZ":
-		if c.maxTimestampPrecision == Microseconds {
+		if c.timeOptions.maxTimestampPrecision == Microseconds {
 			field.Type = arrow.FixedWidthTypes.Timestamp_us
 		} else {
 			field.Type = arrow.FixedWidthTypes.Timestamp_ns
@@ -749,7 +749,7 @@ func (c *connectionImpl) GetTableSchema(ctx context.Context, catalog *string, db
 		}
 
 		var f arrow.Field
-		f, err = descToField(name, typ, isnull, primary, comment, c.maxTimestampPrecision)
+		f, err = descToField(name, typ, isnull, primary, comment, c.timeOptions.maxTimestampPrecision)
 		if err != nil {
 			return nil, err
 		}
@@ -795,16 +795,16 @@ func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
 	defaultIngestOptions := DefaultIngestOptions()
 	stmtBase := driverbase.NewStatementImplBase(c.Base(), c.ErrorHelper)
 	stmt := &statement{
-		StatementImplBase:     stmtBase,
-		alloc:                 c.db.Alloc,
-		cnxn:                  c,
-		queueSize:             defaultStatementQueueSize,
-		prefetchConcurrency:   defaultPrefetchConcurrency,
-		useHighPrecision:      c.useHighPrecision,
-		streamRetryEnabled:    c.streamRetryEnabled,
-		boundedPrefetch:       c.boundedPrefetch,
-		maxTimestampPrecision: c.maxTimestampPrecision,
-		ingestOptions:         defaultIngestOptions,
+		StatementImplBase:   stmtBase,
+		alloc:               c.db.Alloc,
+		cnxn:                c,
+		queueSize:           defaultStatementQueueSize,
+		prefetchConcurrency: defaultPrefetchConcurrency,
+		useHighPrecision:    c.useHighPrecision,
+		streamRetryEnabled:  c.streamRetryEnabled,
+		boundedPrefetch:     c.boundedPrefetch,
+		timeOptions:         c.timeOptions,
+		ingestOptions:       defaultIngestOptions,
 	}
 	return driverbase.NewStatement(stmt), nil
 }

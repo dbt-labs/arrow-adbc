@@ -337,11 +337,11 @@ func (d *driverImpl) NewDatabaseWithOptionsContext(
 	defaultAppName := "[ADBC][Go-" + driverVersion + "]"
 
 	db := &databaseImpl{
-		DatabaseImplBase:      dbBase,
-		useHighPrecision:      true,
-		streamRetryEnabled:    false,
-		defaultAppName:        defaultAppName,
-		maxTimestampPrecision: Nanoseconds,
+		DatabaseImplBase:   dbBase,
+		useHighPrecision:   true,
+		streamRetryEnabled: false,
+		defaultAppName:     defaultAppName,
+		timeOptions:        timeOptions{maxTimestampPrecision: Nanoseconds},
 	}
 	if err := db.SetOptions(opts); err != nil {
 		return nil, err
