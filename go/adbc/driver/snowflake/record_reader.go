@@ -267,7 +267,7 @@ func scaledToTime(value, scale int64) time.Time {
 
 // convertTimestamps converts TIMESTAMP_NTZ and TIMESTAMP_LTZ values, either an
 // integer count of 10^-scale seconds since the epoch, or a struct of the epoch
-// seconds and the fraction.
+// seconds and the nanoseconds.
 func convertTimestamps(ctx context.Context, a arrow.Array, dt *arrow.TimestampType, scale int64, maxTimestampPrecision MaxTimestampPrecision) (arrow.Array, error) {
 	if a.DataType().ID() == arrow.INT64 && 3*int64(dt.Unit) == scale {
 		// the integers are already in the unit
@@ -286,9 +286,8 @@ func convertTimestamps(ctx context.Context, a arrow.Array, dt *arrow.TimestampTy
 				tb.AppendNull()
 				continue
 			}
-			// Convert fraction to nanoseconds based on the scale
-			nanoseconds := int64(fraction[i]) * int64(math.Pow10(9-int(scale)))
-			v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds), dt.Unit, maxTimestampPrecision)
+			// the fraction is in nanoseconds, whatever the scale
+			v, err := getArrowTimestampFromTime(time.Unix(epoch[i], int64(fraction[i])), dt.Unit, maxTimestampPrecision)
 			if err != nil {
 				return nil, err
 			}
@@ -361,10 +360,9 @@ func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.Timestamp
 				continue
 			}
 
-			// Convert fraction to nanoseconds based on the scale
-			nanoseconds := int64(fraction[i]) * int64(math.Pow10(9-int(scale)))
+			// the fraction is in nanoseconds, whatever the scale
 			loc := gosnowflake.Location(int(tzoffset[i]) - 1440)
-			v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds).In(loc), dt.Unit, timeOpts.maxTimestampPrecision)
+			v, err := getArrowTimestampFromTime(time.Unix(epoch[i], int64(fraction[i])).In(loc), dt.Unit, timeOpts.maxTimestampPrecision)
 			if err != nil {
 				return nil, err
 			}
