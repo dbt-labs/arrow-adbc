@@ -92,6 +92,26 @@ func epochFractions(mem memory.Allocator, scale int64, offsets []int32, times ..
 	return b.NewArray()
 }
 
+// scaledIntsWithOffsets encodes times as structs of an integer count of
+// 10^-scale seconds since the epoch and a time zone offset.
+func scaledIntsWithOffsets(mem memory.Allocator, scale int64, offsets []int32, times ...*time.Time) arrow.Array {
+	b := array.NewStructBuilder(mem, arrow.StructOf(
+		arrow.Field{Name: "epoch", Type: arrow.PrimitiveTypes.Int64},
+		arrow.Field{Name: "timezone", Type: arrow.PrimitiveTypes.Int32},
+	))
+	defer b.Release()
+	for i, t := range times {
+		if t == nil {
+			b.AppendNull()
+			continue
+		}
+		b.Append(true)
+		b.FieldBuilder(0).(*array.Int64Builder).Append(truncate(*t, scale).UnixNano() / pow10[9-scale])
+		b.FieldBuilder(1).(*array.Int32Builder).Append(offsets[i] + 1440)
+	}
+	return b.NewArray()
+}
+
 func testContext(mem memory.Allocator) context.Context {
 	return compute.WithAllocator(context.Background(), mem)
 }
@@ -214,6 +234,9 @@ func TestConvertTimestampTZs(t *testing.T) {
 		opts   timeOptions
 		digits int64
 	}{
+		{"scale 0", 0, timeOptions{}, 0},
+		{"scale 2", 2, timeOptions{}, 0},
+		{"scale 3", 3, timeOptions{}, 3},
 		{"scale 4", 4, timeOptions{}, 3},
 		{"scale 8", 8, timeOptions{}, 6},
 		{"scale 9", 9, timeOptions{}, 9},
@@ -221,7 +244,13 @@ func TestConvertTimestampTZs(t *testing.T) {
 	} {
 		opts := tc.opts
 		t.Run(tc.name, func(t *testing.T) {
-			wire := epochFractions(mem, tc.scale, offsets, &testTime, &testTimeBeforeEpoch, nil)
+			var wire arrow.Array
+			values := []*time.Time{&testTime, &testTimeBeforeEpoch, nil}
+			if tc.scale <= 3 {
+				wire = scaledIntsWithOffsets(mem, tc.scale, offsets, values...)
+			} else {
+				wire = epochFractions(mem, tc.scale, offsets, values...)
+			}
 			defer wire.Release()
 
 			dt := &arrow.TimestampType{Unit: opts.timestampUnit(tc.scale), TimeZone: "UTC"}
