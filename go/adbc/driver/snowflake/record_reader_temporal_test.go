@@ -267,3 +267,54 @@ func TestConvertTimestampTZs(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertTimes(t *testing.T) {
+	mem := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer mem.AssertSize(t, 0)
+	ctx := testContext(mem)
+
+	// 23:59:59.987654321
+	const nanos = int64(86_399_987_654_321)
+	for _, tc := range []struct {
+		scale int64
+		// Snowflake sends Int32 up to scale 4, Int64 above
+		wire arrow.DataType
+		opts timeOptions
+		want arrow.Array
+	}{
+		{0, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32s, 86_399)},
+		{2, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32s, 86_399)},
+		{4, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_987)},
+		{5, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_987)},
+		{7, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time64us, 86_399_987_654)},
+		{9, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time64ns, nanos)},
+	} {
+		raw := nanos / pow10[9-tc.scale]
+		wire := arrayOf(mem, tc.wire, raw)
+		got, err := convertTimes(ctx, wire, tc.opts.timeType(tc.scale), tc.scale)
+		require.NoError(t, err, "scale %d", tc.scale)
+		assert.Truef(t, array.Equal(tc.want, got), "scale %d: got %s, want %s", tc.scale, got, tc.want)
+		assert.True(t, got.IsNull(1))
+		got.Release()
+		wire.Release()
+		tc.want.Release()
+	}
+}
+
+// arrayOf builds an array of dt with the given value followed by a null.
+func arrayOf(mem memory.Allocator, dt arrow.DataType, value int64) arrow.Array {
+	b := array.NewBuilder(mem, dt)
+	defer b.Release()
+	switch b := b.(type) {
+	case *array.Int32Builder:
+		b.Append(int32(value))
+	case *array.Int64Builder:
+		b.Append(value)
+	case *array.Time32Builder:
+		b.Append(arrow.Time32(value))
+	case *array.Time64Builder:
+		b.Append(arrow.Time64(value))
+	}
+	b.AppendNull()
+	return b.NewArray()
+}

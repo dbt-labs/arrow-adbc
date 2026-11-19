@@ -184,8 +184,9 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 		case "TIME":
 			dt := timeOpts.timeType(srcMeta.Scale)
 			f.Type = dt
+			scale := srcMeta.Scale
 			transformers[i] = func(ctx context.Context, a arrow.Array) (arrow.Array, error) {
-				return compute.CastArray(ctx, a, compute.SafeCastOptions(dt))
+				return convertTimes(ctx, a, dt, scale)
 			}
 		case "TIMESTAMP_NTZ", "TIMESTAMP_LTZ":
 			dt := &arrow.TimestampType{Unit: timeOpts.timestampUnit(srcMeta.Scale)}
@@ -263,6 +264,53 @@ func scaledToTime(value, scale int64) time.Time {
 		frac += pow10[scale]
 	}
 	return time.Unix(sec, frac*pow10[9-scale])
+}
+
+// rescale converts value from 10^-from to 10^-to units, rounding down.
+func rescale(value, from, to int64) int64 {
+	if to >= from {
+		return value * pow10[to-from]
+	}
+	d := pow10[from-to]
+	q := value / d
+	if value%d < 0 {
+		q--
+	}
+	return q
+}
+
+// convertTimes converts TIME values, an integer count of 10^-scale seconds
+// since midnight.
+func convertTimes(ctx context.Context, a arrow.Array, dt arrow.DataType, scale int64) (arrow.Array, error) {
+	var values []int64
+	switch a := a.(type) {
+	case *array.Int32:
+		values = make([]int64, a.Len())
+		for i, v := range a.Int32Values() {
+			values[i] = int64(v)
+		}
+	case *array.Int64:
+		values = a.Int64Values()
+	default:
+		return nil, fmt.Errorf("unexpected Arrow type %s for TIME values", a.DataType())
+	}
+
+	bldr := array.NewBuilder(compute.GetAllocator(ctx), dt)
+	defer bldr.Release()
+	bldr.Reserve(a.Len())
+	for i, v := range values {
+		if a.IsNull(i) {
+			bldr.AppendNull()
+			continue
+		}
+		switch b := bldr.(type) {
+		case *array.Time32Builder:
+			b.Append(arrow.Time32(rescale(v, scale, 3*int64(b.Type().(*arrow.Time32Type).Unit))))
+		case *array.Time64Builder:
+			b.Append(arrow.Time64(rescale(v, scale, 3*int64(b.Type().(*arrow.Time64Type).Unit))))
+		}
+	}
+	return bldr.NewArray(), nil
 }
 
 // convertTimestamps converts TIMESTAMP_NTZ and TIMESTAMP_LTZ values, either an
