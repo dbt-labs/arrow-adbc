@@ -229,12 +229,47 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 // timeOptions controls how TIME and TIMESTAMP_* values are converted.
 type timeOptions struct {
 	maxTimestampPrecision MaxTimestampPrecision
+	// See OptionLosslessTimeUnit.
+	losslessTimeUnit bool
+}
+
+// set sets OptionLosslessTimeUnit.
+func (o *timeOptions) set(key, value string) error {
+	var enabled bool
+	switch value {
+	case adbc.OptionValueEnabled:
+		enabled = true
+	case adbc.OptionValueDisabled:
+		enabled = false
+	default:
+		return adbc.Error{
+			Msg:  fmt.Sprintf("[Snowflake] invalid value for option %s: %s", key, value),
+			Code: adbc.StatusInvalidArgument,
+		}
+	}
+	switch key {
+	case OptionLosslessTimeUnit:
+		o.losslessTimeUnit = enabled
+	}
+	return nil
+}
+
+// get gets OptionLosslessTimeUnit.
+func (o timeOptions) get(key string) string {
+	enabled := o.losslessTimeUnit
+	if enabled {
+		return adbc.OptionValueEnabled
+	}
+	return adbc.OptionValueDisabled
 }
 
 // timeUnit returns the Arrow time unit for values with scale fractional
-// digits: the unit of scale/3, dropping digits for scales that are not a
-// multiple of 3.
+// digits: the unit of scale/3 by default (dropping digits for scales that are
+// not a multiple of 3), the finest unit needed for scale with losslessTimeUnit.
 func (o timeOptions) timeUnit(scale int64) arrow.TimeUnit {
+	if o.losslessTimeUnit {
+		return arrow.TimeUnit((scale + 2) / 3)
+	}
 	return arrow.TimeUnit(scale / 3)
 }
 
