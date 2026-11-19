@@ -185,6 +185,8 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 			return adbc.OptionValueEnabled, nil
 		}
 		return adbc.OptionValueDisabled, nil
+	case OptionLosslessTimeUnit:
+		return d.timeOptions.get(key), nil
 	case OptionMaxTimestampPrecision:
 		switch d.timeOptions.maxTimestampPrecision {
 		case Microseconds:
@@ -576,6 +578,10 @@ func (d *databaseImpl) SetOptionInternal(k string, v string, cnOptions *map[stri
 				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s'", OptionBoundedPrefetch, v),
 				Code: adbc.StatusInvalidArgument,
 			}
+		}
+	case OptionLosslessTimeUnit:
+		if err := d.timeOptions.set(k, v); err != nil {
+			return err
 		}
 	case OptionMaxTimestampPrecision:
 		switch v {

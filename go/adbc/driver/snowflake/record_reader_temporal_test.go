@@ -132,21 +132,35 @@ func timestamps(t *testing.T, a arrow.Array) []*time.Time {
 func TestTimeOptionsUnits(t *testing.T) {
 	defaults := timeOptions{}
 	micros := timeOptions{maxTimestampPrecision: Microseconds}
+	lossless := timeOptions{losslessTimeUnit: true}
+	losslessMicros := timeOptions{losslessTimeUnit: true, maxTimestampPrecision: Microseconds}
 
 	s, ms, us, ns := arrow.Second, arrow.Millisecond, arrow.Microsecond, arrow.Nanosecond
-	for scale, want := range [][2]arrow.TimeUnit{
-		// defaults, micros
-		{s, s}, {s, s}, {s, s},
-		{ms, ms}, {ms, ms}, {ms, ms},
-		{us, us}, {us, us}, {us, us},
-		{ns, us},
+	for scale, want := range [][4]arrow.TimeUnit{
+		// defaults, micros, lossless, losslessMicros
+		{s, s, s, s},
+		{s, s, ms, ms},
+		{s, s, ms, ms},
+		{ms, ms, ms, ms},
+		{ms, ms, us, us},
+		{ms, ms, us, us},
+		{us, us, us, us},
+		{us, us, ns, us},
+		{us, us, ns, us},
+		{ns, us, ns, us},
 	} {
-		got := [2]arrow.TimeUnit{defaults.timestampUnit(int64(scale)), micros.timestampUnit(int64(scale))}
+		got := [4]arrow.TimeUnit{
+			defaults.timestampUnit(int64(scale)),
+			micros.timestampUnit(int64(scale)),
+			lossless.timestampUnit(int64(scale)),
+			losslessMicros.timestampUnit(int64(scale)),
+		}
 		assert.Equal(t, want, got, "scale %d", scale)
 	}
 
 	// TIME is not capped by the maximum timestamp precision
-	assert.Equal(t, arrow.FixedWidthTypes.Time64ns, micros.timeType(9))
+	assert.Equal(t, arrow.FixedWidthTypes.Time64ns, losslessMicros.timeType(7))
+	assert.Equal(t, arrow.FixedWidthTypes.Time32ms, lossless.timeType(1))
 	assert.Equal(t, arrow.FixedWidthTypes.Time32s, defaults.timeType(2))
 	assert.Equal(t, arrow.FixedWidthTypes.Time64us, defaults.timeType(8))
 }
@@ -165,11 +179,17 @@ func TestConvertTimestamps(t *testing.T) {
 	}{
 		{"scale 0", 0, timeOptions{}, 0},
 		{"scale 1", 1, timeOptions{}, 0},
+		{"scale 1 lossless", 1, timeOptions{losslessTimeUnit: true}, 1},
+		{"scale 2 lossless", 2, timeOptions{losslessTimeUnit: true}, 2},
 		{"scale 3", 3, timeOptions{}, 3},
 		{"scale 4", 4, timeOptions{}, 3},
+		{"scale 5 lossless", 5, timeOptions{losslessTimeUnit: true}, 5},
 		{"scale 6", 6, timeOptions{}, 6},
 		{"scale 7", 7, timeOptions{}, 6},
+		{"scale 7 lossless", 7, timeOptions{losslessTimeUnit: true}, 7},
+		{"scale 7 lossless micros", 7, timeOptions{losslessTimeUnit: true, maxTimestampPrecision: Microseconds}, 6},
 		{"scale 8", 8, timeOptions{}, 6},
+		{"scale 8 lossless", 8, timeOptions{losslessTimeUnit: true}, 8},
 		{"scale 9", 9, timeOptions{}, 9},
 		{"scale 9 micros", 9, timeOptions{maxTimestampPrecision: Microseconds}, 6},
 	} {
@@ -236,6 +256,7 @@ func TestConvertTimestampTZs(t *testing.T) {
 	}{
 		{"scale 0", 0, timeOptions{}, 0},
 		{"scale 2", 2, timeOptions{}, 0},
+		{"scale 2 lossless", 2, timeOptions{losslessTimeUnit: true}, 2},
 		{"scale 3", 3, timeOptions{}, 3},
 		{"scale 4", 4, timeOptions{}, 3},
 		{"scale 8", 8, timeOptions{}, 6},
@@ -284,9 +305,12 @@ func TestConvertTimes(t *testing.T) {
 	}{
 		{0, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32s, 86_399)},
 		{2, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32s, 86_399)},
+		{2, arrow.PrimitiveTypes.Int32, timeOptions{losslessTimeUnit: true}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_980)},
 		{4, arrow.PrimitiveTypes.Int32, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_987)},
 		{5, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time32ms, 86_399_987)},
+		{5, arrow.PrimitiveTypes.Int64, timeOptions{losslessTimeUnit: true}, arrayOf(mem, arrow.FixedWidthTypes.Time64us, 86_399_987_650)},
 		{7, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time64us, 86_399_987_654)},
+		{8, arrow.PrimitiveTypes.Int64, timeOptions{losslessTimeUnit: true}, arrayOf(mem, arrow.FixedWidthTypes.Time64ns, 86_399_987_654_320)},
 		{9, arrow.PrimitiveTypes.Int64, timeOptions{}, arrayOf(mem, arrow.FixedWidthTypes.Time64ns, nanos)},
 	} {
 		raw := nanos / pow10[9-tc.scale]

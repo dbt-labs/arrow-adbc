@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apache/arrow-adbc/go/adbc"
+	driver "github.com/apache/arrow-adbc/go/adbc/driver/snowflake"
 	"github.com/apache/arrow-adbc/go/adbc/validation"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
@@ -129,6 +131,18 @@ func (suite *SnowflakeTests) TestTemporalScales() {
 		suite.checkTemporal(rec, scale, scale/3*3)
 		for col := 1; col <= 4; col++ {
 			suite.Equal(arrow.TimeUnit(scale/3), unitOf(rec.Column(col).DataType()), "scale %d: %s", scale, rec.ColumnName(col))
+		}
+		rec.Release()
+	}
+}
+
+func (suite *SnowflakeTests) TestTemporalLosslessTimeUnit() {
+	opts := map[string]string{driver.OptionLosslessTimeUnit: adbc.OptionValueEnabled}
+	for scale := 0; scale <= 9; scale++ {
+		rec := suite.queryTemporal(scale, opts)
+		suite.checkTemporal(rec, scale, scale)
+		for col := 1; col <= 4; col++ {
+			suite.Equal(arrow.TimeUnit((scale+2)/3), unitOf(rec.Column(col).DataType()), "scale %d: %s", scale, rec.ColumnName(col))
 		}
 		rec.Release()
 	}
