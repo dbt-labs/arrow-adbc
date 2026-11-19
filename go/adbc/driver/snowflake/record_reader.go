@@ -117,7 +117,6 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 	transformers := make([]func(context.Context, arrow.Array) (arrow.Array, error), len(sc.Fields()))
 	for i, f := range sc.Fields() {
 		srcMeta := types[i]
-		originalArrowUnit := arrow.TimeUnit(srcMeta.Scale / 3)
 		switch strings.ToUpper(srcMeta.Type) {
 		case "FIXED":
 			switch f.Type.ID() {
@@ -213,7 +212,7 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 
 					// Convert fraction to nanoseconds based on the scale
 					nanoseconds := int64(fraction[i]) * int64(math.Pow10(9-int(srcMeta.Scale)))
-					v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds), dt.TimeUnit(), originalArrowUnit, maxTimestampPrecision)
+					v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds), dt.TimeUnit(), maxTimestampPrecision)
 					if err != nil {
 						return nil, err
 					}
@@ -241,7 +240,7 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 
 						// Convert fraction to nanoseconds based on the scale
 						nanoseconds := int64(fraction[i]) * int64(math.Pow10(9-int(srcMeta.Scale)))
-						v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds), dt.TimeUnit(), originalArrowUnit, maxTimestampPrecision)
+						v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds), dt.TimeUnit(), maxTimestampPrecision)
 						if err != nil {
 							return nil, err
 						}
@@ -295,7 +294,7 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 						default:
 							t = time.Unix(epoch[i], 0).In(loc)
 						}
-						v, err := getArrowTimestampFromTime(t, dt.Unit, originalArrowUnit, maxTimestampPrecision)
+						v, err := getArrowTimestampFromTime(t, dt.Unit, maxTimestampPrecision)
 						if err != nil {
 							return nil, err
 						}
@@ -314,7 +313,7 @@ func getTransformer(sc *arrow.Schema, ld gosnowflake.ArrowStreamLoader, useHighP
 						// Convert fraction to nanoseconds based on the scale
 						nanoseconds := int64(fraction[i]) * int64(math.Pow10(9-int(srcMeta.Scale)))
 						loc := gosnowflake.Location(int(tzoffset[i]) - 1440)
-						v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds).In(loc), dt.Unit, originalArrowUnit, maxTimestampPrecision)
+						v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds).In(loc), dt.Unit, maxTimestampPrecision)
 						if err != nil {
 							return nil, err
 						}
@@ -370,18 +369,14 @@ func (o timeOptions) timestampUnit(scale int64) arrow.TimeUnit {
 	return unit
 }
 
-func getArrowTimestampFromTime(val time.Time, unit arrow.TimeUnit, originalArrowUnit arrow.TimeUnit, maxTimestampPrecision MaxTimestampPrecision) (arrow.Timestamp, error) {
-	if maxTimestampPrecision == NanosecondsNoOverflow && originalArrowUnit == arrow.Nanosecond {
+func getArrowTimestampFromTime(val time.Time, unit arrow.TimeUnit, maxTimestampPrecision MaxTimestampPrecision) (arrow.Timestamp, error) {
+	if maxTimestampPrecision == NanosecondsNoOverflow && unit == arrow.Nanosecond {
 		sec := float64(val.Unix())
 		maxSeconds := math.MaxInt64 / 1e9
 		minSeconds := math.MinInt64 / 1e9
 		if sec > maxSeconds || sec < minSeconds {
 			return 0, errToAdbcErr(adbc.StatusInvalidData, fmt.Errorf("timestamp %v overflows when converted to nanoseconds", val))
 		}
-	}
-
-	if maxTimestampPrecision == Microseconds && originalArrowUnit == arrow.Nanosecond {
-		return arrow.TimestampFromTime(time.UnixMicro(val.UnixMicro()), arrow.Microsecond)
 	}
 
 	return arrow.TimestampFromTime(val, unit)
@@ -546,14 +541,13 @@ func jsonDataToArrow(_ context.Context, bldr *array.RecordBuilder, rawData [][]*
 					tt := time.Unix(sec, nsec).In(loc)
 
 					var unit arrow.TimeUnit
-					originalArrowUnit := arrow.Nanosecond
 					if maxTimestampPrecision == Microseconds {
 						unit = arrow.Microsecond
 					} else {
 						unit = arrow.Nanosecond
 					}
 
-					ts, err := getArrowTimestampFromTime(tt, unit, originalArrowUnit, maxTimestampPrecision)
+					ts, err := getArrowTimestampFromTime(tt, unit, maxTimestampPrecision)
 					if err != nil {
 						return nil, err
 					}
@@ -569,7 +563,7 @@ func jsonDataToArrow(_ context.Context, bldr *array.RecordBuilder, rawData [][]*
 
 				if maxTimestampPrecision == Microseconds {
 					tt := time.Unix(sec, nsec)
-					ts, err := getArrowTimestampFromTime(tt, arrow.Microsecond, arrow.Nanosecond, maxTimestampPrecision)
+					ts, err := getArrowTimestampFromTime(tt, arrow.Microsecond, maxTimestampPrecision)
 					if err != nil {
 						return nil, err
 					}
