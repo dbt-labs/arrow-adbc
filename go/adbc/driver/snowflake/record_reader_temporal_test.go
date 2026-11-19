@@ -18,11 +18,67 @@
 package snowflake
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/compute"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// The wire encodings below are the ones Snowflake sends in Arrow results:
+// TIME and TIMESTAMP_NTZ/LTZ up to scale 7 are integer counts of 10^-scale
+// seconds (since midnight or the epoch). TIMESTAMP_NTZ/LTZ of scale 8 and 9
+// are structs of the epoch seconds and the nanoseconds (whatever the scale).
+// TIMESTAMP_TZ is a struct of the epoch, as an integer count of 10^-scale
+// seconds up to scale 3 or as epoch seconds and nanoseconds above, and of the
+// time zone offset in minutes plus 1440.
+
+// 2024-01-02 03:04:05.123456789 UTC
+var testTime = time.Date(2024, 1, 2, 3, 4, 5, 123456789, time.UTC)
+
+// 1969-12-31 23:59:59.123456789 UTC, before the epoch
+var testTimeBeforeEpoch = time.Date(1969, 12, 31, 23, 59, 59, 123456789, time.UTC)
+
+// truncate drops the fractional digits of t beyond scale.
+func truncate(t time.Time, scale int64) time.Time {
+	return t.Truncate(time.Duration(pow10[9-scale]))
+}
+
+// scaledInts encodes times as integer counts of 10^-scale seconds since the epoch.
+func scaledInts(mem memory.Allocator, scale int64, times ...*time.Time) arrow.Array {
+	b := array.NewInt64Builder(mem)
+	defer b.Release()
+	for _, t := range times {
+		if t == nil {
+			b.AppendNull()
+			continue
+		}
+		b.Append(truncate(*t, scale).UnixNano() / pow10[9-scale])
+	}
+	return b.NewArray()
+}
+
+func testContext(mem memory.Allocator) context.Context {
+	return compute.WithAllocator(context.Background(), mem)
+}
+
+func timestamps(t *testing.T, a arrow.Array) []*time.Time {
+	ts := a.(*array.Timestamp)
+	unit := ts.DataType().(*arrow.TimestampType).Unit
+	out := make([]*time.Time, ts.Len())
+	for i := range out {
+		if ts.IsValid(i) {
+			v := ts.Value(i).ToTime(unit)
+			out[i] = &v
+		}
+	}
+	return out
+}
 
 func TestTimeOptionsUnits(t *testing.T) {
 	defaults := timeOptions{}
@@ -45,3 +101,45 @@ func TestTimeOptionsUnits(t *testing.T) {
 	assert.Equal(t, arrow.FixedWidthTypes.Time32s, defaults.timeType(2))
 	assert.Equal(t, arrow.FixedWidthTypes.Time64us, defaults.timeType(8))
 }
+
+func TestConvertTimestamps(t *testing.T) {
+	mem := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer mem.AssertSize(t, 0)
+	ctx := testContext(mem)
+
+	for _, tc := range []struct {
+		name  string
+		scale int64
+		opts  timeOptions
+		// the fractional digits the output keeps
+		digits int64
+	}{
+		{"scale 0", 0, timeOptions{}, 0},
+		{"scale 1", 1, timeOptions{}, 0},
+		{"scale 3", 3, timeOptions{}, 3},
+		{"scale 4", 4, timeOptions{}, 3},
+		{"scale 6", 6, timeOptions{}, 6},
+		{"scale 7", 7, timeOptions{}, 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := scaledInts(mem, tc.scale, &testTime, &testTimeBeforeEpoch, nil)
+			defer wire.Release()
+
+			for _, tz := range []string{"", "UTC"} { // NTZ, LTZ
+				dt := &arrow.TimestampType{Unit: tc.opts.timestampUnit(tc.scale), TimeZone: tz}
+				got, err := convertTimestamps(ctx, wire, dt, tc.scale, tc.opts.maxTimestampPrecision)
+				require.NoError(t, err)
+				assert.Equal(t, dt, got.DataType())
+				// rounded down to the digits of the unit
+				assert.Equal(t, []*time.Time{
+					ref(truncate(truncate(testTime, tc.scale), tc.digits)),
+					ref(truncate(truncate(testTimeBeforeEpoch, tc.scale), tc.digits)),
+					nil,
+				}, timestamps(t, got))
+				got.Release()
+			}
+		})
+	}
+}
+
+func ref[T any](v T) *T { return &v }

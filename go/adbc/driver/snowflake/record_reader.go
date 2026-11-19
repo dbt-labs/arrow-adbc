@@ -253,33 +253,61 @@ func (o timeOptions) timestampUnit(scale int64) arrow.TimeUnit {
 	return unit
 }
 
+var pow10 = [...]int64{1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
+
+// scaledToTime converts an integer count of 10^-scale seconds since the epoch.
+func scaledToTime(value, scale int64) time.Time {
+	sec, frac := value/pow10[scale], value%pow10[scale]
+	if frac < 0 {
+		sec--
+		frac += pow10[scale]
+	}
+	return time.Unix(sec, frac*pow10[9-scale])
+}
+
 // convertTimestamps converts TIMESTAMP_NTZ and TIMESTAMP_LTZ values, either an
-// integer, or a struct of the epoch seconds and the fraction.
+// integer count of 10^-scale seconds since the epoch, or a struct of the epoch
+// seconds and the fraction.
 func convertTimestamps(ctx context.Context, a arrow.Array, dt *arrow.TimestampType, scale int64, maxTimestampPrecision MaxTimestampPrecision) (arrow.Array, error) {
-	if a.DataType().ID() != arrow.STRUCT {
+	if a.DataType().ID() == arrow.INT64 && 3*int64(dt.Unit) == scale {
+		// the integers are already in the unit
 		return compute.CastArray(ctx, a, compute.SafeCastOptions(dt))
 	}
 
-	pool := compute.GetAllocator(ctx)
-	tb := array.NewTimestampBuilder(pool, dt)
+	tb := array.NewTimestampBuilder(compute.GetAllocator(ctx), dt)
 	defer tb.Release()
-
-	structData := a.(*array.Struct)
-	epoch := structData.Field(0).(*array.Int64).Int64Values()
-	fraction := structData.Field(1).(*array.Int32).Int32Values()
-	for i := 0; i < a.Len(); i++ {
-		if a.IsNull(i) {
-			tb.AppendNull()
-			continue
+	tb.Reserve(a.Len())
+	switch a := a.(type) {
+	case *array.Struct:
+		epoch := a.Field(0).(*array.Int64).Int64Values()
+		fraction := a.Field(1).(*array.Int32).Int32Values()
+		for i := 0; i < a.Len(); i++ {
+			if a.IsNull(i) {
+				tb.AppendNull()
+				continue
+			}
+			// Convert fraction to nanoseconds based on the scale
+			nanoseconds := int64(fraction[i]) * int64(math.Pow10(9-int(scale)))
+			v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds), dt.Unit, maxTimestampPrecision)
+			if err != nil {
+				return nil, err
+			}
+			tb.Append(v)
 		}
-
-		// Convert fraction to nanoseconds based on the scale
-		nanoseconds := int64(fraction[i]) * int64(math.Pow10(9-int(scale)))
-		v, err := getArrowTimestampFromTime(time.Unix(epoch[i], nanoseconds), dt.TimeUnit(), maxTimestampPrecision)
-		if err != nil {
-			return nil, err
+	case *array.Int64:
+		for i, value := range a.Int64Values() {
+			if a.IsNull(i) {
+				tb.AppendNull()
+				continue
+			}
+			v, err := getArrowTimestampFromTime(scaledToTime(value, scale), dt.Unit, maxTimestampPrecision)
+			if err != nil {
+				return nil, err
+			}
+			tb.Append(v)
 		}
-		tb.Append(v)
+	default:
+		return nil, fmt.Errorf("unexpected Arrow type %s for timestamp values", a.DataType())
 	}
 	return tb.NewArray(), nil
 }
