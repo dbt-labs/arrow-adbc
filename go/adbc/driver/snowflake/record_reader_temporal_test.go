@@ -358,29 +358,28 @@ func TestJSONTimestamps(t *testing.T) {
 	mem := memory.NewCheckedAllocator(memory.DefaultAllocator)
 	defer mem.AssertSize(t, 0)
 
-	opts := timeOptions{}
+	opts := timeOptions{timestampTZWithOffset: true}
 	snowflakeType := func(name string) arrow.Metadata {
 		return arrow.MetadataFrom(map[string]string{MetadataKeySnowflakeType: name})
 	}
-	// the units of the schema, not nanoseconds
 	ntz3 := &arrow.TimestampType{Unit: opts.timestampUnit(3)}
-	tz2 := &arrow.TimestampType{Unit: opts.timestampUnit(2), TimeZone: "UTC"}
+	tz9 := &arrow.TimestampType{Unit: opts.timestampUnit(9), TimeZone: "UTC"}
 	schema := arrow.NewSchema([]arrow.Field{
 		{Name: "ntz", Type: ntz3, Nullable: true, Metadata: snowflakeType("timestamp_ntz")},
-		{Name: "tz", Type: tz2, Nullable: true, Metadata: snowflakeType("timestamp_tz")},
+		{Name: "tz", Type: opts.timestampTZType(tz9), Nullable: true, Metadata: snowflakeType("timestamp_tz")},
 	}, nil)
 	bldr := array.NewRecordBuilder(mem, schema)
 	defer bldr.Release()
 
 	rec, err := jsonDataToArrow(context.Background(), bldr, [][]*string{
-		{ref("1704164645.123000000"), ref("1704164645.12 1770")},
+		{ref("1704164645.123000000"), ref("1704164645.123456789 1770")},
 		{nil, nil},
 	}, opts)
 	require.NoError(t, err)
 	defer rec.Release()
 
 	assert.Equal(t, []*time.Time{ref(truncate(testTime, 3)), nil}, timestamps(t, rec.Column(0)))
-	assert.Equal(t, []*time.Time{ref(truncate(testTime, 0)), nil}, timestamps(t, rec.Column(1)))
+	assertTimestampsWithOffset(t, rec.Column(1), []*time.Time{&testTime, nil}, []int16{330, 0})
 }
 
 // assertTimestampsWithOffset checks an arrow.timestamp_with_offset array: its

@@ -350,6 +350,33 @@ func newTimestampWithOffsetArray(mem memory.Allocator, dt *extensions.TimestampW
 	return array.MakeFromData(data)
 }
 
+// normalizeTimestampsWithOffset rebuilds the arrow.timestamp_with_offset
+// columns of a record made by a builder, whose null values also set nulls in
+// the fields of the storage.
+func normalizeTimestampsWithOffset(mem memory.Allocator, rec arrow.RecordBatch) arrow.RecordBatch {
+	schema := rec.Schema()
+	var cols []arrow.Array
+	for i, f := range schema.Fields() {
+		dt, ok := f.Type.(*extensions.TimestampWithOffsetType)
+		if !ok {
+			continue
+		}
+		if cols == nil {
+			cols = append([]arrow.Array{}, rec.Columns()...)
+		}
+		col := rec.Column(i)
+		s := col.(array.ExtensionArray).Storage().(*array.Struct)
+		cols[i] = newTimestampWithOffsetArray(mem, dt,
+			s.Field(0).(*array.Timestamp), s.Field(1).(*array.Int16), col.IsValid)
+		defer cols[i].Release()
+	}
+	if cols == nil {
+		return rec
+	}
+	defer rec.Release()
+	return array.NewRecordBatch(schema, cols, rec.NumRows())
+}
+
 var pow10 = [...]int64{1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000}
 
 // scaledToTime converts an integer count of 10^-scale seconds since the epoch.
@@ -693,6 +720,22 @@ func jsonDataToArrow(_ context.Context, bldr *array.RecordBuilder, rawData [][]*
 					return nil, err
 				}
 				fb.Append(ts)
+			case *extensions.TimestampWithOffsetBuilder:
+				// TIMESTAMP_TZ with OptionTimestampTZWithOffset. The offset is
+				// Snowflake's, not the one of a time.Time, so build the storage.
+				t, offset, err := parseJSONTimestamp(bldr.Schema().Field(i), *col)
+				if err != nil {
+					return nil, err
+				}
+				sb := fb.StorageBuilder().(*array.StructBuilder)
+				tsb := sb.FieldBuilder(0).(*array.TimestampBuilder)
+				ts, err := getArrowTimestampFromTime(t, tsb.Type().(*arrow.TimestampType).Unit, timeOpts.maxTimestampPrecision)
+				if err != nil {
+					return nil, err
+				}
+				sb.Append(true)
+				tsb.Append(ts)
+				sb.FieldBuilder(1).(*array.Int16Builder).Append(int16(offset))
 			case *array.BinaryBuilder:
 				b, err := hex.DecodeString(*col)
 				if err != nil {
@@ -711,7 +754,7 @@ func jsonDataToArrow(_ context.Context, bldr *array.RecordBuilder, rawData [][]*
 			}
 		}
 	}
-	return bldr.NewRecordBatch(), nil
+	return normalizeTimestampsWithOffset(memory.DefaultAllocator, bldr.NewRecordBatch()), nil
 }
 
 type reader struct {
