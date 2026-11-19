@@ -25,7 +25,10 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/cdata"
 	"github.com/apache/arrow-go/v18/arrow/compute"
+	"github.com/apache/arrow-go/v18/arrow/extensions"
+	"github.com/apache/arrow-go/v18/arrow/ipc"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -263,29 +266,37 @@ func TestConvertTimestampTZs(t *testing.T) {
 		{"scale 9", 9, timeOptions{}, 9},
 		{"scale 9 micros", 9, timeOptions{maxTimestampPrecision: Microseconds}, 6},
 	} {
-		opts := tc.opts
-		t.Run(tc.name, func(t *testing.T) {
-			var wire arrow.Array
-			values := []*time.Time{&testTime, &testTimeBeforeEpoch, nil}
-			if tc.scale <= 3 {
-				wire = scaledIntsWithOffsets(mem, tc.scale, offsets, values...)
-			} else {
-				wire = epochFractions(mem, tc.scale, offsets, values...)
-			}
-			defer wire.Release()
+		for _, withOffset := range []bool{false, true} {
+			opts := tc.opts
+			opts.timestampTZWithOffset = withOffset
+			t.Run(tc.name, func(t *testing.T) {
+				var wire arrow.Array
+				values := []*time.Time{&testTime, &testTimeBeforeEpoch, nil}
+				if tc.scale <= 3 {
+					wire = scaledIntsWithOffsets(mem, tc.scale, offsets, values...)
+				} else {
+					wire = epochFractions(mem, tc.scale, offsets, values...)
+				}
+				defer wire.Release()
 
-			dt := &arrow.TimestampType{Unit: opts.timestampUnit(tc.scale), TimeZone: "UTC"}
-			got, err := convertTimestampTZs(ctx, wire, dt, tc.scale, opts)
-			require.NoError(t, err)
-			defer got.Release()
-			assert.Equal(t, dt, got.DataType())
+				dt := &arrow.TimestampType{Unit: opts.timestampUnit(tc.scale), TimeZone: "UTC"}
+				got, err := convertTimestampTZs(ctx, wire, dt, tc.scale, opts)
+				require.NoError(t, err)
+				defer got.Release()
+				assert.Equal(t, opts.timestampTZType(dt), got.DataType())
 
-			assert.Equal(t, []*time.Time{
-				ref(truncate(truncate(testTime, tc.scale), tc.digits)),
-				ref(truncate(truncate(testTimeBeforeEpoch, tc.scale), tc.digits)),
-				nil,
-			}, timestamps(t, got))
-		})
+				want := []*time.Time{
+					ref(truncate(truncate(testTime, tc.scale), tc.digits)),
+					ref(truncate(truncate(testTimeBeforeEpoch, tc.scale), tc.digits)),
+					nil,
+				}
+				if !withOffset {
+					assert.Equal(t, want, timestamps(t, got))
+					return
+				}
+				assertTimestampsWithOffset(t, got, want, []int16{330, -150, 0})
+			})
+		}
 	}
 }
 
@@ -370,4 +381,59 @@ func TestJSONTimestamps(t *testing.T) {
 
 	assert.Equal(t, []*time.Time{ref(truncate(testTime, 3)), nil}, timestamps(t, rec.Column(0)))
 	assert.Equal(t, []*time.Time{ref(truncate(testTime, 0)), nil}, timestamps(t, rec.Column(1)))
+}
+
+// assertTimestampsWithOffset checks an arrow.timestamp_with_offset array: its
+// values (nil for a null), offsets, and that the fields of its storage hold no
+// nulls.
+func assertTimestampsWithOffset(t *testing.T, got arrow.Array, want []*time.Time, wantOffsets []int16) {
+	t.Helper()
+	a, ok := got.(*extensions.TimestampWithOffsetArray)
+	require.True(t, ok, "got %s", got.DataType())
+	s := a.Storage().(*array.Struct)
+	unit := s.Field(0).DataType().(*arrow.TimestampType).Unit
+	assert.Equal(t, extensions.NewTimestampWithOffsetType(unit), a.DataType())
+	assert.Zero(t, s.Field(0).NullN(), "timestamp nulls")
+	assert.Zero(t, s.Field(1).NullN(), "offset_minutes nulls")
+	ts := s.Field(0).(*array.Timestamp)
+	offsets := s.Field(1).(*array.Int16)
+	require.Equal(t, len(want), s.Len())
+	for i := range want {
+		if want[i] == nil {
+			assert.True(t, s.IsNull(i), "row %d", i)
+			assert.Zero(t, ts.Value(i), "row %d", i)
+			assert.Zero(t, offsets.Value(i), "row %d", i)
+			continue
+		}
+		assert.True(t, s.IsValid(i), "row %d", i)
+		assert.Equal(t, *want[i], ts.Value(i).ToTime(unit), "row %d", i)
+		assert.Equal(t, wantOffsets[i], offsets.Value(i), "row %d", i)
+		// arrow-go reads the same instant and offset
+		assert.True(t, want[i].Equal(a.Value(i)), "row %d", i)
+		_, offset := a.Value(i).Zone()
+		assert.Equal(t, int(wantOffsets[i])*60, offset, "row %d", i)
+	}
+}
+
+func TestTimestampWithOffsetField(t *testing.T) {
+	// Exported through the C Data Interface, the field carries the extension
+	// name and metadata, so consumers see arrow.timestamp_with_offset.
+	opts := timeOptions{timestampTZWithOffset: true}
+	field := arrow.Field{Name: "tz", Type: opts.timestampTZType(&arrow.TimestampType{Unit: arrow.Nanosecond, TimeZone: "UTC"}), Nullable: true}
+	var c cdata.CArrowSchema
+	cdata.ExportArrowSchema(arrow.NewSchema([]arrow.Field{field}, nil), &c)
+	imported, err := cdata.ImportCArrowSchema(&c)
+	require.NoError(t, err)
+	// arrow-go's importer keeps the extension keys as metadata of the storage
+	md := imported.Field(0).Metadata
+	name, _ := md.GetValue(ipc.ExtensionTypeKeyName)
+	assert.Equal(t, "arrow.timestamp_with_offset", name)
+	serialized, ok := md.GetValue(ipc.ExtensionMetadataKeyName)
+	assert.True(t, ok)
+	assert.Equal(t, "", serialized)
+	assert.Equal(t, extensions.NewTimestampWithOffsetType(arrow.Nanosecond).StorageType(), imported.Field(0).Type)
+
+	// without the option, a plain timestamp
+	dt := &arrow.TimestampType{Unit: arrow.Nanosecond, TimeZone: "UTC"}
+	assert.Equal(t, dt, timeOptions{}.timestampTZType(dt))
 }
