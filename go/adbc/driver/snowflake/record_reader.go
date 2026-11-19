@@ -311,51 +311,40 @@ func convertTimestamps(ctx context.Context, a arrow.Array, dt *arrow.TimestampTy
 	return tb.NewArray(), nil
 }
 
-// convertTimestampTZs converts TIMESTAMP_TZ values, a struct of the epoch (and
-// the fraction), and the time zone offset in minutes plus 1440, to UTC.
+// convertTimestampTZs converts TIMESTAMP_TZ values, a struct of the epoch (an
+// integer count of 10^-scale seconds, or epoch seconds and nanoseconds), and
+// the time zone offset in minutes plus 1440, to UTC.
 func convertTimestampTZs(ctx context.Context, a arrow.Array, dt *arrow.TimestampType, scale int64, timeOpts timeOptions) (arrow.Array, error) {
-	pool := compute.GetAllocator(ctx)
-	tb := array.NewTimestampBuilder(pool, dt)
+	structData, ok := a.(*array.Struct)
+	if !ok {
+		return nil, fmt.Errorf("unexpected Arrow type %s for TIMESTAMP_TZ values", a.DataType())
+	}
+	epoch := structData.Field(0).(*array.Int64).Int64Values()
+	var fraction []int32
+	if structData.NumField() == 3 {
+		fraction = structData.Field(1).(*array.Int32).Int32Values()
+	}
+
+	tb := array.NewTimestampBuilder(compute.GetAllocator(ctx), dt)
 	defer tb.Release()
-
-	structData := a.(*array.Struct)
-	if structData.NumField() == 2 {
-		epoch := structData.Field(0).(*array.Int64).Int64Values()
-		tzoffset := structData.Field(1).(*array.Int32).Int32Values()
-		for i := 0; i < a.Len(); i++ {
-			if a.IsNull(i) {
-				tb.AppendNull()
-				continue
-			}
-
-			loc := gosnowflake.Location(int(tzoffset[i]) - 1440)
-			// When there's no fraction field, epoch is an integer count of
-			// 10^-scale seconds
-			t := scaledToTime(epoch[i], scale).In(loc)
-			v, err := getArrowTimestampFromTime(t, dt.Unit, timeOpts.maxTimestampPrecision)
-			if err != nil {
-				return nil, err
-			}
-			tb.Append(v)
+	tb.Reserve(a.Len())
+	for i := 0; i < a.Len(); i++ {
+		if a.IsNull(i) {
+			tb.AppendNull()
+			continue
 		}
-	} else {
-		epoch := structData.Field(0).(*array.Int64).Int64Values()
-		fraction := structData.Field(1).(*array.Int32).Int32Values()
-		tzoffset := structData.Field(2).(*array.Int32).Int32Values()
-		for i := 0; i < a.Len(); i++ {
-			if a.IsNull(i) {
-				tb.AppendNull()
-				continue
-			}
-
+		var t time.Time
+		if fraction != nil {
 			// the fraction is in nanoseconds, whatever the scale
-			loc := gosnowflake.Location(int(tzoffset[i]) - 1440)
-			v, err := getArrowTimestampFromTime(time.Unix(epoch[i], int64(fraction[i])).In(loc), dt.Unit, timeOpts.maxTimestampPrecision)
-			if err != nil {
-				return nil, err
-			}
-			tb.Append(v)
+			t = time.Unix(epoch[i], int64(fraction[i]))
+		} else {
+			t = scaledToTime(epoch[i], scale)
 		}
+		v, err := getArrowTimestampFromTime(t, dt.Unit, timeOpts.maxTimestampPrecision)
+		if err != nil {
+			return nil, err
+		}
+		tb.Append(v)
 	}
 	return tb.NewArray(), nil
 }
