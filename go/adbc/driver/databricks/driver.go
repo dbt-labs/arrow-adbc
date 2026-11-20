@@ -77,7 +77,6 @@ const (
 	// Auth: OAuth
 	OptionOAuthClientID          = "databricks.oauth.client_id"
 	OptionOAuthClientSecret      = "databricks.oauth.client_secret"
-	OptionOAuthRefreshToken      = "databricks.oauth.refresh_token"
 	OptionExternalBrowserTimeout = "databricks.oauth.external_browser.timeout"
 
 	// Auth: PAT
@@ -170,4 +169,11 @@ func (d *driverImpl) NewDatabaseWithContext(ctx context.Context, opts map[string
 	}
 
 	return driverbase.NewDatabase(db), nil
+}
+
+// removedOptions maps options that earlier versions accepted to the reason they
+// were removed. Setting one returns an explicit error instead of the generic
+// "unknown option" one.
+var removedOptions = map[string]string{
+	"databricks.oauth.refresh_token": "it was accepted but never used",
 }

@@ -89,7 +89,6 @@ type databaseImpl struct {
 
 	oauthClientID     string
 	oauthClientSecret string
-	oauthRefreshToken string
 	oauthU2MTimeout   time.Duration
 
 	// Azure service principal (Microsoft Entra ID) auth
@@ -445,8 +444,6 @@ func (d *databaseImpl) GetOption(key string) (string, error) {
 		return d.oauthClientID, nil
 	case OptionOAuthClientSecret:
 		return d.oauthClientSecret, nil
-	case OptionOAuthRefreshToken:
-		return d.oauthRefreshToken, nil
 	default:
 		if strings.HasPrefix(key, OptionSessionParamPrefix) {
 			paramKey := strings.TrimPrefix(key, OptionSessionParamPrefix)
@@ -693,8 +690,6 @@ func (d *databaseImpl) SetOption(key, value string) error {
 		d.azureClientSecret = value
 	case OptionAzureTenantID:
 		d.azureTenantID = value
-	case OptionOAuthRefreshToken:
-		d.oauthRefreshToken = value
 	case OptionOIDCClientID:
 		d.oidcClientID = value
 	case OptionOIDCTokenFilepath:
@@ -711,6 +706,12 @@ func (d *databaseImpl) SetOption(key, value string) error {
 			d.oauthU2MTimeout = timeout
 		}
 	default:
+		if reason, ok := removedOptions[key]; ok {
+			return adbc.Error{
+				Code: adbc.StatusInvalidArgument,
+				Msg:  fmt.Sprintf("option '%s' has been removed: %s", key, reason),
+			}
+		}
 		if strings.HasPrefix(key, OptionSessionParamPrefix) {
 			paramKey := strings.TrimPrefix(key, OptionSessionParamPrefix)
 			if d.sessionParams == nil {
