@@ -227,7 +227,7 @@ func (d *DatabricksQuirks) DropTable(cnxn adbc.Connection, tblname string) error
 
 func (d *DatabricksQuirks) Alloc() memory.Allocator                     { return d.mem }
 func (d *DatabricksQuirks) BindParameter(index int) string              { return "?" }
-func (d *DatabricksQuirks) SupportsBulkIngest(mode string) bool         { return true }
+func (d *DatabricksQuirks) SupportsBulkIngest(mode string) bool         { return false }
 func (d *DatabricksQuirks) SupportsConcurrentStatements() bool          { return true }
 func (d *DatabricksQuirks) SupportsCurrentCatalogSchema() bool          { return true }
 func (d *DatabricksQuirks) SupportsExecuteSchema() bool                 { return true }
