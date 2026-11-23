@@ -1410,16 +1410,20 @@ func (st *statement) executeCopyTable(ctx context.Context) (array.RecordReader, 
 		return nil, -1, adbcError(adbc.StatusInvalidState, thisFunction, "copy_table requires both source and destination to be set")
 	}
 
-	source, err := stringToTable(st, st.copyTableSource)
-	if err != nil {
-		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("invalid source table: %v", err))
+	var sources []*bigquery.Table
+	for _, value := range strings.Split(st.copyTableSource, ",") {
+		source, err := stringToTable(st, value)
+		if err != nil {
+			return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("invalid source table: %v", err))
+		}
+		sources = append(sources, source)
 	}
 	dest, err := stringToTable(st, st.copyTableDestination)
 	if err != nil {
 		return nil, -1, adbcError(adbc.StatusInvalidArgument, thisFunction, fmt.Sprintf("invalid destination table: %v", err))
 	}
 
-	copier := st.cnxn.client.DatasetInProject(dest.ProjectID, dest.DatasetID).Table(dest.TableID).CopierFrom(source)
+	copier := st.cnxn.client.DatasetInProject(dest.ProjectID, dest.DatasetID).Table(dest.TableID).CopierFrom(sources...)
 	if st.copyTableWriteDisposition != "" {
 		writeDisposition, err := stringToTableWriteDisposition(st.copyTableWriteDisposition)
 		if err != nil {
