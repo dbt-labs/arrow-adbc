@@ -414,6 +414,44 @@ func assertTimestampsWithOffset(t *testing.T, got arrow.Array, want []*time.Time
 	}
 }
 
+func TestTimestampWithOffsetArrayThroughCData(t *testing.T) {
+	// Consumers of the driver get records through the C Data Interface: the
+	// array must keep the timestamp and offset_minutes fields of its storage.
+	mem := memory.NewCheckedAllocator(memory.DefaultAllocator)
+	defer mem.AssertSize(t, 0)
+	dt := extensions.NewTimestampWithOffsetType(arrow.Millisecond)
+	tb := array.NewTimestampBuilder(mem, &arrow.TimestampType{Unit: arrow.Millisecond, TimeZone: "UTC"})
+	defer tb.Release()
+	tb.AppendValues([]arrow.Timestamp{1_794_806_375_800, 0}, nil)
+	timestamps := tb.NewTimestampArray()
+	defer timestamps.Release()
+	ob := array.NewInt16Builder(mem)
+	defer ob.Release()
+	ob.AppendValues([]int16{330, 0}, nil)
+	offsets := ob.NewInt16Array()
+	defer offsets.Release()
+	arr := newTimestampWithOffsetArray(mem, dt, timestamps, offsets, func(i int) bool { return i == 0 })
+	defer arr.Release()
+	schema := arrow.NewSchema([]arrow.Field{{Name: "tz", Type: dt, Nullable: true}}, nil)
+	rec := array.NewRecordBatch(schema, []arrow.Array{arr}, int64(arr.Len()))
+	defer rec.Release()
+
+	var cArr cdata.CArrowArray
+	var cSchema cdata.CArrowSchema
+	cdata.ExportArrowRecordBatch(rec, &cArr, &cSchema)
+	imported, err := cdata.ImportCRecordBatch(&cArr, &cSchema)
+	require.NoError(t, err)
+	defer imported.Release()
+
+	s, ok := imported.Column(0).(*array.Struct)
+	require.True(t, ok, "imported as %T", imported.Column(0))
+	require.Equal(t, 2, s.NumField())
+	assert.True(t, s.IsValid(0))
+	assert.True(t, s.IsNull(1))
+	assert.Equal(t, arrow.Timestamp(1_794_806_375_800), s.Field(0).(*array.Timestamp).Value(0))
+	assert.Equal(t, int16(330), s.Field(1).(*array.Int16).Value(0))
+}
+
 func TestTimestampWithOffsetField(t *testing.T) {
 	// Exported through the C Data Interface, the field carries the extension
 	// name and metadata, so consumers see arrow.timestamp_with_offset.
