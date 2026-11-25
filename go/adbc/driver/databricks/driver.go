@@ -101,6 +101,10 @@ const (
 	// Settable on the database (defaults) and on a statement (overrides the default per tag).
 	OptionQueryTagPrefix = "databricks.query_tag."
 
+	// OptionLastQueryID is a read-only statement option: the server query id of the last
+	// statement executed, by ExecuteQuery or ExecuteUpdate. Unset until a statement has run.
+	OptionLastQueryID = "databricks.last_query_id"
+
 	// Default values
 	DefaultPort                   = 443
 	DefaultSSLMode                = "require"
