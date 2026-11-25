@@ -92,6 +92,7 @@ type connectionImpl struct {
 	prefetchConcurrency    int
 
 	getObjectsSkipTableMetadata bool
+	getObjectsDisableWildcards  bool
 
 	client                   *bigquery.Client
 	clientStorageApiDisabled *bigquery.Client // Client without Storage API for queries that use pseudo-columns like _PARTITIONDATE and _PARTITIONTIME
@@ -111,20 +112,37 @@ func (c *connectionImpl) table(project, dataset, table string) *bigquery.Table {
 	return c.client.DatasetInProject(project, dataset).Table(table)
 }
 
-func (c *connectionImpl) GetCatalogs(ctx context.Context, catalogFilter *string) ([]string, error) {
-	catalogPattern, err := internal.PatternToRegexp(catalogFilter)
+func (c *connectionImpl) datasetMetadata(ctx context.Context, project, dataset string) (*bigquery.DatasetMetadata, error) {
+	// Request metadata without ACLs to avoid requiring datasets.getIamPolicy.
+	return c.datasetInProject(project, dataset).MetadataWithOptions(ctx, bigquery.WithDatasetView(bigquery.DatasetMetadataView))
+}
+
+func (c *connectionImpl) getObjectsFilter(filter *string) (func(string) bool, error) {
+	if filter == nil {
+		return func(string) bool { return true }, nil
+	}
+	if c.getObjectsDisableWildcards {
+		name := *filter
+		return func(value string) bool { return value == name }, nil
+	}
+	pattern, err := internal.PatternToRegexp(filter)
 	if err != nil {
 		return nil, err
 	}
-	if catalogPattern == nil {
-		catalogPattern = internal.AcceptAll
+	return pattern.MatchString, nil
+}
+
+func (c *connectionImpl) GetCatalogs(ctx context.Context, catalogFilter *string) ([]string, error) {
+	matchCatalog, err := c.getObjectsFilter(catalogFilter)
+	if err != nil {
+		return nil, err
 	}
 
 	// Connections to BQ are scoped to a particular Project, which corresponds to catalog-level namespacing.
 	// TODO: Consider enumerating projects with ResourceManager API, but this may not be "idiomatic" usage.
 	project := c.client.Project()
 	res := make([]string, 0)
-	if catalogPattern.MatchString(project) {
+	if matchCatalog(project) {
 		res = append(res, project)
 	}
 
@@ -132,12 +150,27 @@ func (c *connectionImpl) GetCatalogs(ctx context.Context, catalogFilter *string)
 }
 
 func (c *connectionImpl) GetDBSchemasForCatalog(ctx context.Context, catalog string, schemaFilter *string) ([]string, error) {
-	schemaPattern, err := internal.PatternToRegexp(schemaFilter)
+	if schemaFilter != nil {
+		// An empty filter selects objects without a schema. BigQuery has none.
+		if *schemaFilter == "" {
+			return []string{}, nil
+		}
+		if c.getObjectsDisableWildcards {
+			_, err := c.datasetMetadata(ctx, catalog, *schemaFilter)
+			switch {
+			case err == nil:
+				return []string{*schemaFilter}, nil
+			case isDatasetNotFound(err):
+				return []string{}, nil
+			default:
+				return nil, err
+			}
+		}
+	}
+
+	matchSchema, err := c.getObjectsFilter(schemaFilter)
 	if err != nil {
 		return nil, err
-	}
-	if schemaPattern == nil {
-		schemaPattern = internal.AcceptAll
 	}
 
 	it := c.client.Datasets(ctx)
@@ -153,7 +186,7 @@ func (c *connectionImpl) GetDBSchemasForCatalog(ctx context.Context, catalog str
 		if err != nil {
 			return nil, err
 		}
-		if schemaPattern.MatchString(ds.DatasetID) {
+		if matchSchema(ds.DatasetID) {
 			res = append(res, ds.DatasetID)
 		}
 
@@ -163,16 +196,13 @@ func (c *connectionImpl) GetDBSchemasForCatalog(ctx context.Context, catalog str
 }
 
 func (c *connectionImpl) GetTablesForDBSchema(ctx context.Context, catalog string, schema string, tableFilter *string, columnFilter *string, includeColumns bool) ([]driverbase.TableInfo, error) {
-	tablePattern, err := internal.PatternToRegexp(tableFilter)
+	matchTable, err := c.getObjectsFilter(tableFilter)
 	if err != nil {
 		return nil, err
 	}
-	if tablePattern == nil {
-		tablePattern = internal.AcceptAll
-	}
 
 	if !includeColumns && c.getObjectsSkipTableMetadata {
-		return c.listTablesWithoutMetadata(ctx, catalog, schema, tablePattern)
+		return c.listTablesWithoutMetadata(ctx, catalog, schema, matchTable)
 	}
 
 	it := c.client.DatasetInProject(catalog, schema).Tables(ctx)
@@ -186,7 +216,7 @@ func (c *connectionImpl) GetTablesForDBSchema(ctx context.Context, catalog strin
 		if err != nil {
 			return nil, err
 		}
-		if !tablePattern.MatchString(table.TableID) {
+		if !matchTable(table.TableID) {
 			continue
 		}
 
@@ -311,7 +341,7 @@ const tablesListPageSize = 1000
 // The iterator returned from client.DatasetInProject(catalog, schema).Tables(ctx) only provides table/project/dataset IDs
 // https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/dataset.go#L677-L698
 // https://github.com/googleapis/google-cloud-go/blob/bigquery/v1.85.0/bigquery/table.go#L29-L39
-func (c *connectionImpl) listTablesWithoutMetadata(ctx context.Context, catalog string, schema string, tablePattern *regexp.Regexp) ([]driverbase.TableInfo, error) {
+func (c *connectionImpl) listTablesWithoutMetadata(ctx context.Context, catalog string, schema string, matchTable func(string) bool) ([]driverbase.TableInfo, error) {
 	svc, err := c.getOrCreateTablesService(ctx)
 	if err != nil {
 		return nil, err
@@ -330,7 +360,7 @@ func (c *connectionImpl) listTablesWithoutMetadata(ctx context.Context, catalog 
 			return nil, err
 		}
 		for _, t := range page.Tables {
-			if t.TableReference == nil || !tablePattern.MatchString(t.TableReference.TableId) {
+			if t.TableReference == nil || !matchTable(t.TableReference.TableId) {
 				continue
 			}
 			res = append(res, driverbase.TableInfo{
@@ -707,10 +737,9 @@ func (c *connectionImpl) GetOption(key string) (string, error) {
 		}
 		return c.impersonateLifetime.String(), nil
 	case OptionBoolGetObjectsSkipTableMetadata:
-		if c.getObjectsSkipTableMetadata {
-			return adbc.OptionValueEnabled, nil
-		}
-		return adbc.OptionValueDisabled, nil
+		return strconv.FormatBool(c.getObjectsSkipTableMetadata), nil
+	case OptionGetObjectsDisableWildcards:
+		return strconv.FormatBool(c.getObjectsDisableWildcards), nil
 	default:
 		return c.ConnectionImplBase.GetOption(key)
 	}
@@ -765,17 +794,17 @@ func (c *connectionImpl) SetOption(key string, value string) error {
 			}
 		}
 		c.impersonateLifetime = dur
-	case OptionBoolGetObjectsSkipTableMetadata:
-		switch value {
-		case adbc.OptionValueEnabled:
-			c.getObjectsSkipTableMetadata = true
-		case adbc.OptionValueDisabled:
-			c.getObjectsSkipTableMetadata = false
-		default:
+	case OptionBoolGetObjectsSkipTableMetadata, OptionGetObjectsDisableWildcards:
+		if value != adbc.OptionValueEnabled && value != adbc.OptionValueDisabled {
 			return adbc.Error{
 				Code: adbc.StatusInvalidArgument,
 				Msg:  fmt.Sprintf("invalid %s value: %q (expected %q or %q)", key, value, adbc.OptionValueEnabled, adbc.OptionValueDisabled),
 			}
+		}
+		if key == OptionGetObjectsDisableWildcards {
+			c.getObjectsDisableWildcards = value == adbc.OptionValueEnabled
+		} else {
+			c.getObjectsSkipTableMetadata = value == adbc.OptionValueEnabled
 		}
 	default:
 		return c.ConnectionImplBase.SetOption(key, value)
