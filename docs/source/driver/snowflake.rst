@@ -347,6 +347,10 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
 
     - ``auth_snowflake``: General username/password authentication (this is the default)
     - ``auth_oauth``: Use OAuth authentication for the snowflake connection.
+    - ``auth_oauth_authorization_code``: Use the browser-based OAuth
+      authorization code flow. Requires
+      ``adbc.snowflake.sql.client_option.oauth_client_id`` and
+      ``adbc.snowflake.sql.client_option.oauth_client_secret``.
     - ``auth_ext_browser``: Use an external browser to access a FED and perform SSO auth.
     - ``auth_okta``: Use a native Okta URL to perform SSO authentication using Okta
     - ``auth_jwt``: Use a provided JWT to perform authentication.
@@ -357,6 +361,14 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
 ``adbc.snowflake.sql.client_option.auth_token``
     If using OAuth or another form of authentication, this option is how you can
     explicitly specify the token to be used for connection.
+
+``adbc.snowflake.sql.client_option.oauth_client_id``, ``adbc.snowflake.sql.client_option.oauth_client_secret``
+    The OAuth client id and secret. Required when ``adbc.snowflake.sql.auth_type``
+    is ``auth_oauth_authorization_code``. This flow also requires
+    ``adbc.snowflake.sql.role`` to be set.
+
+    To use Snowflake's built-in "OAuth for local applications" client, set both
+    to ``LOCAL_APPLICATION``.
 
 ``adbc.snowflake.sql.client_option.okta_url``
     If using ``auth_okta``, this option is required in order to specify the

@@ -72,3 +72,26 @@ func TestSetOptionInternal_WorkloadIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "api://1111111-2222-3333-44444-55555555", db.cfg.WorkloadIdentityEntraResource)
 }
+
+func TestSetOptionInternal_AuthTypeOAuthAuthorizationCode(t *testing.T) {
+	db := &databaseImpl{cfg: &gosnowflake.Config{}}
+
+	require.NoError(t, db.SetOptionInternal(OptionAuthType, OptionValueAuthOAuthAuthorizationCode, nil))
+	require.Equal(t, gosnowflake.AuthTypeOAuthAuthorizationCode, db.cfg.Authenticator)
+
+	v, err := db.GetOption(OptionAuthType)
+	require.NoError(t, err)
+	require.Equal(t, "OAUTH_AUTHORIZATION_CODE", v)
+
+	require.NoError(t, db.SetOptionInternal(OptionOAuthClientID, "LOCAL_APPLICATION", nil))
+	require.NoError(t, db.SetOptionInternal(OptionOAuthClientSecret, "the_secret", nil))
+	require.Equal(t, "LOCAL_APPLICATION", db.cfg.OauthClientID)
+	require.Equal(t, "the_secret", db.cfg.OauthClientSecret)
+
+	v, err = db.GetOption(OptionOAuthClientID)
+	require.NoError(t, err)
+	require.Equal(t, "LOCAL_APPLICATION", v)
+	v, err = db.GetOption(OptionOAuthClientSecret)
+	require.NoError(t, err)
+	require.Equal(t, "the_secret", v)
+}
