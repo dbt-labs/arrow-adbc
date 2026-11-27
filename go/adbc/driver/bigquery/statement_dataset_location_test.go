@@ -38,6 +38,7 @@ func TestExecuteGetDatasetLocation(t *testing.T) {
 	var requests atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		assert.Equal(t, "METADATA", r.URL.Query().Get("datasetView"))
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/bigquery/v2/projects/test-project/datasets/present":

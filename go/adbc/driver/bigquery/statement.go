@@ -1933,7 +1933,7 @@ func (st *statement) executeGetDatasetLocation(ctx context.Context) (array.Recor
 	}
 
 	var locations []string
-	metadata, err := st.cnxn.datasetInProject(ref.Project, ref.Dataset).Metadata(ctx)
+	metadata, err := st.cnxn.datasetMetadata(ctx, ref.Project, ref.Dataset)
 	if err == nil {
 		locations = []string{metadata.Location}
 	} else if !isDatasetNotFound(err) {
@@ -1955,7 +1955,7 @@ func (st *statement) executeGetDatasetLocation(ctx context.Context) (array.Recor
 	return reader, int64(len(locations)), nil
 }
 
-// isDatasetNotFound reports whether err is datasets.get's 404 for a missing
+// isDatasetNotFound reports whether datasets.get returned a 404 for a missing
 // dataset. A missing project is also a 404 ("Project ... is not found"), but
 // that is a configuration error, not an absent dataset.
 func isDatasetNotFound(err error) bool {
